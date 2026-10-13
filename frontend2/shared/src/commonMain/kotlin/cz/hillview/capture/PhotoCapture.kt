@@ -27,6 +27,12 @@ import androidx.compose.ui.Modifier
  * `capture_timing` provenance object, so the press→exposure behaviour can be studied
  * from uploaded photos instead of from an attached cable.
  */
+/**
+ * The current metadata contract — see [CaptureTiming.metadataVersion] for what each
+ * value means and for the rule about when it moves.
+ */
+const val METADATA_VERSION = 3
+
 @kotlinx.serialization.Serializable
 data class CaptureTiming(
     /** What `captured_at` is. "press" today; never silently something else. */
@@ -103,6 +109,82 @@ data class CaptureTiming(
      * this whole object exists to stop.
      */
     val exposureSource: String? = null,
+
+    /**
+     * WHICH CONTRACT THIS PHOTO'S METADATA FOLLOWS — a monotonic integer, bumped
+     * whenever an existing field CHANGES MEANING rather than when one is added.
+     *
+     * `build` already identifies the code, but reading it means a lookup from git sha to
+     * semantics; this is the thing a consumer can branch on. Adding fields never bumps
+     * it: absence of a key is already unambiguous. Only a reinterpretation does, because
+     * that is the case where old and new rows look identical and are not.
+     *
+     * Absent — every photo before 2026-10-08. `attitude.pitch_deg` and `roll_deg` are
+     * Euler angles read off a rotation matrix remapped by the QUANTIZED
+     * `device_rotation_deg`: device-frame, discontinuous at the quadrant boundaries, and
+     * degenerate in landscape (pitch pinned near ∓90, roll flipping 180°, both
+     * corrections keyed on that same degenerate roll). The azimuth was additionally
+     * shifted 180° past 90° of roll, and negated on top of that when
+     * `landscape_azimuth_negation` was true.
+     *
+     * 1 — from 2026-10-08. `pitch_deg` and `roll_deg` come from transforming the camera
+     * axis, so they are continuous through every orientation: pitch is the optical
+     * axis's tilt POSITIVE LOOKING DOWN, roll is the image's rotation about that axis
+     * (0 upright, ±90 landscape), and both equal the `inertial.gravity` formulas by
+     * construction. No orientation class and no step functions, so
+     * `landscape_azimuth_negation` is inert from here on.
+     *
+     * The HEADING in v1 is the camera's wherever the lens is meaningfully off vertical,
+     * and the device's TOP EDGE where it is not — a phone flat on a table has no lens
+     * bearing at all, and the map still needs one. Which reference answered is a
+     * function of `pitch_deg` and nothing else: `|pitch_deg| < 45` is the camera,
+     * `> 75` is the top edge, between is a blend. So a photo shot with the phone flat
+     * carries a bearing that is NOT where the lens pointed, and its own pitch says so.
+     *
+     * 2 — from 2026-10-10, and a REINTERPRETATION rather than new fields: two measured
+     * faults in this device's fused rotation vector are now corrected before the stamp
+     * is written, so a v1 and a v2 row from the same physical pose can differ. The
+     * azimuths and `roll_deg` get 180° added when the HAL returns the attitude whose
+     * roll sign disagrees with gravity (the 180° branch), and the azimuth is unmirrored
+     * in landscape with the lens above the horizon when the user's workaround pref is
+     * on. `landscape_azimuth_negation` is therefore LIVE again, after two days of being
+     * inert in v1 — and `attitude.azimuth_mirrored` beside it now says whether it fired
+     * on this frame, which v1 and earlier rows can only be guessed at from `roll_deg`.
+     *
+     * Everything v1 says about the MEANING of `pitch_deg`, `roll_deg` and the heading's
+     * reference still holds in v2; what changed is that the values are corrected. The
+     * HAL's own input is stamped alongside from here on (`attitude.rotation_vector` and
+     * the fields with it), so a v2 frame can be re-derived from scratch and does not
+     * have to be taken on trust — which is exactly what no v1 or earlier frame allows.
+     *
+     * 3 — from 2026-10-10, hours after v2, and a change of SOURCE for two fields.
+     * `pitch_deg` and `roll_deg` now come from GRAVITY — `asin(g_z/|g|)` and
+     * `atan2(g_x, g_y)` — rather than from the fused rotation matrix. They never needed
+     * the magnetometer: there is one down, and it fixes the optical axis's tilt and the
+     * image's rotation about it completely. The matrix needs the magnetometer because it
+     * must also answer which way is north, and resolving THAT is what forces a choice
+     * between the two attitudes fitting the readings — so the 180° branch ambiguity is
+     * the heading's problem, and letting it reach the roll gave away two sound axes to
+     * buy one doubtful one.
+     *
+     * Numerically this is a small change and that is the point: over 94 captures where
+     * the matrix was on the right branch, the two rolls differ by a mean of −0.95°
+     * (sd 3.33) and the two pitches by −0.29° (sd 1.32). No systematic disagreement, a
+     * few degrees of scatter — against an entire class of 180° failure.
+     *
+     * Where gravity CANNOT answer it still defers: with the phone flat there is no
+     * in-plane gravity, the rotation about a vertical optical axis is an azimuth, and the
+     * matrix's roll is published instead (`GRAVITY_ROLL_FLOOR`, about 15° of flat). Pitch
+     * never defers, being well conditioned everywhere. The heading is unchanged, and so
+     * are both corrections — they still compare the matrix against gravity, which is
+     * what `branch_corrected` and `azimuth_mirrored` report.
+     *
+     * Nested in `capture_timing` for the same reason `build` is — the object is a
+     * declared untyped dict server-side, so it needs no worker deploy — and with the
+     * same caveat: a top-level `metadata` object is where both belong once the rehaul in
+     * docs/todo/metadata-structure-sanitization.md lands.
+     */
+    val metadataVersion: Int? = null,
 
 
     // THREE MORE KEYS REACH THE SERVER IN THIS OBJECT AND ARE NOT FIELDS HERE:
@@ -189,10 +271,14 @@ data class SensorSnapshot(
     /**
      * Was the Armor-22 landscape heading workaround in force?
      *
-     * It NEGATES the azimuth past 90° of roll (EnhancedSensorService), so a
-     * heading recorded under it and one recorded without are not the same
-     * measurement. Nothing downstream could tell them apart, which makes
-     * every landscape bearing in the archive ambiguous after the fact.
+     * INERT SINCE 2026-10-08 and still recorded. It used to NEGATE the azimuth past
+     * 90° of roll (EnhancedSensorService); the heading no longer goes through
+     * `getOrientation` or those branches, so the toggle cannot reach it. Kept because
+     * it is still a true fact about the device's settings, and because rows from BEFORE
+     * that build cannot be interpreted without it: there, a heading recorded under it
+     * and one recorded without are not the same measurement, and nothing downstream
+     * could tell them apart — which is what made every landscape bearing in the archive
+     * ambiguous after the fact.
      */
     val compassLandscapeWorkaround: Boolean? = null,
     /**
@@ -265,10 +351,20 @@ data class ImuWindow(
      * candidates and read their `t0_ns` — downloading in order to decide whether to
      * download.
      *
-     * Claims tile and do not overlap, so containment is unambiguous: exactly one photo
-     * owns any given instant. `stored_from_ms` existed once and was removed on the
-     * argument that "the payload's own `t0_ms` says where it starts", which is true and
-     * beside the point — it says so only after the fetch.
+     * Claims are ADJACENT and do not overlap — `[.., H]` then `[H+1, ..]` — so within a
+     * stretch of continuous recording exactly one photo owns any given instant and
+     * containment is unambiguous. That adjacency had to be fixed to be true: the bound
+     * was the first sample's timestamp, which left one sample period between claims
+     * owned by nobody, and 3 of 698 exposures on one drive landed in one. See
+     * `GeoEngine.persistImuWindow`.
+     *
+     * Where recording actually PAUSED the claims do not abut, and that is correct:
+     * nothing was recorded, no photo's artifact holds it, and containment returning
+     * nothing is the honest answer rather than a crack to fall into.
+     *
+     * `stored_from_ms` existed once and was removed on the argument that "the payload's
+     * own `t0_ms` says where it starts", which is true and beside the point — it says so
+     * only after the fetch.
      *
      * Deliberately the CLAIMED range, not the extent of the samples actually found in
      * it. Attribution has to be a partition of time; [storedCount] beside it says how
@@ -464,6 +560,75 @@ data class CaptureState(
      */
     val plan: ExposurePlan? = null,
     val bearingDeg: Float? = null,
+    /**
+     * The other two axes of the same reading, for the overlay — the optical axis's tilt
+     * (POSITIVE LOOKING DOWN) and the image's rotation about it.
+     *
+     * Mirrored out of the attitude the screen pushes in, exactly as [bearingDeg] is
+     * mirrored out of the bearing: the capture never reads a sensor for these. Nothing
+     * in the UI wanted them until the orientation maths was rewritten and the pitch and
+     * roll became worth watching while shooting an orientation test.
+     */
+    val pitchDeg: Float? = null,
+    val imageRollDeg: Float? = null,
+    /**
+     * THE SAME ROLL, OUT OF GRAVITY — `atan2(g_x, g_y)`, the identity [imageRollDeg] is
+     * meant to satisfy by construction.
+     *
+     * Shown beside it rather than instead of it, because the two have different failure
+     * modes and seeing both is the diagnosis. [imageRollDeg] comes from the HAL's fused
+     * attitude: smooth, gyro-stabilised, and subject to a 180° branch ambiguity this
+     * device demonstrably gets wrong. This one comes from the accelerometer: unambiguous
+     * — there is only one down — but noisier under hand movement (measured sd 1.7-2.8°,
+     * worst sample 6° off, hand-held at 57° below the horizon).
+     *
+     * So a disagreement of ~180° is the HAL on the wrong branch, a disagreement of a
+     * couple of degrees is the accelerometer being shaken, and if the fused number jumps
+     * while this one runs smoothly the fault is downstream of the sensor — in our own
+     * correction. That last case is why this is on screen: it cannot be read off a
+     * captured frame, because a capture happens when the phone is already still.
+     */
+    val gravityRollDeg: Float? = null,
+    /**
+     * WHAT THE FUSED MATRIX SAYS the roll is — the SUSPECT, not the reference.
+     *
+     * This replaced [gravityRollDeg]'s role in the readout when the published roll became
+     * gravity's (`c9c06964`): comparing the published value against gravity stopped being
+     * informative the moment it WAS gravity, so the comparison was inverted to point at
+     * the fused attitude instead. Two of its faults are known — the 180° branch, and a
+     * dynamic overshoot where a 0→90° sweep reports 0→100→90 — and neither can reach the
+     * published axes any more, so neither would be visible without this.
+     */
+    val matrixRollDeg: Float? = null,
+    /**
+     * Whether the 180° branch correction is firing RIGHT NOW — see
+     * `CameraPose.onWrongAttitudeBranch`. Marked in the readout so a flip the eye sees
+     * can be attributed, instead of being a jump with no stated cause.
+     */
+    val branchCorrected: Boolean? = null,
+    /**
+     * CAN THE COMPASS BE TRUSTED HERE — the local field's strength in µT and its dip
+     * below horizontal in degrees, both properties of the LOCATION rather than of how
+     * the phone is held. Prague is about 49 µT at 66°.
+     *
+     * Shown behind a setting, because it answers a question only asked while choosing
+     * somewhere to measure an azimuth from: a disturbed field does not merely offset the
+     * heading, it makes the error depend on the device's attitude, which is
+     * indistinguishable from the HAL fault being hunted. See `MagneticField.kt`.
+     */
+    val fieldMagnitudeUt: Float? = null,
+    val fieldDipDeg: Float? = null,
+    /**
+     * Whether those two look like the Earth's field here — the screening verdict from
+     * `MagneticField.fieldLooksUndisturbed`.
+     *
+     * Decided where the sensors are, not in the UI, for the same reason [branchCorrected]
+     * is: the reference values live beside the maths that uses them, and `cz.hillview.plugin`
+     * is Android-only source while this overlay is common. A UI that re-derived the
+     * verdict would be a second copy of Prague's field strength, free to drift from the
+     * first.
+     */
+    val fieldLooksClean: Boolean? = null,
     val lastPhoto: CapturedPhoto? = null,
     val errorMessage: String? = null,
     /** A video recording is in progress — the shutter stops it. */
@@ -968,15 +1133,34 @@ fun altLocationJson(a: AltLocation): String {
  *  - `heading_true_deg` — the compass's own declination-corrected heading. The
  *    `bearing` column is the elected, dead-banded cousin; `bearing_source`
  *    says whether that one came from here at all.
+ *
+ *    WHICH AXIS it is the heading OF depends on the posture, and `pitch_deg`
+ *    below is what says which: the optical axis while the lens is off vertical
+ *    (`|pitch_deg| < 45`), the device's TOP EDGE when the phone is flat
+ *    (`> 75`), a blend between. A phone on a table has no lens bearing to
+ *    report and the map still wants one — see
+ *    `cz.hillview.plugin.CameraPose.pointingBearingDeg`.
  *  - `heading_magnetic_deg` — the same reading uncorrected. Stored NOWHERE else: the
  *    snapshot has carried it since the beginning and every writer dropped it
  *    (the EXIF tags take true north, by ecosystem convention). Its difference
  *    from `true_deg` is the declination the device applied.
- *  - `pitch_deg` — tilt. Same relationship to the `pitch` column as above.
- *  - `roll_deg` — stored nowhere else, and never left the device before this.
- *    NOT the camera's rotation about its optical axis: the rotation matrix is
- *    remapped for `device_rotation_deg` FIRST, so this is the residual tilt
- *    within that quadrant and the absolute rotation needs both.
+ *  - `pitch_deg` — the OPTICAL AXIS's tilt, POSITIVE LOOKING DOWN. Same
+ *    relationship to the `pitch` column as above. Identical to
+ *    `asin(inertial.gravity.z / |gravity|)`, which is how it is checked.
+ *  - `roll_deg` — the camera's rotation about its optical axis: 0 with the
+ *    screen's up pointing at the sky, ±90 in landscape. Stored nowhere else,
+ *    and never left the device before this.
+ *
+ *    BOTH CHANGED MEANING on 2026-10-08, and `capture_timing.build` is what
+ *    tells the two apart. They used to come from `getOrientation` on a matrix
+ *    remapped by the QUANTIZED `device_rotation_deg`, which made them
+ *    device-frame, discontinuous, and in landscape degenerate — one up/level/down
+ *    sweep published pitch −56.7 / −84.4 / −68.0 where gravity said
+ *    −33.7 / −4.4 / +21.8, with roll flipping 180° partway. Now both come from
+ *    transforming the camera axis, so they are continuous through every
+ *    orientation. Rows from before that build are recoverable:
+ *    `pitch = (pitch_deg + 90) × (−1 if |roll_deg| > 90 else +1)` in landscape,
+ *    as recorded; portrait rows were already right.
  *  - `magnetometer_calibration` — the magnetometer's calibration status
  *    (0 unreliable,
  *    1 low, 2 medium, 3 high), and it qualifies the HEADING ONLY. Pitch and
@@ -1014,10 +1198,57 @@ fun altLocationJson(a: AltLocation): String {
  *    NOT this: CameraX derives that from the pose combined with the camera's
  *    sensorOrientation and lens facing, so it cannot be inverted back.
  *  - `landscape_azimuth_negation` — whether the Armor-22 toggle was ENABLED.
- *    It negates the azimuth, but only past 90° of roll, so this being true
- *    does not mean it fired on this sample — `roll_deg` beside it is what
- *    tells you. Named for what it does rather than for the phone it was added
- *    for, and recorded always, true or false: absence would be ambiguous.
+ *    Inert for the two days after 2026-10-08, when the heading stopped passing
+ *    through `getOrientation` and the two `abs(roll) > 90` branches the toggle
+ *    switched. LIVE AGAIN since 2026-10-10: it gates the measured
+ *    landscape-above-horizon azimuth mirror. What changed is that it no longer
+ *    has to be interpreted — `azimuth_mirrored` below says whether the
+ *    correction actually fired on THIS sample, which is what `roll_deg` had to
+ *    be used to guess at before, and for older rows still does.
+ *
+ * HOW THE ANGLES WERE ARRIVED AT. Everything above is a RESULT; these are the
+ * HAL's own output and the arithmetic we did on it, kept separable. They exist
+ * because two faults in one phone's `TYPE_ROTATION_VECTOR` each cost a session
+ * to pin down, and both had to be measured through a temporary log probe —
+ * the stamp carried only the final heading, by which point our own corrections
+ * were baked in and indistinguishable from the fusion's output. Absent from the
+ * Madgwick and complementary paths, which build no rotation matrix. See
+ * `cz.hillview.plugin.CameraPose`.
+ *  - `rotation_vector` — `SensorEvent.values` of `TYPE_ROTATION_VECTOR`, raw:
+ *    the quaternion `[x, y, z]`, usually with `w` and sometimes a heading
+ *    accuracy after it (Android lets the length vary, so it is stored as it
+ *    arrived rather than trimmed to an assumed shape). Everything else in this
+ *    object is a function of this, which is the point: a frame carrying it can
+ *    be re-derived from scratch years later, against whatever we believe the
+ *    geometry to be then.
+ *  - `matrix_determinant` — `det(R)` of the matrix built from it. +1 for a
+ *    proper rotation, −1 for a mirrored frame. It read +1.0000 through both
+ *    known faults, and that is its value: it RULED OUT a malformed matrix and
+ *    sent the search to the right place.
+ *  - `bearing_reference` — `camera`, `blended` or `top_edge`: which vector the
+ *    heading came from. With the lens near vertical its azimuth does not exist
+ *    and the device's top edge takes over, so a surprising heading means
+ *    something different in each case.
+ *  - `bearing_conditioning` — how well-defined the heading was: the horizontal
+ *    length of the lens vector, 1 level and 0 straight up or down. Near 0 the
+ *    azimuth is arbitrary with perfectly healthy sensors.
+ *  - `camera_bearing_deg` — the lens azimuth alone, before any fallback blend.
+ *  - `device_bearing_deg` — the top edge's azimuth, the fallback's own answer.
+ *    With the two above, a blended `heading_true_deg` decomposes.
+ *  - `branch_corrected` — whether the 180° attitude-branch fix fired: the HAL
+ *    returned the one of the two fitting attitudes whose roll sign disagrees
+ *    with gravity. Over 729 captures that disagreement separated 639 rows from
+ *    9 and 79 from 2, so it is a clean test, not a marginal one.
+ *  - `azimuth_mirrored` — whether the landscape-above-horizon mirror was
+ *    undone. False means "not affected" OR "not enabled";
+ *    `landscape_azimuth_negation` above is what tells those apart.
+ *  - `matrix_pitch_deg`, `matrix_roll_deg` — what the FUSED MATRIX said about the
+ *    two axes `pitch_deg` and `roll_deg` stopped coming from in v3. Recorded because
+ *    the published values can no longer report the fused attitude misbehaving, and
+ *    two of its faults are known: the 180° branch above, and a dynamic OVERSHOOT —
+ *    a 0→90° roll sweep reported as 0→100→90, which is what a gyro over-reading by
+ *    about a tenth looks like while the reference pulls it back. Subtracting these
+ *    from the published pair is the measurement; without them a frame cannot make it.
  *
  * The tracking table holds all of this at sensor rate too — but that table
  * only leaves the phone as a manual CSV export, so for an uploaded photo this
@@ -1036,6 +1267,19 @@ fun attitudeProvenanceJson(s: SensorSnapshot): String? {
             it.fusedSensorAccuracy?.let { add("\"fused_sensor_accuracy\":$it") }
             it.detail?.let { d -> add("\"fusion\":\"$d\"") }
             add("\"age_ms\":${s.poseReferenceMs() - it.ts}")
+            // THE HAL'S OWN OUTPUT, AND WHAT WE DID TO IT — see the block comment below.
+            it.rotationVector?.let { v ->
+                add("\"rotation_vector\":[${v.joinToString(",")}]")
+            }
+            it.matrixDeterminant?.let { d -> add("\"matrix_determinant\":$d") }
+            it.bearingReference?.let { r -> add("\"bearing_reference\":\"$r\"") }
+            it.bearingConditioning?.let { c -> add("\"bearing_conditioning\":$c") }
+            it.cameraBearingDeg?.let { b -> add("\"camera_bearing_deg\":$b") }
+            it.deviceBearingDeg?.let { b -> add("\"device_bearing_deg\":$b") }
+            it.branchCorrected?.let { b -> add("\"branch_corrected\":$b") }
+            it.azimuthMirrored?.let { b -> add("\"azimuth_mirrored\":$b") }
+            it.matrixPitchDeg?.let { v -> add("\"matrix_pitch_deg\":$v") }
+            it.matrixRollDeg?.let { v -> add("\"matrix_roll_deg\":$v") }
         }
         s.deviceRotationDeg?.let { add("\"device_rotation_deg\":$it") }
         s.compassLandscapeWorkaround?.let { add("\"landscape_azimuth_negation\":$it") }
@@ -1048,10 +1292,13 @@ fun attitudeProvenanceJson(s: SensorSnapshot): String? {
  * object.
  *
  *  - `gravity` — (x, y, z) m/s² in the device frame. An unambiguous "down",
- *    where `attitude.roll_deg` is a residual within the quantized device pose.
- *    Two rotation degrees of freedom with no fusion and no magnetometer in the
- *    way, which is why a reconstruction wants it even though pitch and roll
- *    are already recorded.
+ *    with two rotation degrees of freedom, no fusion and no magnetometer in the
+ *    way. It is why a reconstruction wants it even though pitch and roll are
+ *    recorded, and it is also the INDEPENDENT CHECK on them: `attitude.pitch_deg`
+ *    equals `asin(gravity.z / |gravity|)` and `attitude.roll_deg` equals
+ *    `atan2(gravity.x, gravity.y)` by construction. Measuring that identity on
+ *    prod captures is what exposed the landscape bug the attitude maths was
+ *    rewritten for.
  *  - `linear_acceleration` — the same stream with gravity removed, (x, y, z).
  *  - `linear_acceleration_magnitude` — its length, precomputed because it is
  *    the number anything sorting frames by motion blur actually uses.
@@ -1111,6 +1358,7 @@ fun SensorSnapshot.poseReferenceMs(): Long =
 fun captureTimingJson(s: SensorSnapshot): String? {
     val t = s.captureTiming ?: return null
     val fields = buildList {
+        t.metadataVersion?.let { add("\"metadata_version\":$it") }
         add("\"captured_at_source\":\"${t.capturedAtSource}\"")
         t.pressToExposureMs?.let { add("\"press_to_exposure_ms\":$it") }
         t.exposureToJpegMs?.let { add("\"exposure_to_jpeg_ms\":$it") }

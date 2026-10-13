@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import cz.hillview.map.BearingMode
 import kotlinx.coroutines.delay
@@ -62,6 +63,8 @@ fun CameraOverlayUi(
      * compass that is not running would be advice about the wrong problem.
      */
     suppressHint: Boolean = false,
+    /** Show the hunting readouts — MapSettings.showDiagnostics. */
+    diagnostics: Boolean = false,
 ) {
     // The post-open hint: 4 s from the camera coming ready, as the
     // original fires doCalibrationHint right after the stream starts.
@@ -109,7 +112,7 @@ fun CameraOverlayUi(
         Column(Modifier.padding(start = 18.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)) {
             when {
                 showHint && !suppressHint -> HintContent(bearingMode)
-                else -> LocationRows(state, overridePosition)
+                else -> LocationRows(state, overridePosition, diagnostics)
             }
             statusText?.let { MonoText(it, Modifier.testTag("capture-status")) }
             uploadsText?.let { MonoText(it, Modifier.testTag("capture-upload-stats")) }
@@ -160,7 +163,11 @@ private fun HintContent(bearingMode: BearingMode) {
 }
 
 @Composable
-private fun LocationRows(state: CaptureState, overridePosition: ManualLocation?) {
+private fun LocationRows(
+    state: CaptureState,
+    overridePosition: ManualLocation?,
+    diagnostics: Boolean,
+) {
     // The effective capture position — the honesty note in the contract:
     // Tauri shows its pairing position (map state); here that is the
     // claimed manual position when it wins, else the fix.
@@ -204,14 +211,70 @@ private fun LocationRows(state: CaptureState, overridePosition: ManualLocation?)
 
     Row {
         state.bearingDeg?.let { bearing ->
-            MonoText("🧭 ${oneDp(bearing.toDouble())}°")
+            MonoText("🧭 ${pad(oneDp(bearing.toDouble()), W_BEARING)}°")
             androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
         }
-        MonoText("📍 ${sixDp(lat)}°, ${sixDp(lon)}°")
+        MonoText("📍 ${pad(sixDp(lat), W_LAT)}°, ${pad(sixDp(lon), W_LON)}°")
+    }
+    // The other two axes of the attitude, beside the bearing rather than in it: at phone
+    // width the bearing row already carries the position. ↕ is the optical axis's tilt,
+    // POSITIVE LOOKING DOWN; ⟳ is the image's rotation about that axis, 0 upright and
+    // ±90 in landscape. Both only when the compass has answered at all.
+    if (state.pitchDeg != null || state.imageRollDeg != null) {
+        MonoText(
+            listOfNotNull(
+                state.pitchDeg?.let { "↕ ${pad(signedOneDp(it.toDouble()), W_PITCH)}°" },
+                state.imageRollDeg?.let { roll ->
+                    // A ✱ marks the 180° branch correction FIRING on this sample, so a
+                    // flip the eye catches has a stated cause instead of being a jump.
+                    // Its space is reserved either way — the marker appearing must not
+                    // shove the number beside it sideways — and it goes BEFORE the glyph
+                    // rather than after the value, so no readout ends in whitespace that
+                    // a later trim could silently eat.
+                    (if (state.branchCorrected == true) "✱" else " ") +
+                        "⟳ ${pad(signedOneDp(roll.toDouble()), W_ROLL)}°"
+                },
+                // WHAT THE FUSED MATRIX SAYS — the SUSPECT, since the published roll is
+                // gravity's now. UNCONDITIONAL while diagnostics are on, which is the
+                // correction of a mistake: it used to appear only on a disagreement of
+                // more than 10°, and "no alternative number ever shows in the overlay"
+                // (user, 2026-10-11) is what that produced — a comparison that hides
+                // itself is no instrument at all, and it hid during the very event it was
+                // added to explain.
+                //
+                // `m -100.3` beside `⟳  -90.0` is the overshoot caught in the act; ~180
+                // apart is the branch; equal means the fusion is behaving.
+                // ...and ALSO without being asked, when the two are grossly apart. A
+                // reversal is not a preference setting: the one report I could not act on
+                // was a 180° jump watched with diagnostics off and nothing beside it, so
+                // a disagreement that large now surfaces itself. It cannot fire while the
+                // fusion is healthy, so ordinary use never sees it.
+                state.matrixRollDeg?.takeIf { m ->
+                    diagnostics || state.imageRollDeg?.let { r -> !degreesWithin(r, m, 90f) } == true
+                }?.let { "m ${pad(signedOneDp(it.toDouble()), W_ROLL)}°" },
+            ).joinToString("  "),
+            Modifier.testTag("attitude-readout"),
+        )
+    }
+    // THE FIELD CHECK, behind its setting: is the compass trustworthy where we are
+    // standing? Both numbers are properties of the LOCATION, so the way to read them is
+    // to turn on the spot and watch whether they hold still — the dip especially, which
+    // is a geometric invariant and CANNOT move under rotation. A ✓ is only a screening
+    // test against Prague's 49 µT at 66°; it cannot see the few degrees of disturbance
+    // that would still spoil a careful azimuth. See MagneticField.kt.
+    if (diagnostics && state.fieldMagnitudeUt != null) {
+        MonoText(
+            "🧲 ${pad(oneDp(state.fieldMagnitudeUt.toDouble()), W_FIELD)}µT  " +
+                "dip ${pad(state.fieldDipDeg?.let { signedOneDp(it.toDouble()) } ?: "—", W_DIP)}°" +
+                if (state.fieldLooksClean == true) "  ✓" else "  ✗",
+            Modifier.testTag("field-check"),
+        )
     }
     if (overridePosition == null) {
-        state.fixAltitude?.let { MonoText("⛰️ ${oneDp(it)}m") }
-        state.fixAccuracyM?.let { MonoText("🎯 ±${it.toInt()}m") }
+        state.fixAltitude?.let { MonoText("⛰️ ${pad(oneDp(it), W_ALT)}m") }
+        state.fixAccuracyM?.let {
+            MonoText("🎯 ±${pad(it.toInt().toString(), W_ACCURACY)}m")
+        }
     } else {
         // A map position has no altitude and no accuracy to show — it is
         // where the user (or the map) says they are, not a measurement. With
@@ -224,19 +287,81 @@ private fun LocationRows(state: CaptureState, overridePosition: ManualLocation?)
     }
 }
 
+/**
+ * One readout line: monospace, so the fixed-width slots above line up, and SEMI-BOLD,
+ * because this text sits over a camera preview that can be anything from white sky to
+ * dark ground and the backdrop behind it is a user-adjustable tint that goes all the way
+ * to none (see `opacityLevel` 0).
+ *
+ * A heavier weight does NOT cost the alignment: the bold face of a monospaced family is
+ * monospaced too, with the same advance width. That is an assumption about the platform's
+ * font rather than about our code, so it is pinned by a render test comparing the drawn
+ * width of two equal-length readouts — if `FontFamily.Monospace` or this weight ever
+ * resolved to something proportional, every pad() above would quietly become decorative.
+ */
 @Composable
 private fun MonoText(text: String, modifier: Modifier = Modifier) {
     Text(
         text,
         fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.SemiBold,
         style = MaterialTheme.typography.bodySmall,
         color = Color.Black.copy(alpha = 0.85f),
         modifier = modifier,
     )
 }
 
+/**
+ * Within [toleranceDeg] on the circle. Local rather than borrowed from `CameraPose`,
+ * which is Android-only source while this file is common.
+ */
+internal fun degreesWithin(a: Float, b: Float, toleranceDeg: Float): Boolean {
+    var d = (b - a) % 360f
+    if (d > 180f) d -= 360f
+    if (d <= -180f) d += 360f
+    return (if (d < 0f) -d else d) <= toleranceDeg
+}
+
 private fun sixDp(v: Double): String = fmtDecimals(v, 6)
 private fun oneDp(v: Double): String = fmtDecimals(v, 1)
+
+/**
+ * EVERY NUMBER RESERVES ITS OWN SPACE — right-aligned into a fixed character count.
+ *
+ * The font is monospace, so a character is a fixed width and padding is exact. Without
+ * this the readouts reflow on every sample: a roll crossing -99.9 to -100.0 widens by a
+ * character and shoves everything after it sideways, which is unreadable precisely when
+ * it matters most — watching values move while rotating the phone to isolate an axis
+ * (user, 2026-10-10). The widths below are each field's WORST CASE, so nothing ever
+ * moves and nothing is ever clipped.
+ */
+internal fun pad(text: String, width: Int): String =
+    if (text.length >= width) text else " ".repeat(width - text.length) + text
+
+/**
+ * One decimal with the sign ALWAYS shown, so the field is a constant width and "+" reads
+ * as the direction rather than as the absence of "-". Used for the two axes where the
+ * sign is the information: pitch (down positive) and the image roll.
+ */
+internal fun signedOneDp(v: Double): String {
+    val body = fmtDecimals(if (v < 0) -v else v, 1)
+    return (if (v < 0) "-" else "+") + body
+}
+
+// Worst cases: a bearing reaches 360.0, latitude -90.123456, longitude -180.123456,
+// pitch -90.0, roll -180.0, altitude -9999.9 (and 8848.9 the other way), accuracy
+// three digits of metres.
+internal const val W_BEARING = 5
+internal const val W_LAT = 10
+internal const val W_LON = 11
+internal const val W_PITCH = 5
+internal const val W_ROLL = 6
+internal const val W_ALT = 7
+internal const val W_ACCURACY = 3
+// A disturbed field can read far above the Earth's ~49 µT, so four digits; the dip is
+// signed and cannot exceed 90.
+internal const val W_FIELD = 6
+internal const val W_DIP = 5
 
 /** toFixed(n), without java.lang.String.format (this is commonMain). */
 internal fun fmtDecimals(v: Double, decimals: Int): String {

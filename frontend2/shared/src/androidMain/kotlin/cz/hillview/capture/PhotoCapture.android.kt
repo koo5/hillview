@@ -524,8 +524,43 @@ private class AndroidPhotoCapture(
     // thread instead, and this file ASKS once per capture (engine.attitudeAt), which is
     // the same arrangement persistImuWindow already has.
     @Volatile override var stampAttitude: cz.hillview.map.DeviceAttitude? = null
+        set(value) {
+            field = value
+            // The pill shows the two axes beside the bearing, out of the same reading —
+            // the same mirroring stampBearing does, and for the same reason: the UI must
+            // not reach for a sensor of its own. Pushed by the screen from the one state,
+            // so this runs on the main dispatcher like the bearing's.
+            value?.let {
+                state = state.copy(
+                    pitchDeg = it.pitch.toFloat(),
+                    imageRollDeg = it.roll.toFloat(),
+                    branchCorrected = it.branchCorrected,
+                    fieldMagnitudeUt = it.fieldMagnitudeUt?.toFloat(),
+                    fieldDipDeg = it.fieldDipDeg?.toFloat(),
+                    matrixRollDeg = it.matrixRollDeg?.toFloat(),
+                    fieldLooksClean = it.fieldMagnitudeUt?.let { b ->
+                        cz.hillview.plugin.fieldLooksUndisturbed(
+                            b.toFloat(),
+                            it.fieldDipDeg?.toFloat(),
+                        )
+                    },
+                )
+            }
+        }
 
     @Volatile override var stampMotion: cz.hillview.map.DeviceMotionSample? = null
+        set(value) {
+            field = value
+            // Gravity's own answer for the image roll, mirrored the same way and for the
+            // same reason — the overlay must not reach for a sensor of its own. It is the
+            // INDEPENDENT number beside the fused one; see CaptureState.gravityRollDeg.
+            val g = value?.gravity
+            if (g != null && g.size >= 2) {
+                state = state.copy(
+                    gravityRollDeg = cz.hillview.plugin.gravityRollDeg(g[0], g[1]),
+                )
+            }
+        }
 
     @Volatile override var compassLandscapeWorkaround: Boolean = false
 
@@ -1926,6 +1961,7 @@ private class AndroidPhotoCapture(
                                     exposureToJpegMs = savedAt - captureExposedAtMs,
                                     stillMode = this@AndroidPhotoCapture.stillMode.key,
                                     build = cz.hillview.BuildInfo.label(),
+                                    metadataVersion = METADATA_VERSION,
                                     exposureElapsedNs = exposureElapsedNs,
                                     exposureWallMs = exposureWallMs,
                                     exposureSource = "sensor_timestamp",
@@ -2143,6 +2179,7 @@ private class AndroidPhotoCapture(
                                                 // uploaded data said so.
                                                 stillMode = stillMode.key,
                                                 build = cz.hillview.BuildInfo.label(),
+                                    metadataVersion = METADATA_VERSION,
                                             ),
                                         ),
                                     ),

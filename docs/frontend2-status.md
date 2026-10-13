@@ -508,6 +508,313 @@ writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
 
+## 2026-10-10 — the attitude says how it was arrived at, and the viewfinder has a centre
+
+Two faults in this phone's `TYPE_ROTATION_VECTOR` are corrected rather than
+remapped around (`CameraPose`, commit 6555c76d): a 180° attitude branch in level
+landscape, detected by the matrix roll's sign disagreeing with the gravity-based
+`device_rotation_deg` (639 rows against 9, and 79 against 2, over 729 captures),
+and an azimuth mirror in landscape with the lens above the horizon (ratio −1.05
+over 9 turning pairs; keyed on `pitch < 0` the worst step across a sweep is 15.7°
+against 109.4° raw). The second stays behind the user's Armor-22 pref, because it
+is this device lying rather than geometry. Mid-roll, around 40°, is unmeasured and
+deliberately left alone.
+
+**The lesson, and the change that follows from it.** Both took a session to pin
+down, and both had to be measured through a temporary log probe, because the stamp
+carried only the FINAL heading — by which point our own corrections were baked in
+and indistinguishable from the HAL's output. So `attitude` now carries HOW the
+angles were arrived at, permanently: `rotation_vector` (the HAL's raw quaternion,
+which everything else in the object is a function of), `matrix_determinant`,
+`bearing_reference`, `bearing_conditioning`, `camera_bearing_deg`,
+`device_bearing_deg`, and `branch_corrected` / `azimuth_mirrored` saying whether
+each correction fired. A frame is now self-describing and re-derivable years later;
+no frame before today is.
+
+`METADATA_VERSION` 1 → 2. Adding fields never bumps it, but the corrections
+REINTERPRET three existing ones, and `landscape_azimuth_negation` is live again
+after two days of being inert in v1.
+
+Two stale provenance strings fixed, both of which were on prod: `fusion` read
+`TYPE_ROTATION_VECTOR (UPRIGHT MODE) (EMA smoothed)`, naming a remap that no longer
+exists and a filter that `EMA_ALPHA = 1` makes a pass-through. It now reads
+`(camera-axis) (unsmoothed)`, derived from the constant so it cannot drift again;
+the old string is still parsed, since every earlier row carries it.
+
+**A DIVERGENCE FROM THE ORIGINAL, deliberately.** The capture preview has a centre
+mark (`ViewfinderCentre`, on by default, toggle in the 📷 menu). The Tauri app has
+none. The reason is that a photo's `bearing` and `attitude.pitch_deg` describe the
+optical axis — the middle of the frame — so without it the stamp refers to a point
+the person framing cannot see. It is also what makes a bearing measurable at all:
+centre a distant landmark and the true bearing is known independently of every
+sensor in the phone. The centre specifically, because the preview is `FIT_CENTER`
+and the centre is the one point a centred letterbox leaves fixed — a thirds line or
+a corner would land elsewhere in the saved photo. A render test pins the centring,
+which is the only property it claims and the one that would break silently.
+
+Open, as a separate effort: whether roll skews the bearing, visible at a few
+degrees in portrait, and whether one rule covers it —
+`docs/todo/roll-skews-the-bearing.md` has the sweep protocol and the three
+candidate explanations.
+
+## 2026-10-10 — one circle on the map; the shutter's way out moves back
+
+- **The map has one circle** (user: "we have the blue bearing adjustment
+  circle and the green dashed range circle? This should be unified into one
+  circle somehow"). There were two concentric rings 21 dp apart: the green
+  dashed range ring at 70 dp, which says what the circle MEANS, and the
+  faint blue handle ring `BearingArrowOverlay` drew at the arrow's tip
+  radius (1.3×, 91 dp), which was what actually answered a finger (drawn
+  since 2026-09-10 so the handle would be visible at all).
+  - **The range ring is the handle now.** The overlay draws no ring of its
+    own; it grabs at `ringRadiusPx` (the range ring's radius, set from the
+    same `ringPx` the range overlay draws), and the hold arc closes ON that
+    ring and, once armed, widens to its full 8.8 dp stroke
+    (`RANGE_RING_STROKE_DP`) — the dashed green circle goes solid blue for as
+    long as it is the handle. *(Superseded the same day: the hold now hugs
+    the line from inside — see the next bullet.)*
+  - **The arrow did not move**: its tip stays at 1.3× the ring, the
+    original's `range × 1.3`, now derived inside the overlay
+    (`ARROW_TIP_SCALE`) rather than passed in. *(Superseded the same day:
+    the head now rests ON the line, measured from it — see the next bullet.)*
+  - **The grab band moved in with the ring**: ±36 dp around 70 dp in the
+    recording activities (34–106 dp from centre, was 55–127), ±18 dp in the
+    viewer (52–88, was 73–109). The viewer's band is now exactly the
+    original's car-mode ring hit area: a 36 px stroke on the range circle.
+  - **The range ring is centred on the VIEW**, like the arrow and its touch
+    handling, instead of on the spatial centre projected back to pixels —
+    which arrives a recomposition after a pan has moved the map, so the
+    ring could trail the handle by a frame. `RangeCircleOverlay.centre` is
+    gone.
+  - `bearingRingGrabbed`'s radius parameter is `ringRadiusPx` now; tests
+    renamed with it. Map tests green, APK assembles.
+
+- **The circle is the exact range threshold, and the arrow ends inside it**
+  (user: "the circle should give users the exact threshold of the range. and
+  the bearing arrow should end right inside it"; then "the dashed band
+  really had no meaning that im aware of"). NOT device-verified.
+  - **One solid 2 dp line on the range, no dashed band.** The threshold used
+    to be the invisible middle of Leaflet's 8.8 dp 5/15-dashed stroke, so a
+    photo anywhere under the stripe could be in or out. The band is no
+    longer drawn — a divergence from the original, whose circle it was.
+    Geometry and its reasoning live in one place, `RangeRing.kt` (commonMain),
+    which `RANGE_RING_STROKE_DP` moved into and then left: nothing draws an
+    8.8 dp ring any more.
+  - **The arrowhead's base sits flush on the line, the head pointing out**
+    (`arrowHeadBaseRadiusPx`: the base on the line's outer edge, the tip one
+    `ARROW_HEAD_DP` beyond). That is the ORIGINAL's placement, copied (user:
+    "my bad about the arrow, in the original, the arrow tip's base sits
+    flush on the threshold, lets copy that") after a first pass the same
+    day had put the tip just INSIDE the line on the first request. The
+    original's line ends at `range × 1.3` = 91 px and its SVG marker is
+    anchored 27 px back (`refX 9` × stroke 3), so its base is at 64 px — the
+    inner edge of its dashed band (65.6) within two pixels. Its head is
+    bigger (30 × 36 px, red-outlined) than ours (11 × 11 dp); only the place
+    is copied. The shaft stops at the head's base: its round cap used to
+    stick 1.5 dp past the point.
+  - **The hold arc hugs the line from INSIDE** (`bearingHoldRadiusPx`): its
+    outer edge sits on the line's inner edge, so it covers neither the line
+    nor the head resting on it. The grab zone is still centred on the line.
+  - **The hold no longer thickens when it is served** (user: "its not clear
+    why the blue circle thickens once the hold period finishes"). It had
+    since 2026-09-11 (3 → 5 dp, a "served" signal nobody could read), then
+    8.8 that morning to cover the dashed band, then 6; the band was its
+    last reason. Now one width, `BEARING_HOLD_DP` = 3 dp, throughout:
+    the ring CLOSING says it, with the buzz and the arrow jumping to the
+    finger.
+  - **The range in the state now matches the line to under a pixel.** The
+    ring was drawn at a float radius and measured at its truncation, from
+    the centre's exact position to a point on the rounded pixel grid (half a
+    pixel either way per pan), and the read-back ignored changes under 1%
+    (0.7 dp). Now the radius is whole pixels, both ends are read off the
+    same grid, and the read-back fires past a thousandth. What is left is
+    osmdroid's earth radius (6378137 m) against the culler's (6371000 m),
+    0.11% — about 0.08 dp.
+  - Tests: `RangeRingTest` (the head's base on the line's outer edge and its
+    tip a head length out; the hold's outer edge on the line's inner edge at
+    both widths; at four densities).
+
+- **A GPS accuracy disc round the crosshair** (user: "gps accuracy circle
+  with semi-opaque fill"). An ADDITION — the original declares
+  `accuracyCircle` (Map.svelte:123) and never draws one.
+  - `GpsAccuracyOverlay`: the last fix's `accuracyM` as a disc in ground
+    metres (so it scales with zoom, unlike the range ring), `#4285F4` at
+    25% with a 1 dp rim at 60%. Shown exactly when the crosshair is
+    (tracking ACTIVE or BACKGROUND); null, zero or NaN accuracy draws nothing.
+  - **The bottom layer**, under the range ring and the markers: a disc tens
+    of metres wide drawn on top would tint every marker in it and the range
+    line. The crosshair stays above the markers (2026-09-19); the disc is
+    why the two are separate overlays.
+  - Radius measured off the projection — the pixel distance to a point that
+    many metres east of the fix — so Mercator's latitude stretch and map
+    rotation stay out of it. `GpsAccuracyOverlayTest` (androidDeviceTest)
+    renders it to a bitmap and checks the edge against osmdroid's own
+    `metersToPixels`, which the overlay does not use.
+
+- **The photo marker's cross was 7 dp off its photo — fixed** (user: "are
+  the crossess in photo markers meant to signify their exact locations?").
+  They are: in the original the whole marker is nudged 7 px along its
+  bearing to fan out piles, and the cross counter-translates by the same
+  amount to stay on the coordinate (`optimizedMarkers.ts:181`;
+  docs/tauri-map-ui-contract.md, "What a photo marker is"). The port applied
+  the nudge to the marker's one screen point and drew the cross there, so
+  since the rose was suppressed (`rosesEnabled = false`) every cross sat
+  7 dp AHEAD of where its photo was taken, in the direction it looks. Now
+  `Placed` carries both points, body and true, and the cross takes the
+  true one. Hit testing and the reported anchors still use the body.
+  `PhotoMarkerCrossTest` (androidDeviceTest) renders a marker and finds the
+  cross's arm through the true point; it fails on the old code (plain fill
+  there). A rose's cross is still its members' average — unchanged, and
+  the rose is off.
+
+- **The location button could stick green for good — fixed** (2026-10-11,
+  user: "it stays green no matter how many times i click it, but the blue
+  map range circle shows and hides, so, something is toggling"). Tracking
+  WAS toggling; the per-fix flash fill was hiding it.
+  - **The bug.** The fix callback set a `locationFlash` flag and a
+    `LaunchedEffect(locationFlash)` cleared it 100 ms later. When the clear
+    landed and the next fix set the flag again before a frame recomposed,
+    the composition saw `true` twice running, the effect was not restarted,
+    and nothing ever cleared it again — the green fill then covered every
+    state until the app restarted. While nothing draws (app in the
+    background, fix stream still running) that window is seconds wide.
+  - **The fix.** `rememberFixFlash(fixes)` (`FixFlash.kt`) keys the effect on
+    a fix COUNT, which cannot repeat, so every fix restarts the 100 ms — the
+    original's clearTimeout + setTimeout (`Map.svelte:1135`).
+  - **And it no longer flashes while OFF**, as the original ("only OFF skips
+    entirely", `Map.svelte:1124`). The fix stream runs with tracking off for
+    capture, the external camera, or the compass alone, so an off button
+    used to blink as though it were on.
+  - `FixFlashTest` (jvmTest) walks a second fix through every millisecond
+    offset from the first, and fires 50 with no frame between them. The old
+    wiring, driven by the same scan, stuck at a 102 ms gap. NOT verified on
+    the phone.
+
+- **The walking compass alone no longer runs GPS — one fused request per
+  30 minutes, for declination** (2026-10-11, user: "gps should possibly turn
+  on for compass declination, but that should become some logic that just
+  ensures that the oldest fix is no older than some reasonable value, wdyt,
+  30 minutes?"; "it could be probably implemented by some one-shot coarse
+  location android api request"; "everything goes properly through the
+  engine").
+  - **Before:** any compass arrow claimed `mapOnlyGeoConfig`, a fix every 2 s,
+    when all the walking compass needs from a position is its declination.
+  - **Now:** `mapGeoNeed` (commonMain) says what the map needs. Follow-me
+    and the CAR-mode arrow (its heading is the GPS course) still need fixes
+    → `mapOnlyGeoConfig`. The walking arrow alone → `compassOnlyGeoConfig`:
+    no stream, `declinationFixMaxAgeMs` = 30 min (`GeoDefaults`, with the
+    numbers: a few tenths of a degree per 100 km here).
+  - **The engine** meets that with one fused `getCurrentLocation` at a time —
+    balanced power (no GNSS), `maxUpdateAge` = the limit, so the platform
+    answers from its cache when that is young enough, 30 s to try — and asks
+    again when the answer reaches the limit (5 min after a miss, never
+    sooner than a minute). Foreground only, like the sensors. The answer
+    feeds the sensor stack's declination and NOTHING else: not the tracking
+    table, not the one state's fix — a balanced, possibly cached position is
+    good enough for declination and not good enough to be a record.
+  - **Every sensor registration is now seeded** from the engine's newest
+    position (last fix or last one-shot), so a restart or a return from the
+    background starts at the right declination rather than at 0°.
+  - Capture and the external camera keep the full stream whatever tracking
+    says (user: "it needs to be on in capture/extcam mode even when tracking
+    is off, as the alternative location track").
+  - **Left alone:** `EnhancedSensorService` (shared-kt) still reads the
+    platform's last known location once when it starts (line ~400). The
+    engine's seed overrides it straight away; removing it would touch the
+    Tauri app too.
+  - Tests: `MapGeoNeedTest` (commonTest), `DeclinationFixTest` (host: the
+    schedule and the configs), `DeclinationFixDeviceTest` (emulator, real
+    fused provider: a fix comes back, the stream stays off — the first
+    answer took ~30 s on a loaded emulator, the second 11 s). NOT verified on
+    the phone.
+
+- **Car mode: the direction of travel shows while the mount offset is
+  dragged** (2026-10-12, user: "when the bearing circle is pressed and we're
+  adjusting the bearing offset, if a second small arrow would show up to
+  indicate the base direction of travel"). An ADDITION — the original shows
+  only the composed arrow while you drag.
+  - A dark grey arrow, shorter (tip at 0.6× the ring) and thinner than the
+    blue one, drawn under it. The angle between the two IS the offset; at
+    zero its head sits on the blue shaft. It comes in with the hold, like
+    the hold arc; where there is no hold (the viewer) it appears on the first
+    movement, so a tap through the ring to a marker shows nothing. It goes
+    when the finger lifts.
+  - **Derived, not read from the engine**: `bearing − mountOffset`, in the
+    map's update block — the one state's arrow with the setting taken back
+    out, so it cannot disagree with the arrow it is shown against. Only
+    once car mode has written a heading (`TrackingPhase.Active`): before
+    that the arrow is the compass's last value and no direction was
+    travelled.
+  - `TravelArrowTest` (androidDeviceTest, real touches into a real MapView,
+    rendered to a bitmap): shown mid-drag and not blue, gone on release,
+    nothing on an unmoved no-hold press, fades in with the hold, nothing
+    outside a mount-offset drag or with no course. Passed on the emulator,
+    with `MapGestureTest`. NOT verified on the phone, and never with a real
+    course: the emulator renders only the overlay.
+
+- **Holding the shutter: the button's side cancels again, and the bottom
+  rung reaches off the pane** (user: "sliding to the right side should mean
+  basically cancel of the gesture, while sliding to the bottom left should
+  mean starting at the lowest interval, not cancel").
+  - **The bug in the second half.** The ladder ended at the pane, and
+    leaving the pane was the cancel (2026-09-18). In portrait the capture
+    pane sits ABOVE the map with the shutter at its foot, so the bottom
+    rung (0.2 s) is a band level with the thumb — and a slide down-left
+    onto it overshot onto the map and cancelled.
+  - **The split is now the button's left edge, and nothing else**
+    (`overLadderAt`): left of it is the ladder at ANY height, on the pane or
+    off it, and `rungIndexAt` already clamps below the ladder to the bottom
+    rung; the button and everything right of it is `CancelZone` ("✕ cancel",
+    shaded when armed), where a release does nothing — which is also what
+    letting go without sliding does.
+  - **This undoes the 2026-09-18 capture zone**: a long press can no longer
+    end in a single photo; a tap takes one. `armedCapture` is gone —
+    `armedIndex == null` while the ladder is open IS the cancel. The verdict
+    line is "release: cancel" there, as before.
+  - Tests: `theBottomLeftOffThePaneIsTheFastestRunNotACancel`,
+    `theButtonsSideIsTheWayOut`; the zone's render test now asserts
+    "cancel".
+  - NOT device-verified, neither change.
+
+- **The interval ladder, second pass** (user, same day: "it should be
+  something like video 30 20 10 8 6 4 3 (the lower rest would stay as it
+  is). should give each rung a little more vertical height. And the whole
+  left side should maybe also say "interval" when the finger is not over
+  it. And the interval value readouts could be bigger font everywhere. and
+  the whole interval overlay could also be trigerred by an explicit button
+  next to the camera settings button").
+  - **Rungs**: 0.2 / 0.3 / 0.5 / 0.75 / 1 / 2 / 3 / 4 / 6 / 8 / 10 / 20 /
+    30 s, then VIDEO — 14 bands where there were 20 (1…15 s one per
+    second), so each is 43 % taller. `INTERVAL_MAX_SEC` is gone;
+    `WHOLE_SECONDS` lists them. `intervalIndex` is rememberSaveable only,
+    so no stored value shifts.
+  - **"⏱ interval"** names the ladder's half while no finger is on it, the
+    twin of "✕ cancel"; the pointed-at rung's label then waits at the edge
+    in white, with the others.
+  - **Bigger readouts**: rung labels step with the band height (titleMedium
+    ≥ 24 dp, labelLarge ≥ 18, labelSmall ≥ 14 — it was labelSmall at any
+    height); the armed value is headlineSmall on a shade, drawn AFTER the
+    bands and allowed to spill past its own — inside its band it was cut
+    off by the bands painted after it (caught in a jvm render to PNG). The
+    shutter's own interval label and the verdict line went labelSmall →
+    labelLarge.
+  - **The ⏱ button**, beside 📷: opens the ladder PINNED (`ladderPinned`,
+    separate from the held gesture's `ladderVisible`). Touching it is the
+    held gesture from there on — the finger reading and the release are
+    now ONE pair of functions, `followLadderFinger` / `releaseLadder`,
+    spliced verbatim out of the held loop, so the two ways in cannot drift.
+    Release on a rung starts it (gate and in-flight shot checked AT the
+    release, since no press opened it); release on the button's side, a
+    second ⏱ tap, or any shutter press closes it. ⏱ is drawn after the
+    ladder, not in 📷's column: on the overlay that spot is the bottom
+    rung, and a second tap meant to close would have started a 0.2 s run.
+    Hidden while a held gesture owns the ladder; disabled while a run or a
+    recording is going. The cancel side shades only with a finger down
+    (`pointerFraction != null`), and the verdict reads "tap an interval"
+    until one is.
+  - Tests: ladder test pins the new rungs; render tests for the zone's name
+    showing while unarmed and gone once armed. NOT device-verified.
+
 ## 2026-09-17 — the photo index, on an emulator at last
 
 The index had been written, sharded, tuned and documented without ever being
@@ -2880,6 +3187,137 @@ callback latched is what the sample carries), and the serializer refusing to emi
 Impact is low for reconstruction — the raw accelerometer is in `imu_samples`, so gravity
 is recoverable as the mean acceleration near the exposure — but a metadata-only consumer
 lost the documented per-photo "down" for those photos. Not backfillable from the app.
+
+### The 3 exposures that belonged to no photo — a 2.5 ms crack, now closed
+
+Reported as "minor, unexplained". Reproduced: their exposure instants fell in the gap
+BETWEEN two consecutive claims. Every boundary had one — 692 of them in that span, mean
+2.597 ms, range 2–4, i.e. one sample period. `persistImuWindow` bounded each claim by the
+samples it held, so one ended at its last sample and the next began at its first. The
+rate follows exactly: 2.5 ms against a 750 ms interval is 0.33 %, so ~2.3 of 698 expected.
+
+No samples were missing. But it mattered more than "minor", because
+`stored_from_ms`/`stored_to_ms` had just replaced `capture_run_id` as THE retrieval
+mechanism, and four places — this page, the contract doc, the API allowlist and the
+Kotlin doc — stated that claims tile and therefore exactly one photo owns any instant.
+They did not, and naive containment misses ~0.3 % silently.
+
+Fixed by making the bound mirror the freshness filter rather than deriving it from the
+data a second time: `maxOf(imuHighWaterMs + 1, fromMs)`. Adjacency, not overlap. The
+clamp keeps a claim from reaching back across a real recording pause, so "unclaimed"
+still means "nothing was recorded here".
+
+**And the test that should have caught it said it did.**
+`consecutiveCapturesOwnDisjointRanges` was commented "...and consecutive claims abut
+rather than leaving holes" while asserting only that no SAMPLE is in two claims.
+Disjointness and adjacency are two properties; it checked one. There is now a test per
+property, one of which walks the run at 37 ms steps and requires every instant to have
+exactly one owner.
+
+### The attitude maths: where the lens points, not how the phone is tilted
+
+The landscape report's "design bug", resolved after deliberate orientation captures on
+10-03. All three symptoms had one cause, and the sensor was never the compass — it is
+`TYPE_ROTATION_VECTOR`, and what was remapped is the rotation MATRIX, with azimuth,
+pitch and roll all read out of the remapped frame.
+
+The portrait remap sends device Y to world Z (up) — the "phone is upright" part. Neither
+landscape remap sends anything to Z. So in landscape `getOrientation` gets a frame with
+no axis near up: pitch pins near ∓90, roll goes ill-conditioned, and the two
+`abs(roll) > 90` corrections are keyed on exactly that degenerate value (the up/level/down
+sweep shows them switching between consecutive frames). And since the classifier only
+calls it landscape from 45°, a phone rolled 38° got the PORTRAIT remap.
+
+Measured against gravity: portrait `pitch_deg` agrees to ≤0.8°; landscape published
+−56.7 / −84.4 / −68.0 where gravity said −33.7 / −4.4 / +21.8. **No inherent landscape
+bearing bias** — 1.0° from portrait on the same scene, median −3.0° over 16 captures — but
+mid-roll frames were 43–52° out.
+
+Replaced by a vector transform (`cz.hillview.plugin.CameraPose`): lens direction is minus
+the matrix's third column in ENU, bearing from its horizontal part, pitch from its
+vertical part, image roll from world-up in device coordinates. No orientation class, no
+`remapCoordinateSystem`, no step functions, no A22 toggle, continuous through every pose.
+`CameraPoseTest` builds matrices from named device axes — the opposite direction from the
+code — and pins the portrait/mid-roll/landscape invariance, a monotonic landscape sweep,
+and the identity with the gravity formulas.
+
+Also corrected: `pitch_deg` is POSITIVE LOOKING DOWN; the code said "positive up". The
+old path is kept as `legacyOrientationFromRemappedMatrix`, uncalled, because every row
+before this build came out of it. Pre-10-08 landscape rows recover as
+`(pitch_deg + 90) × (−1 if |roll_deg| > 90 else +1)` — not the report's
+`wrap(roll_deg + 180)`, which came from a near-level drive.
+
+NOT verified on hardware yet. `landscape_azimuth_negation` is now inert and still
+recorded, so the settings toggle does nothing — removing it is a product decision.
+
+### The flat phone — the camera bearing alone broke the map on a table
+
+First day of real use: the vector path does what it promised, but the old one still gave
+a usable bearing with the phone lying flat, which is how you read the map on a desk.
+
+That localises what the old design was doing rather than condemning it.
+`getOrientation`'s azimuth is the direction of the device's TOP EDGE — exactly the
+reference a flat phone needs, which is why its classifier had a FLAT case with "no
+remapping needed". The remap existed to convert the top edge into the lens direction for
+shooting postures. It was switching references on posture; the bug was doing it on a
+quantized class and getting landscape's conversion wrong.
+
+The two references are complementary, and provably so: +Y and −Z are orthogonal unit
+vectors, so hc² + hd² ≥ 1 and **max(hc, hd) ≥ 1/√2 always** — no posture leaves both bad.
+So the published heading is now the camera's where hc ≥ 0.707 (lens within 45° of level,
+every shooting posture including landscape) and the top edge's below 0.259, blended
+across the band.
+
+The camera DOMINATES rather than sharing: in landscape upright both axes are horizontal,
+so a conditioning-weighted blend would skew by up to 45° — the mid-roll bug in a new
+costume. A test pins that case.
+
+No new provenance field: which reference answered is a function of `pitch_deg`
+(`< 45` camera, `> 75` top edge, between a blend), so nothing is hidden and the four-list
+tax is not paid for a derived value. Folded into `metadata_version` 1 rather than bumping
+to 2, because v1 had not reached prod — checked before changing it.
+
+### The crash: the CSV dump built a 131 MB String
+
+Crash report off the phone via Event log → Copy crash (build `d5a5699c`, 2026-10-09):
+
+```
+java.lang.OutOfMemoryError: Failed to allocate a 131319288 byte allocation
+  with 51842528 free bytes and 49MB until OOM, target footprint 268435456
+    at java.lang.StringBuilder.append
+    at cz.hillview.plugin.GeoTrackingManager.imuSamplesToCsv(GeoTrackingManager.kt:702)
+    at ...GeoTrackingManager$dumpAndClear$1.invokeSuspend
+```
+
+Nothing to do with the orientation work. The export did
+`imuDao().getAllSamples()` — every row as objects — and then `joinToString` into one
+String. At the ~720 rows/s actually stored during an interval run (measured, against the
+"about a hundred rows a shot" the entity's own doc assumes), a table that has missed a
+few dumps holds a million rows: a ~65 MB CSV, a StringBuilder doubling to 131 MB, against
+a 268 MB heap.
+
+**And it was self-reinforcing, which is why it kept happening.** The clear is the last
+step of the dump, so an OOM means the table is never pruned — it grows, and the next dump
+dies harder. The comment above `lastDump` had predicted exactly this: *"a dump slower than
+its own 5-minute interval would skip and the table would grow without bound."*
+
+Fixed on both axes, because either alone would still OOM eventually:
+
+- `writeExportCsvStreaming` opens the target and hands over a `Writer`; nothing is held
+  whole. The `String` overload delegates to it, so bearings and locations lose their
+  doubling spike too.
+- `ImuDao.samplesAfter` pages by KEYSET on `(timestamp, kind, sequence)` — which is
+  exactly the primary key and exactly the sort order, so it resumes where the last page
+  ended with no row twice and none skipped, and stays index-backed instead of going
+  quadratic the way OFFSET would over a million rows.
+
+Memory is now O(page), 5 000 rows ≈ 350 KB. No migration, no schema change. The first
+dump on the fixed build will write the backlog out and then prune, so the loop breaks
+itself.
+
+`ImuCsvPagingTest` covers the case the composite key exists for — both sensors on the
+same millisecond, page boundaries landing inside a group — plus a row arriving mid-dump.
+It is an androidDeviceTest and COMPILES ONLY: no device was reachable, so it has not run.
 
 ### STILL NOT DONE, after this
 

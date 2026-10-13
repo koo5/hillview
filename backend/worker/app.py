@@ -774,9 +774,12 @@ class BrowserMetadata(BaseModel):
 	# produced it (see attitudeProvenanceJson in the app for the full notes):
 	#   heading_true_deg, heading_magnetic_deg - the same compass reading
 	#     corrected and raw; their difference is the declination applied.
-	#   pitch_deg, roll_deg - read from a rotation matrix ALREADY remapped for
-	#     device_rotation_deg, so roll is the residual tilt within that
-	#     quadrant and an absolute camera rotation needs both.
+	#   pitch_deg, roll_deg - the optical axis's tilt and the camera's rotation
+	#     about it, continuous through every orientation. Before 2026-10-08 they
+	#     were read from a matrix ALREADY remapped for device_rotation_deg, which
+	#     made roll a residual within that quadrant; capture_timing.build is what
+	#     tells the two eras apart, and attitudeProvenanceJson in the app carries
+	#     the conversion for the old rows.
 	#   magnetometer_calibration - the bare magnetometer's latched status
 	#     (0..3). Rates the HEADING only; pitch and roll come from gravity and
 	#     the gyro. Not the GPS radius, which is location_accuracy_m.
@@ -791,8 +794,20 @@ class BrowserMetadata(BaseModel):
 	#     Orientation tag, which CameraX derives from this combined with the
 	#     camera's sensorOrientation and lens facing.
 	#   landscape_azimuth_negation - whether the Armor-22 toggle was ENABLED.
-	#     It only fires past 90 degrees of roll, so roll_deg is what says
-	#     whether it applied to this sample.
+	#     azimuth_mirrored below says whether it actually fired; for rows older
+	#     than 2026-10-10, roll_deg is what has to be used to guess at that.
+	#   matrix_pitch_deg, matrix_roll_deg - what the FUSED matrix said about the two
+	#     axes pitch_deg/roll_deg stopped coming from in metadata_version 3, where they
+	#     became gravity's. The pair's difference measures the fusion's error, which the
+	#     published values alone can no longer show.
+	#   rotation_vector, matrix_determinant, bearing_reference,
+	#     bearing_conditioning, camera_bearing_deg, device_bearing_deg,
+	#     branch_corrected, azimuth_mirrored - HOW the angles were arrived at:
+	#     the HAL's raw quaternion and the arithmetic applied to it, kept
+	#     separable because two faults in one device's fusion were each
+	#     unmeasurable from the final heading alone. Everything else in the
+	#     object is a function of rotation_vector, so a frame carrying it can be
+	#     re-derived against a later understanding of the geometry.
 	# An object rather than typed columns because nothing queries it - the SfM
 	# bench reads it - and the set will grow.
 	attitude: Optional[dict] = None

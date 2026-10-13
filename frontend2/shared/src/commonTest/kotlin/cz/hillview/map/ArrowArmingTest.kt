@@ -172,7 +172,7 @@ class ArrowArmingTest {
  */
 class BearingRingGrabTest {
 
-    private val tip = 240f
+    private val ring = 240f
     private val grab = 90f
 
     private fun at(angleDeg: Double, radius: Float): Boolean {
@@ -180,7 +180,7 @@ class BearingRingGrabTest {
         return bearingRingGrabbed(
             (kotlin.math.sin(rad) * radius).toFloat(),
             (-kotlin.math.cos(rad) * radius).toFloat(),
-            tip,
+            ring,
             grab,
         )
     }
@@ -188,27 +188,27 @@ class BearingRingGrabTest {
     @Test
     fun everyAngleOnTheRingIsAHandle() {
         for (angle in 0 until 360 step 3) {
-            assertTrue(at(angle.toDouble(), tip), "the ring must grab at $angle°")
+            assertTrue(at(angle.toDouble(), ring), "the ring must grab at $angle°")
         }
     }
 
     @Test
     fun theBandReachesBothWaysFromTheRing() {
-        assertTrue(at(0.0, tip - grab))
-        assertTrue(at(0.0, tip + grab))
-        assertFalse(at(0.0, tip - grab - 1f))
-        assertFalse(at(0.0, tip + grab + 1f))
+        assertTrue(at(0.0, ring - grab))
+        assertTrue(at(0.0, ring + grab))
+        assertFalse(at(0.0, ring - grab - 1f))
+        assertFalse(at(0.0, ring + grab + 1f))
     }
 
     /** The middle of the map stays the map: panning and marker taps live there. */
     @Test
     fun theDiscInsideIsNotAHandle() {
         assertFalse(at(0.0, 0f))
-        assertFalse(at(137.0, tip / 4f))
+        assertFalse(at(137.0, ring / 4f))
     }
 
     @Test
     fun anUnlaidOutArrowGrabsNothing() {
-        assertFalse(bearingRingGrabbed(0f, 0f, tipRadiusPx = 0f, grabPx = 90f))
+        assertFalse(bearingRingGrabbed(0f, 0f, ringRadiusPx = 0f, grabPx = 90f))
     }
 }

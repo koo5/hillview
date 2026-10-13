@@ -124,6 +124,36 @@ interface ImuDao {
     @Query("SELECT * FROM imu_samples ORDER BY timestamp ASC, kind ASC, sequence ASC")
     fun getAllSamples(): List<ImuSampleEntity>
 
+    /**
+     * One PAGE of samples, after the given key, in the table's own order.
+     *
+     * [getAllSamples] materialises every row, which is how a dump ran the app out of
+     * memory: at ~720 rows/s stored during an interval run, a table that has missed a
+     * few dumps holds a million of them. The CSV export pages through this instead and
+     * holds one page at a time.
+     *
+     * A KEYSET, not LIMIT/OFFSET: the primary key is exactly `(timestamp, kind,
+     * sequence)` and the order is exactly that, so this resumes precisely where the
+     * previous page ended with no row seen twice and none skipped — and it stays
+     * index-backed instead of re-walking the prefix for every page, which is what makes
+     * OFFSET quadratic over a million rows.
+     *
+     * Pass `afterTimestamp = Long.MIN_VALUE` for the first page.
+     */
+    @Query(
+        "SELECT * FROM imu_samples WHERE " +
+            "timestamp > :afterTimestamp OR " +
+            "(timestamp = :afterTimestamp AND kind > :afterKind) OR " +
+            "(timestamp = :afterTimestamp AND kind = :afterKind AND sequence > :afterSequence) " +
+            "ORDER BY timestamp ASC, kind ASC, sequence ASC LIMIT :limit",
+    )
+    fun samplesAfter(
+        afterTimestamp: Long,
+        afterKind: String,
+        afterSequence: Int,
+        limit: Int,
+    ): List<ImuSampleEntity>
+
     @Query(
         "SELECT * FROM imu_samples WHERE timestamp BETWEEN :fromMs AND :toMs " +
             "ORDER BY timestamp ASC, kind ASC, sequence ASC",
@@ -157,6 +187,16 @@ private const val ACCEL_DECIMALS = 3
 private const val GYRO_DECIMALS = 4
 
 /**
+ * The rotation vector is a unit quaternion's VECTOR PART, so its components carry
+ * angle, not a physical unit, and the budget is set by how `w` is recovered:
+ * `w = sqrt(1 - x² - y² - z²)`, whose derivative blows up as the vector approaches
+ * unit length (a 180° rotation, where `w` is 0). At 6 decimals the recovered `w` stays
+ * good to ~1e-3 even there; at 3, as the accelerometer uses, a near-180° attitude would
+ * come back degrees wrong.
+ */
+private const val RV_DECIMALS = 6
+
+/**
  * Fixed-point with the trailing zeros removed, and never a locale's comma.
  *
  * `String.format` without [java.util.Locale.ROOT] emits `0,012` in a Czech
@@ -169,7 +209,18 @@ private fun fmt(v: Double, decimals: Int): String {
     return t
 }
 
-private fun decimalsFor(kind: String) = if (kind == "gyro") GYRO_DECIMALS else ACCEL_DECIMALS
+private fun decimalsFor(kind: String) = when (kind) {
+    "gyro" -> GYRO_DECIMALS
+    "rv" -> RV_DECIMALS
+    // Degrees, and the published readout shows one decimal — more would be printing
+    // float noise about an angle the user was shown to 0.1°.
+    "pose" -> 2
+    // A quantized class and two booleans. Integers, so no decimals at all.
+    "decide" -> 0
+    // Magnetometer resolution is ~0.1 µT and the field is tens of µT.
+    "mag" -> 2
+    else -> ACCEL_DECIMALS
+}
 
 /**
  * The raw window as the payload that travels beside the photo: **columnar and
@@ -179,6 +230,31 @@ private fun decimalsFor(kind: String) = if (kind == "gyro") GYRO_DECIMALS else A
  * {"accel":{"t0_ms":1700000000000,"t0_ns":812340000000,
  *           "dt_us":[2500,2501,...],"x":[...],"y":[...],"z":[...]}}
  * ```
+ *
+ * SIX KINDS as of 2026-10-10, and between them a window is SELF-CONTAINED — every
+ * input to the orientation path, and its output:
+ *
+ * | kind | what it is | why it is here |
+ * |---|---|---|
+ * | `accel` | m/s², device frame | the true motion, and gravity's unambiguous "down" |
+ * | `gyro` | rad/s | the true angular rate, independent of any fusion |
+ * | `rv` | the HAL's fused attitude | what the fusion SAID, sample by sample |
+ * | `mag` | µT, device frame | with `accel`, an attitude owing nothing to the HAL |
+ * | `pose` | published bearing, pitch, image roll, degrees | what the app ANSWERED |
+ * | `decide` | orientation class, branch fired, mirror fired | the one input no sensor series can reconstruct |
+ *
+ * `rv` is a unit quaternion's VECTOR PART. Recover the rotation with
+ * `CameraPose.rotationMatrixFromVector`, which rebuilds `w` as `sqrt(1 - x² - y² - z²)`
+ * exactly as `SensorManager.getRotationMatrixFromVector` does for a 3-element vector;
+ * `cameraPoseFromRotationVector` goes straight to a pose, so an offline replay runs the
+ * geometry the phone ran rather than a reimplementation of it.
+ *
+ * The shape of the gap this closed: with accel and gyro alone, the TRUE motion across an
+ * exposure was recoverable but what the fusion REPORTED during it was not — and both
+ * attitude faults found on this device were about the reported value. Each had to be
+ * chased with a person watching a readout. `rv` answers what the HAL said, `pose` what
+ * we did with it, `decide` which branch we took, and `mag` whether the fusion agrees
+ * with the raw field at all.
  *
  * - **Columnar**, so a key name appears once per array instead of once per
  *   sample. Row-wise, `{"t":..,"x":..,"y":..,"z":..}` repeated four thousand

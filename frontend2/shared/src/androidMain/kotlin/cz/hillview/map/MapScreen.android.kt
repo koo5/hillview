@@ -106,7 +106,10 @@ actual fun MapScreen(
     // readout has to be able to see it.
     val trackingPhase by session.bearingPhase.collectAsState()
     val locationTracking by session.locationTracking.collectAsState()
-    var locationFlash by remember { mutableStateOf(false) }
+    // Fixes counted for the button's flash. A count, not the flag it used
+    // to be: the flag could stick lit for good — see rememberFixFlash.
+    var flashFixes by remember { mutableStateOf(0L) }
+    val locationFlash = rememberFixFlash(flashFixes)
     // The last fix is a RECORD in the one state now (MapStateHolder.lastFix,
     // 2026-09-09), not a copy held here. In BACKGROUND tracking the fix
     // callback deliberately stops writing spatial state (exploring must not
@@ -150,7 +153,6 @@ actual fun MapScreen(
         // any spam.
         markerSource.refresh()
     }
-    var arrowTipPx by remember { mutableStateOf(120f) }
     // The front photo: what the gallery would show and the marker drawn as
     // selected. Recomputed from bearing + range, or set by tapping.
     var selectedPhotoId by remember { mutableStateOf<String?>(null) }
@@ -247,7 +249,12 @@ actual fun MapScreen(
     // fix. Runs for the life of this always-mounted pane.
     LaunchedEffect(Unit) {
         controller.observeFixes { fix ->
-            locationFlash = true
+            // The flash only while tracking, as in the original ("only OFF
+            // skips entirely", Map.svelte:1124). The fix stream also runs with
+            // tracking off — for capture, the external camera, or the compass
+            // alone (BindGeoToActivity) — and flashing then made an OFF
+            // button blink as though it were on.
+            if (session.locationTracking.value != LocationTracking.Off) flashFixes++
             state.updateFix(fix)
         }
     }
@@ -264,9 +271,12 @@ actual fun MapScreen(
             }
         }
     }
-    LaunchedEffect(locationFlash) {
-        if (locationFlash) { delay(100); locationFlash = false }
-    }
+    // The flag's clear used to live here, keyed on the flag itself:
+    //   LaunchedEffect(locationFlash) {
+    //       if (locationFlash) { delay(100); locationFlash = false }
+    //   }
+    // It stuck lit whenever a fix re-set the flag between the clear and the
+    // next frame. rememberFixFlash above keys on the fix count instead.
     // The location button is the stronger control: using it while the
     // prompt is up answers it.
     LaunchedEffect(locationTracking) {
@@ -310,6 +320,7 @@ actual fun MapScreen(
     markerOverlay.onDrawn = { markerPositions = it }
     val rangeOverlay = remember { RangeCircleOverlay() }
     val gpsOverlay = remember { GpsMarkerOverlay() }
+    val accuracyOverlay = remember { GpsAccuracyOverlay() }
     val arrowOverlay = remember { BearingArrowOverlay() }
     // Arrow drag: walking sets the bearing outright, car adjusts the mount
     // offset by the angle travelled. Neither happens on contact — the arrow
@@ -413,6 +424,9 @@ actual fun MapScreen(
                 // markers so it stays visible in a pile of them (user,
                 // 2026-09-19: "needs to draw over photo markers, not under");
                 // it takes no touches, so the markers' taps are unaffected.
+                // Its accuracy disc is the opposite: the very bottom, so it
+                // tints the tiles and not the markers or the range line.
+                if (accuracyOverlay !in view.overlays) view.overlays.add(accuracyOverlay)
                 if (rangeOverlay !in view.overlays) view.overlays.add(rangeOverlay)
                 if (markerOverlay !in view.overlays) view.overlays.add(markerOverlay)
                 if (gpsOverlay !in view.overlays) view.overlays.add(gpsOverlay)
@@ -430,38 +444,68 @@ actual fun MapScreen(
                 // never for drawing.
                 val centre = GeoPoint(spatial.latitude, spatial.longitude)
                 val density = view.context.resources.displayMetrics.density
-                val ringPx = 70f * density
+                // Whole pixels, so the radius drawn and the radius measured
+                // are one number: the circle is the cull threshold itself
+                // (user, 2026-10-10: "the exact threshold of the range"). It
+                // was a float drawn and its truncation measured.
+                val ringPx = kotlin.math.round(70f * density)
                 val rangeMeters = view.projection.let { p ->
                     val a = p.toPixels(centre, null)
+                    // Both ends read off the same pixel grid. Measuring from
+                    // `centre` itself added its rounding to the nearest pixel
+                    // to the radius — half a pixel either way, per pan.
+                    val c = p.fromPixels(a.x, a.y)
                     val b = p.fromPixels(a.x + ringPx.toInt(), a.y)
-                    centre.distanceToAsDouble(b)
+                    GeoPoint(c.latitude, c.longitude).distanceToAsDouble(b)
                 }.takeIf { it > 0 } ?: spatial.range
-                rangeOverlay.centre = centre
                 rangeOverlay.radiusPx = ringPx
                 // Read the circle's ground meaning back into the one state,
                 // so the viewer's ring culls against what the circle SHOWS.
                 // Only on real change: this block runs per recomposition.
-                if (kotlin.math.abs(rangeMeters - spatial.range) > spatial.range * 0.01) {
+                // A thousandth, not the hundredth it was: 1% of 70 dp is
+                // 0.7 dp of circle the cull could disagree with, a thousandth
+                // is under a pixel — and it still only fires on a zoom or a
+                // long north–south pan.
+                if (kotlin.math.abs(rangeMeters - spatial.range) > spatial.range * 0.001) {
                     state.updateRange(rangeMeters)
                 }
                 gpsOverlay.position = lastFix
                 // ACTIVE and BACKGROUND alike, as the original keeps it —
                 // "keep the pulsing GPS marker alive in BACKGROUND too".
                 gpsOverlay.visible = locationTracking != LocationTracking.Off
-                // Tip at 1.3x the ring, as in the original — just outside it.
-                arrowTipPx = ringPx * 1.3f
+                accuracyOverlay.position = lastFix
+                accuracyOverlay.accuracyM = lastFixState?.accuracyM
+                accuracyOverlay.visible = gpsOverlay.visible
                 arrowOverlay.bearingDeg = bearing.bearing
                 // Not Compose state: written from inside the update block,
                 // where a state write would recompose and re-enter it. The
                 // readout's own half-second tick is what reads it.
                 arrowStamp[0] = System.currentTimeMillis()
                 arrowStamp[1] = bearing.bearing.toRawBits()
-                arrowOverlay.tipRadiusPx = arrowTipPx
+                // The SAME ring the range overlay draws: the arrow grabs it,
+                // draws its hold just inside it and rests its head on it.
+                arrowOverlay.ringRadiusPx = ringPx
                 // The ring is grabbable in every mode; this decides only
                 // what a drag MEANS — car mode adjusts the mount offset by
                 // the angle travelled, everything else points the arrow.
                 arrowOverlay.mountOffsetDrag =
                     mapSettings.bearingMode == BearingMode.Car && trackingWanted
+                // The direction of travel that offset is set against, shown
+                // while it is being dragged (user, 2026-10-12; not in the
+                // original). DERIVED — the arrow with the offset taken back
+                // out — rather than the engine's course read on the side, so
+                // it comes from the one state, and the angle between the two
+                // arrows is the offset exactly, dead-band and all. Only once
+                // car mode has written a heading (phase Active): before that
+                // the arrow is whatever the compass last left it at, and
+                // taking an offset out of it gives a direction nobody
+                // travelled.
+                arrowOverlay.travelBearingDeg =
+                    if (arrowOverlay.mountOffsetDrag && trackingPhase == TrackingPhase.Active) {
+                        normalizeBearing(bearing.bearing - controller.mountOffsetDeg())
+                    } else {
+                        null
+                    }
                 // The hold in front of manual bearing is there to protect a
                 // heading that is about to be RECORDED (ArrowArming). In the
                 // viewer nothing is being recorded and turning the bearing IS
@@ -1128,6 +1172,9 @@ private class MapSensorController(private val context: Context) {
     fun adjustMountOffset(deltaDeg: Double) {
         geoTracking.setMountOffset(geoTracking.getMountOffset() + deltaDeg)
     }
+
+    /** The offset car mode composes into its heading — a setting, not a sample. */
+    fun mountOffsetDeg(): Double = geoTracking.getMountOffset()
 
     fun release() {
         stopBearing()

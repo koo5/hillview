@@ -159,6 +159,9 @@ class EnhancedSensorService(
         const val DEFAULT_SENSOR_DELAY_US = 1000*30//SensorManager.SENSOR_DELAY_GAME // Faster updates
 
         // Smoothing and filtering parameters
+        /** How often the temporary frame-probe may write an Event log line. */
+        private const val REVERSAL_PROBE_PERIOD_MS = 2_000L
+
         private const val EMA_ALPHA = 1f // EMA smoothing factor (0.1-0.3 range, lower = more smoothing)
         private const val HEADING_THRESHOLD = 1.0f // Minimum heading change to trigger update (degrees)
         private const val PITCH_THRESHOLD = 1.0f // Minimum pitch change to trigger update (degrees)
@@ -214,6 +217,20 @@ class EnhancedSensorService(
 
     // Sensor data buffers
     private var accelerometerData = FloatArray(3)
+    private var gravityData = FloatArray(3)
+    private var hasGravity = false
+
+    /**
+     * How many samples of each kind have ARRIVED. The sensors line below reports what
+     * registration returned; these report what the HAL then did about it, and the two
+     * together separate "refused" from "accepted and silent" — which is the distinction
+     * my first attempt at this diagnostic could not make, because it logged whether the
+     * sensor EXISTED. Existence was never the question.
+     */
+    private var rvEvents = 0
+    private var accelEvents = 0
+    private var gravityEvents = 0
+    private var gyroEvents = 0
     private var gyroscopeData = FloatArray(3)
     private var magnetometerData = FloatArray(3)
     private var hasAccelerometer = false
@@ -242,6 +259,63 @@ class EnhancedSensorService(
     private val MAX_FILTER_GAP_MS = 1_000L
 
     // Device orientation tracking
+    /**
+     * Which sign the image roll SHOULD have, from the gravity-based orientation class:
+     * +1 for LANDSCAPE_RIGHT, -1 for LANDSCAPE_LEFT, 0 when the class does not say.
+     *
+     * This puts `deviceOrientation` back in the heading path, which the vector rewrite
+     * took out — but for a different job. It is not remapping anything; it is breaking a
+     * 180° tie, and it can do that because it comes from gravity rather than from the
+     * fused attitude that is doing the flipping.
+     */
+    // SUPERSEDED 2026-10-10, kept beside the detector it feeds
+    // (CameraPose.onWrongAttitudeBranchByOrientationClass) because the 729-capture
+    // measurement behind the sign table is real. The branch test now asks gravity, which
+    // has no "unknown" state to mistake for portrait — see that function for why.
+    @Suppress("unused")
+    /**
+     * DOWN, as well as this device can say it: `TYPE_GRAVITY` when it has reported, the
+     * raw accelerometer otherwise, and null before either has.
+     *
+     * `TYPE_GRAVITY` is itself gyro-fused, so it is smooth under hand movement in the way
+     * a raw accelerometer sample is not — but it carries no magnetometer, which is the
+     * whole point: it cannot be on the wrong branch of anything. The raw fallback exists
+     * because the sensor is composite and an OEM may not offer it; it is noisier, and for
+     * the binary branch test (a 90° margin) that does not matter at all.
+     */
+    private fun gravityVector(): FloatArray? = when {
+        hasGravity -> gravityData
+        hasAccelerometer -> accelerometerData
+        else -> null
+    }
+
+    private fun expectedLandscapeRollSign(): Int =
+        when (DeviceOrientation.toDegrees(deviceOrientation)) {
+            270 -> 1
+            90 -> -1
+            else -> 0
+        }
+
+    /**
+     * Whether this device is one that mirrors its azimuth — the pref the Armor-22
+     * workaround has always used, read once per sample because it is a live toggle.
+     */
+    private val mirrorAzimuthWhenAffected: Boolean
+        get() = context
+            .getSharedPreferences("hillview_compass_prefs", Context.MODE_PRIVATE)
+            .getBoolean("landscape_armor22_workaround", false)
+
+    /** See the frame-probe in handleRotationVector — temporary, all four. */
+    private var lastReversalProbeMs = 0L
+
+    /**
+     * The last roll this logged, for the roll trace below. NaN until the first line.
+     */
+    private var lastTracedRoll = Float.NaN
+    private var lastProbeBearing = Float.NaN
+    private var gyroYawDeg = 0f
+    private var lastGyroYawAtMs = 0L
+
     private var deviceOrientation = DeviceOrientation.PORTRAIT
 
     private val orientationEventListener = object : OrientationEventListener(context) {
@@ -455,12 +529,14 @@ class EnhancedSensorService(
      * The four-arg overload with a null handler is documented as equivalent to
      * the three-arg one (main looper), so the default path is unchanged.
      */
-    private fun registerSensor(sensor: Sensor) {
+    /** @return whether `registerListener` ACCEPTED it — see the sensors line in startSensorInternal. */
+    private fun registerSensor(sensor: Sensor): Boolean {
         val ok = sensorManager.registerListener(this, sensor, sensorDelayUs, callbackHandler)
         // registerListener REFUSING is silent otherwise — and a refused
         // re-registration on foreground return is a compass that looks
         // healthy and never moves again.
         if (!ok) Log.w(TAG, "⚠️ registerListener refused for ${sensor.name} (type ${sensor.type})")
+        return ok
     }
 
     private fun startSensorInternal(mode: Int = MODE_UPRIGHT_ROTATION_VECTOR) {
@@ -502,6 +578,42 @@ class EnhancedSensorService(
         currentMode = mode
         Log.i(TAG, "🔍🚀 Starting enhanced sensor service")
         Log.i(TAG, "🔍📋 Mode: ${MODE_NAMES[mode]} (code: $mode)")
+
+        // GRAVITY IS NOT A DIAGNOSTIC ANY MORE, so it cannot be registered per-mode.
+        //
+        // Since 2026-10-10 the PUBLISHED pitch and roll come from it, and the branch test
+        // judges the fused matrix against it. Both were added inside the
+        // MODE_UPRIGHT_ROTATION_VECTOR branch, and MODE_ROTATION_VECTOR registers only
+        // the rotation vector — so in that mode `gravityVector()` returned null, the roll
+        // fell through to the raw fused matrix, the branch test declined, and the gyro
+        // cross-check integrated nothing. Every correction and comparison built over two
+        // days was silently inert, and the roll trace said so in one glance: `src -`,
+        // `cond 0.00`, `brnch 0`, `gyro +0.0`, with pub == mat == raw on every line
+        // (2026-10-11).
+        //
+        // So they are registered HERE, once, before the mode chooses anything. A sensor
+        // the published attitude depends on is not optional, and registering the same
+        // listener twice is harmless — the HAL keeps the faster rate.
+        fun outcome(sensor: Sensor?): String = when {
+            sensor == null -> "absent"
+            registerSensor(sensor) -> "ok"
+            else -> "REFUSED"
+        }
+        val accelState = outcome(accelerometerSensor)
+        val gravityState = outcome(sensorManager.getDefaultSensor(Sensor.TYPE_GRAVITY))
+        val gyroState = outcome(gyroscopeSensor)
+
+        // ...and SAY so where it can be read without a cable. The failure above was
+        // invisible for two days because what got registered only ever reached logcat.
+        //
+        // REGISTRATION OUTCOMES, not sensor existence. The first version of this line
+        // reported `!= null` and so said "accel=true grav=true gyro=true" while not one
+        // of their samples was arriving — a diagnostic answering a question nobody had
+        // asked. Existence was never in doubt; the IMU window reads both at 400 Hz.
+        EventLog.record(
+            "sensors",
+            "${MODE_NAMES[mode]}: accel=$accelState grav=$gravityState gyro=$gyroState",
+        )
 
 
         when (mode) {
@@ -579,6 +691,11 @@ class EnhancedSensorService(
                     registerSensor(it)
                     Log.d(TAG, "  ✓ Registered MAGNETOMETER")
                 } ?: Log.w(TAG, "  ❌ MAGNETOMETER not available")
+
+                // The accelerometer, gravity and the gyroscope are registered ABOVE,
+                // before the mode switch, because the published pitch and roll depend on
+                // them in every mode — see the note there for what it cost to have them
+                // here.
 
                 rotationVectorSensor?.let {
                     Log.d(TAG, "🔄 Registering TYPE_ROTATION_VECTOR sensor for UPRIGHT mode")
@@ -739,6 +856,18 @@ class EnhancedSensorService(
 
 		logEvent(event)
 
+        // COUNTED AT THE DOOR, not inside the branches. The first version counted in the
+        // `when` arms, which answered "did this arm run" while reading as "did the sensor
+        // deliver" — and the arms it was in turned out to be commented out, so it reported
+        // zeros for sensors that were arriving perfectly well. Delivery and dispatch are
+        // two different questions; this one is delivery.
+        when (event.sensor.type) {
+            Sensor.TYPE_ROTATION_VECTOR -> rvEvents++
+            Sensor.TYPE_ACCELEROMETER -> accelEvents++
+            Sensor.TYPE_GRAVITY -> gravityEvents++
+            Sensor.TYPE_GYROSCOPE -> gyroEvents++
+        }
+
 
         when (event.sensor.type) {
             Sensor.TYPE_ROTATION_VECTOR -> {
@@ -780,6 +909,58 @@ class EnhancedSensorService(
                     updateComplementaryFilter()
                 }
             }*/
+
+            // THE ONLY LIVE ARM OF THIS `when` WAS TYPE_ROTATION_VECTOR.
+            //
+            // Everything else sat inside the comment that opens above at
+            // TYPE_GAME_ROTATION_VECTOR and closes on the line above this one — so
+            // `accelerometerData`, `gravityData`, `gyroscopeData` and `magnetometerData`
+            // were never written, and `hasAccelerometer` / `hasGravity` /
+            // `hasMagnetometer` were never set. Registration succeeded, samples arrived,
+            // and the dispatcher dropped every one of them.
+            //
+            // What that silently disabled: the gravity-keyed 180° branch test (which
+            // therefore never once fired), the gravity-sourced pitch and roll of
+            // metadata_version 3, the gyroscope rate cross-check, the magnetic field
+            // check, and both hand-rolled filters, which compose exactly these streams.
+            // `magnetometer_calibration` kept arriving on photos throughout, because
+            // onAccuracyChanged is a different method — which is most of why nothing
+            // looked wrong from outside.
+            //
+            // Found 2026-10-11 from a roll trace reading `src -  cond 0.00  gyro +0.0`
+            // beside `accel=ok grav=ok gyro=ok`: accepted and silent, which is exactly
+            // what a dropped dispatch looks like from the outside.
+            Sensor.TYPE_GRAVITY -> {
+                gravityData = event.values.clone()
+                hasGravity = true
+            }
+            Sensor.TYPE_ACCELEROMETER -> {
+                accelerometerData = event.values.clone()
+                hasAccelerometer = true
+                if (currentMode == MODE_MADGWICK_AHRS) {
+                    updateMadgwick()
+                } else if (currentMode == MODE_COMPLEMENTARY_FILTER) {
+                    updateComplementaryFilter()
+                }
+            }
+            Sensor.TYPE_GYROSCOPE -> {
+                gyroscopeData = event.values.clone()
+                hasGyroscope = true
+                if (currentMode == MODE_MADGWICK_AHRS) {
+                    updateMadgwick()
+                } else if (currentMode == MODE_COMPLEMENTARY_FILTER) {
+                    updateComplementaryFilter()
+                }
+            }
+            Sensor.TYPE_MAGNETIC_FIELD -> {
+                magnetometerData = event.values.clone()
+                hasMagnetometer = true
+                if (currentMode == MODE_MADGWICK_AHRS) {
+                    updateMadgwick()
+                } else if (currentMode == MODE_COMPLEMENTARY_FILTER) {
+                    updateComplementaryFilter()
+                }
+            }
         }
     }
 
@@ -836,42 +1017,231 @@ class EnhancedSensorService(
         // Get rotation matrix
         SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
 
-        // Apply coordinate remapping based on device orientation
-        if (currentMode == MODE_UPRIGHT_ROTATION_VECTOR) {
-            val remappedMatrix = remapCoordinatesForOrientation(rotationMatrix, deviceOrientation)
-            System.arraycopy(remappedMatrix, 0, rotationMatrix, 0, 9)
-            //Log.v(TAG, "🔄 Applied coordinate remapping for ${deviceOrientation}")
+        // WHERE THE LENS POINTS, by transforming the camera axis — NOT by reading Euler
+        // angles out of a remapped frame. The matrix is deliberately left un-remapped:
+        // a vector transform has no quantized orientation class to key on, which is the
+        // entire point. See CameraPose for the measurements that retired the old path
+        // and [legacyOrientationFromRemappedMatrix] for what it did.
+        val rawLens = cameraPoseFromRotationMatrix(rotationMatrix)
+        // THE DEVICE QUIRK, applied where it was measured and nowhere else. The pref is
+        // the one the Armor-22 workaround already used; what changed is the KEY. The old
+        // code negated past 90° of roll and also added 180° unconditionally; the pair
+        // happened to come out right in a level landscape hold and wrong elsewhere. See
+        // CameraPose.inMirroredAzimuthRegion for the two datasets that settled it.
+        // TWO corrections, in the order the original applied them — the branch fix first,
+        // then the device mirror. The order happens NOT to matter: the two commute,
+        // because -(a+180) and -a+180 are the same angle. Kept in the original's order
+        // anyway, since matching it costs nothing and makes the two readable side by
+        // side; a test pins the commutation so nobody has to re-derive it.
+        //
+        // What is different from the original is that they are now keyed INDEPENDENTLY.
+        // There both hung off `abs(roll) > 90`, which in that convention happened to
+        // mean "landscape" and "wrong branch" at once. Here the branch fix keys on the
+        // roll's SIGN against the gravity-based orientation class, and the mirror on
+        // landscape-plus-lens-above-horizon, because the measurements say those are two
+        // different conditions.
+        //
+        // Both decisions are HOISTED into named flags because they are stamped onto the
+        // photo (OrientationSensorData.branchCorrected / azimuthMirrored). Re-deriving
+        // afterwards from the roll sign is exactly the archaeology that cost two
+        // sessions here: by the time a heading reaches an upload, a corrected sample and
+        // one that never needed correcting look identical.
+        // GRAVITY decides, not the quantized orientation class. The class reports
+        // ORIENTATION_UNKNOWN as FLAT_UP as 0, which is also PORTRAIT, so pitched down it
+        // flickered this correction on and off and the reported roll jumped 180° and back
+        // while the phone moved smoothly (user, 2026-10-10: rotating portrait → landscape
+        // below the horizon read 0, −10, … +110, +90 — which is −70+180, −80+180,
+        // −90+180). Gravity has no unknown state and no buckets.
+        val down = gravityVector()
+        val gravityConditioning = down?.let {
+            gravityRollConditioning(it[0], it[1], it[2])
+        } ?: 0f
+        // THE FLOOR GATES THE BRANCH TEST, NOT THE ROLL. Two different stakes: a wrong
+        // branch DECISION is a 180° error, so it must decline when gravity is too flat to
+        // judge; but a noisy roll is only noisy. atan2 of a small in-plane gravity vector
+        // wanders, and it is never 180° out, because there is one down and no second
+        // attitude fitting it.
+        //
+        // These were one value until 2026-10-11 and that was the bug: below the floor the
+        // published roll fell back to the fused matrix, which CAN be 180° out, and the
+        // correction that would have fixed it had declined on the same condition. So the
+        // one regime where a branch error was most likely was the one where it was
+        // neither corrected nor detectable — and the roll jumped 180° as the SOURCE
+        // switched mid-rotation.
+        val gravityRoll = down?.let { gravityRollDeg(it[0], it[1]) }
+        val branchJudgeable = down != null && gravityConditioning >= GRAVITY_ROLL_FLOOR
+        val onWrongBranch = rawLens != null && branchJudgeable &&
+            rawLens.onWrongAttitudeBranch(gravityRoll, gravityConditioning)
+        val branched = if (rawLens != null && onWrongBranch) {
+            rawLens.withBranchCorrected()
+        } else {
+            rawLens
         }
-		else
-		{
-			Log.v(TAG, "🔄 No coordinate remapping applied for mode: ${MODE_NAMES[currentMode]}")
-		}
+        val mirrorAzimuth = branched != null && mirrorAzimuthWhenAffected &&
+            branched.inMirroredAzimuthRegion()
+        val lens = if (branched != null && mirrorAzimuth) {
+            branched.withMirroredAzimuth()
+        } else {
+            branched
+        }
+        if (lens == null) {
+            // All zeros until the first usable sample. Publishing would assert a level
+            // camera facing due north, which is a plausible lie rather than an absence.
+            Log.v(TAG, "🔍📐 no usable rotation matrix yet from $source")
+            return
+        }
+        // THE POINTING bearing, not the bare camera one: with the phone flat on a table
+        // the lens points at the table and only the top edge has a horizontal direction
+        // left. The old getOrientation path published the top edge and so kept working
+        // on a desk — losing that was a real regression (user, 2026-10-09: "good for
+        // using the map with phone on a table"). See CameraPose.pointingBearingDeg; the
+        // camera still dominates wherever the lens is off vertical, so nothing about
+        // shooting changes.
+        val heading = lens.pointingBearingDeg
+        // PITCH AND ROLL FROM GRAVITY, not from the fused matrix. They never needed the
+        // magnetometer: there is exactly one down, and it fixes the optical axis's tilt
+        // and the image's rotation about it completely. The fused matrix needs the
+        // magnetometer because it also has to answer WHICH WAY IS NORTH, and resolving
+        // that is what forces a choice between the two attitudes that fit the readings —
+        // the 180° branch. So the branch ambiguity is the heading's problem, and letting
+        // it reach the roll was giving away two good axes to buy one doubtful one.
+        //
+        // Measured on 94 prod captures where the matrix is on the right branch: the two
+        // rolls differ by a mean of -0.95° (sd 3.33) and the two pitches by -0.29°
+        // (sd 1.32), so there is no systematic disagreement to lose — a few degrees of
+        // scatter against an entire class of 180° failure. The user saw it first:
+        // "g matches closely what i would call an intuitive understanding of the phone's
+        // roll axis values" (2026-10-10).
+        //
+        // The matrix keeps the bearing, and keeps BOTH correction decisions, which still
+        // compare it against gravity. What changes is only which number is published.
+        val pitch = down?.let { gravityPitchDeg(it[0], it[1], it[2]) } ?: lens.pitchDeg
+        // NO FALLBACK TO THE MATRIX. Near flat, gravity's in-plane direction is small and
+        // the roll it gives is noisy — the rotation about a vertical optical axis is
+        // really an azimuth, and gravity cannot see azimuths. But the alternative was
+        // worse than noise: the matrix there is a magnetometer-derived number that can be
+        // a full 180° out, and handing it over mid-rotation is what made the published
+        // roll jump (user, 2026-10-11: portrait → left landscape read 0, −30, 120, 90 —
+        // which is −60+180 and −90+180). A number that wanders is honest about its own
+        // conditioning; a number that is occasionally reversed is not.
+        val roll = gravityRoll ?: lens.imageRollDeg
 
-        // Get orientation
-        SensorManager.getOrientation(rotationMatrix, orientation)
+        // THE ROLL TRACE — every 5° OF MOVEMENT rather than every N milliseconds.
+        //
+        // A time-based probe is the wrong instrument for this: at one line every two
+        // seconds a rotation is three samples, and the question is what happens BETWEEN
+        // the endpoints. Triggered by change instead, a 90° sweep leaves ~18 lines and a
+        // phone sitting still leaves none — so the Event log can be read and pasted
+        // without a cable, which is how both earlier attitude faults were actually
+        // measured.
+        //
+        // Every number that could explain a jump, on one line: what was published, what
+        // gravity says, what the fused matrix says, WHICH gravity source answered
+        // (TYPE_GRAVITY or the raw accelerometer fallback — if the composite sensor is
+        // silent the whole premise changes), how well conditioned gravity's answer was,
+        // and the pitch, since a roll that only misbehaves at some tilts would show here.
+        //
+        // Delete with the frame probe once the roll is understood.
+        if (lastTracedRoll.isNaN() || abs(signedDegreeDelta(lastTracedRoll, roll)) >= 5f) {
+            lastTracedRoll = roll
+            EventLog.record(
+                "roll",
+                "pub ${"%.1f".format(roll)}  " +
+                    "grav ${gravityRoll?.let { "%.1f".format(it) } ?: "—"}  " +
+                    "mat ${"%.1f".format(lens.imageRollDeg)}  " +
+                    "raw ${"%.1f".format(rawLens?.imageRollDeg ?: Float.NaN)}  " +
+                    "src ${if (hasGravity) "G" else if (hasAccelerometer) "A" else "-"}  " +
+                    "cond ${"%.2f".format(gravityConditioning)}  " +
+                    "pitch ${"%.1f".format(pitch)}  " +
+                    "brnch ${if (onWrongBranch) 1 else 0}  " +
+                    // rv/accel/gravity/gyro samples SEEN so far. Zeros beside an "ok"
+                    // registration mean the HAL accepted a listener and then sent nothing.
+                    "n $rvEvents/$accelEvents/$gravityEvents/$gyroEvents",
+            )
+        }
 
-        // Convert to degrees
-        var azimuth = (Math.toDegrees(orientation[0].toDouble()).toFloat() + 360) % 360
-        val pitch = Math.toDegrees(orientation[1].toDouble()).toFloat()
-        val roll = Math.toDegrees(orientation[2].toDouble()).toFloat()
+        // THE INDEPENDENT REFERENCE. World up in device coordinates is the matrix's
+        // third row, so the gyro's component along it is the true yaw rate — positive is
+        // counter-clockwise about up, which is a DECREASING compass bearing, hence the
+        // negation. Integrated across every sample between probe emissions so it can be
+        // compared with what the fused heading did over the same interval.
+        //
+        // Opposite signs mean the fusion is turning the wrong way, and the gyroscope
+        // says so without any procedure from whoever is holding the phone — which is the
+        // point, because two structural explanations have already been wrong and the
+        // boundary is what needs measuring rather than guessing.
+        gyroscopeData?.let { g ->
+            val yawRate = g[0] * rotationMatrix[6] + g[1] * rotationMatrix[7] +
+                g[2] * rotationMatrix[8]
+            val dtMs = (currentTime - lastGyroYawAtMs).coerceIn(0L, 200L)
+            if (lastGyroYawAtMs != 0L) {
+                gyroYawDeg += -Math.toDegrees(yawRate.toDouble()).toFloat() * dtMs / 1000f
+            }
+            lastGyroYawAtMs = currentTime
+        }
+        if (!lens.bearingIsDefined()) {
+            // Within ~3° of straight up or down, where a bearing does not EXIST — the
+            // horizontal projection it comes from has almost no length. The pose is
+            // still published, because pitch and roll are perfectly well defined there;
+            // this line is so the condition has a name in the log rather than appearing
+            // as a compass that went wild.
+            Log.d(
+                TAG,
+                "🔍🧭 lens within ${"%.1f".format(90f - abs(pitch))}° of vertical — " +
+                    "bearing from ${lens.bearingReference} (camera horizontal " +
+                    "${lens.horizontalLength}, top edge ${lens.deviceHorizontalLength})",
+            )
+        }
 
-
-		if (abs(roll) > 90) {
-			azimuth += 180
-		}
-		val prefs = context.getSharedPreferences("hillview_compass_prefs", Context.MODE_PRIVATE)
-        val workaround1 = prefs.getBoolean("landscape_armor22_workaround", false)
-		if (workaround1) {
-			if (abs(roll) > 90) {
-				azimuth = 0 - azimuth // magic
-			}
-		}
-		azimuth = (azimuth + 360*2) % 360
-
-		//Log.v(TAG, "🔍📊 $source orientation: azimuth=${azimuth.format(1)}°, pitch=${pitch.format(1)}°, roll=${roll.format(1)}°, accuracy=${event.accuracy}, orientation=${deviceOrientation}")
-
-        // Normalize heading
-        val heading = if (azimuth < 0) azimuth + 360 else azimuth
+        // TEMPORARY, TARGETED DIAGNOSTIC. A bearing reversal was reported that is
+        // confined to landscape with the lens above the horizon — and nothing between
+        // the matrix and `heading` is conditional on either, so the matrix itself is the
+        // only place it can come from. This records exactly that posture and nothing
+        // else, into the Event log, where it can be copied off a phone with no cable.
+        //
+        // `det` is the question: +1 says the HAL handed us a proper rotation and the
+        // reversal is a rotation pointing the wrong way; −1 says it handed us a MIRRORED
+        // frame, which is what a negation genuinely compensates and would vindicate the
+        // Armor-22 hack as fixing a real device defect. The lens vector is there so the
+        // reversal can be watched directly in world coordinates while the phone turns.
+        //
+        // Delete this once the question is answered.
+        // WIDENED to every posture, 2026-10-10. The landscape sweep showed all three
+        // device axes yawing -405° while the phone turned +405° clockwise, with
+        // det(R) = +1 throughout — so the matrix is a proper rotation that reports the
+        // HEADING mirrored, and no choice of axis can undo that. A world frame with East
+        // negated explains every observation at once: the up component is untouched (so
+        // pitch still matches gravity), world-up in device coords is untouched (so the
+        // image roll is fine), and only the bearing reverses.
+        //
+        // If that is right it is GLOBAL, so portrait must reverse too — and portrait is
+        // reported as working. One sweep in portrait settles which, so the posture gate
+        // is gone and the roll is logged for segmenting afterwards.
+        if (currentTime - lastReversalProbeMs > REVERSAL_PROBE_PERIOD_MS) {
+            // What the fused heading DID against what the gyroscope says it should
+            // have: agreeing signs mean the fusion is sound in this posture, opposite
+            // signs are the reversal — per posture, per sample, no procedure.
+            val fusedDelta = if (lastProbeBearing.isNaN()) 0f
+                else signedDegreeDelta(lastProbeBearing, heading)
+            val verdict = when {
+                lastProbeBearing.isNaN() || abs(gyroYawDeg) < 5f -> "idle"
+                fusedDelta * gyroYawDeg < 0f -> "REVERSED"
+                else -> "agrees"
+            }
+            lastProbeBearing = heading
+            lastReversalProbeMs = currentTime
+            EventLog.record(
+                "frame-probe",
+                "$verdict fused ${"%+.1f".format(fusedDelta)} gyro " +
+                    "${"%+.1f".format(gyroYawDeg)} · " +
+                    "bearing ${"%.1f".format(heading)} pitch ${"%.1f".format(pitch)} " +
+                    "roll ${"%.1f".format(roll)} det ${"%.4f".format(lens.determinant)} " +
+                    "lens e/n/u ${"%.3f".format(lens.lensEast)}/" +
+                    "${"%.3f".format(lens.lensNorth)}/${"%.3f".format(lens.lensUp)} " +
+                    "rv ${event.values.take(4).joinToString(",") { "%.4f".format(it) }}",
+            )
+            gyroYawDeg = 0f
+        }
 
         // Apply magnetic declination to convert from magnetic north to true north
         val declination = getMagneticDeclination()
@@ -889,7 +1259,11 @@ class EnhancedSensorService(
 
         // Include mode information in source
         val sourceWithMode = when (currentMode) {
-            MODE_UPRIGHT_ROTATION_VECTOR -> "$source (UPRIGHT MODE)"
+            // "(UPRIGHT MODE)" until 2026-10-10, naming a remap by orientation class
+            // that no longer exists — the angles come from transforming the camera axis
+            // now. The label has to change with the maths, or every row uploaded from
+            // here on claims a provenance that was retired.
+            MODE_UPRIGHT_ROTATION_VECTOR -> "$source (camera-axis)"
             MODE_MADGWICK_AHRS -> "$source MADGWICK_AHRS"
             MODE_COMPLEMENTARY_FILTER -> "$source COMPLEMENTARY_FILTER"
             else -> source
@@ -906,6 +1280,11 @@ class EnhancedSensorService(
             // The rotation-vector sample rates itself; this is the one path
             // where a real value exists to pass on.
             fusedSensorAccuracy = event.accuracy,
+            // What the HAL said and what we made of it, kept separable on the frame.
+            pose = lens,
+            rotationVector = event.values,
+            branchCorrected = onWrongBranch,
+            azimuthMirrored = mirrorAzimuth,
         )
     }
 
@@ -982,6 +1361,77 @@ class EnhancedSensorService(
 
         return remappedMatrix
     }
+
+    /**
+     * THE PATH THAT WAS REPLACED on 2026-10-08, kept because it is the record of what
+     * the old numbers meant — every row captured before that build came out of this, and
+     * recovering one needs to know exactly what it did. Nothing calls it.
+     *
+     * It remapped the rotation matrix by a QUANTIZED orientation class and then read
+     * Euler angles out of the result, patching them with two step functions keyed on
+     * `roll` — one of which carried the comment `// magic`, which is the honest label for
+     * a sign fix applied to a frame that was already wrong.
+     *
+     * Why it had to go, measured against gravity on real captures (2026-10-03):
+     *  - the portrait remap sends device Y to world Z (up) — the "phone is upright"
+     *    part — while NEITHER landscape remap sends anything to Z. So in landscape the
+     *    frame has no axis near world up, `getOrientation`'s pitch pins near ∓90 and its
+     *    roll goes ill-conditioned: one up/level/down sweep published −56.7 / −84.4 /
+     *    −68.0 where gravity said −33.7 / −4.4 / +21.8, and `roll` flipped −176.8 → +2.7
+     *    between consecutive frames — flipping the two corrections below on and off,
+     *    because they are keyed on exactly that degenerate value;
+     *  - the orientation classifier only calls it landscape from 45°, so at 38° of roll
+     *    the PORTRAIT remap was applied to a rolled phone. Three deliberate ~40°
+     *    captures landed 43–52° off their own un-rolled neighbours.
+     *
+     * The replacement is proven in `CameraPoseTest`, which builds matrices from named
+     * device axes — the opposite direction from the code — so a sign error cannot cancel.
+     */
+    @Suppress("unused")
+    private fun legacyOrientationFromRemappedMatrix(event: SensorEvent, source: String): Triple<Float, Float, Float> {
+        SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+        // Apply coordinate remapping based on device orientation
+        if (currentMode == MODE_UPRIGHT_ROTATION_VECTOR) {
+            val remappedMatrix = remapCoordinatesForOrientation(rotationMatrix, deviceOrientation)
+            System.arraycopy(remappedMatrix, 0, rotationMatrix, 0, 9)
+            //Log.v(TAG, "🔄 Applied coordinate remapping for ${deviceOrientation}")
+        }
+		else
+		{
+			Log.v(TAG, "🔄 No coordinate remapping applied for mode: ${MODE_NAMES[currentMode]}")
+		}
+
+        // Get orientation
+        SensorManager.getOrientation(rotationMatrix, orientation)
+
+        // Convert to degrees
+        var azimuth = (Math.toDegrees(orientation[0].toDouble()).toFloat() + 360) % 360
+        val pitch = Math.toDegrees(orientation[1].toDouble()).toFloat()
+        val roll = Math.toDegrees(orientation[2].toDouble()).toFloat()
+
+
+		if (abs(roll) > 90) {
+			azimuth += 180
+		}
+		val prefs = context.getSharedPreferences("hillview_compass_prefs", Context.MODE_PRIVATE)
+        val workaround1 = prefs.getBoolean("landscape_armor22_workaround", false)
+		if (workaround1) {
+			if (abs(roll) > 90) {
+				azimuth = 0 - azimuth // magic
+			}
+		}
+		azimuth = (azimuth + 360*2) % 360
+
+		//Log.v(TAG, "🔍📊 $source orientation: azimuth=${azimuth.format(1)}°, pitch=${pitch.format(1)}°, roll=${roll.format(1)}°, accuracy=${event.accuracy}, orientation=${deviceOrientation}")
+
+        // Normalize heading
+        val heading = if (azimuth < 0) azimuth + 360 else azimuth
+
+        // Apply magnetic declination to convert from magnetic north to true north
+        val declination = getMagneticDeclination()
+        return Triple(heading, pitch, roll)
+    }
+
 
 
 
@@ -1225,6 +1675,17 @@ class EnhancedSensorService(
          * that have not been restructured (Madgwick, complementary) behave as before.
          */
         publish: Boolean = true,
+        /**
+         * How the angles were arrived at, for the diagnostic fields on
+         * [OrientationSensorData] — null from every mode that computes no rotation
+         * matrix, which is both hand-rolled filters.
+         */
+        pose: CameraPose? = null,
+        /** The HAL's own output, `SensorEvent.values` of the rotation vector. */
+        rotationVector: FloatArray? = null,
+        /** Whether the 180° branch fix and the azimuth mirror fired on this sample. */
+        branchCorrected: Boolean = false,
+        azimuthMirrored: Boolean = false,
     ) {
         val startTime = System.currentTimeMillis()
         //Log.v(TAG, "TIMING 🕐 sendSensorData START: ${startTime} from $source")
@@ -1253,7 +1714,47 @@ class EnhancedSensorService(
             timestamp = System.currentTimeMillis(),
             elapsedRealtimeNanos = android.os.SystemClock.elapsedRealtimeNanos(),
             source = "android",
-            detail = "$source (EMA smoothed)",
+            // Was unconditionally "(EMA smoothed)", which EMA_ALPHA = 1 makes a false
+            // claim — that path is a pass-through. Derived from the constant instead, so
+            // the label cannot drift from the filter again.
+            detail = if (EMA_ALPHA < 1f) "$source (EMA $EMA_ALPHA)" else "$source (unsmoothed)",
+            // Only the rotation-vector path fills these; see the field docs. The
+            // `toList` is not cosmetic: `SensorEvent.values` is one array the HAL
+            // overwrites in place, so keeping a reference would hand every stored sample
+            // the LATEST reading. Copy here, inside the synchronous call.
+            rotationVector = rotationVector?.toList(),
+            matrixDeterminant = pose?.determinant,
+            bearingReference = pose?.bearingReference,
+            bearingConditioning = pose?.horizontalLength,
+            cameraBearingDeg = pose?.bearingDeg,
+            deviceBearingDeg = pose?.deviceBearingDeg,
+            branchCorrected = pose?.let { branchCorrected },
+            azimuthMirrored = pose?.let { azimuthMirrored },
+            // Not gated on `pose`: the class is a fact about how the phone is held,
+            // measured whatever the fusion mode, and it is recorded precisely because it
+            // cannot be recomputed from any sensor series afterwards.
+            deviceRotationDeg = DeviceOrientation.toDegrees(deviceOrientation),
+            // The matrix's own answer for the two axes gravity now provides, so its
+            // faults stay visible after it stopped being the published source.
+            matrixPitchDeg = pose?.pitchDeg,
+            matrixRollDeg = pose?.imageRollDeg,
+            // Whether the compass can be trusted at this spot at all. Computed here
+            // because this is where the accelerometer and the magnetometer are both
+            // already in hand, and gated on the magnetometer having reported: an
+            // all-zero vector would read as a 0 µT field rather than as no reading.
+            fieldMagnitudeUt = if (hasMagnetometer) {
+                fieldMagnitudeUt(magnetometerData[0], magnetometerData[1], magnetometerData[2])
+            } else {
+                null
+            },
+            fieldDipDeg = if (hasMagnetometer) {
+                fieldDipDeg(
+                    accelerometerData[0], accelerometerData[1], accelerometerData[2],
+                    magnetometerData[0], magnetometerData[1], magnetometerData[2],
+                )
+            } else {
+                null
+            },
         )
         // Every sample, whatever the cap and the gate decide below.
         onRawSample?.invoke(sample)

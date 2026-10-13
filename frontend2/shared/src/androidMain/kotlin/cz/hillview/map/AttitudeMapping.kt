@@ -24,4 +24,18 @@ internal fun OrientationSensorData.toDeviceAttitude(): DeviceAttitude = DeviceAt
     detail = detail,
     ts = timestamp,
     elapsedNs = elapsedRealtimeNanos,
+    // The HAL diagnostics, straight through. Float to Double like everything above it,
+    // which widens exactly and so cannot alter what the sensor said.
+    rotationVector = rotationVector?.map { it.toDouble() },
+    matrixDeterminant = matrixDeterminant?.toDouble(),
+    bearingReference = bearingReference,
+    bearingConditioning = bearingConditioning?.toDouble(),
+    cameraBearingDeg = cameraBearingDeg?.toDouble(),
+    deviceBearingDeg = deviceBearingDeg?.toDouble(),
+    branchCorrected = branchCorrected,
+    azimuthMirrored = azimuthMirrored,
+    fieldMagnitudeUt = fieldMagnitudeUt?.toDouble(),
+    fieldDipDeg = fieldDipDeg?.toDouble(),
+    matrixPitchDeg = matrixPitchDeg?.toDouble(),
+    matrixRollDeg = matrixRollDeg?.toDouble(),
 )

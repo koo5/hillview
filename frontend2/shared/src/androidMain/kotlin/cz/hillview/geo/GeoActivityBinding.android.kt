@@ -10,7 +10,7 @@ import cz.hillview.external.ExternalImuSettings
 @Composable
 actual fun BindGeoToActivity(
     activity: String,
-    mapWantsTracking: Boolean,
+    mapNeeds: MapGeoNeed,
     gpsIntervalMs: Long,
 ) {
     val context = LocalContext.current.applicationContext
@@ -18,7 +18,7 @@ actual fun BindGeoToActivity(
     // mergedConfig takes `any { it.imuContinuous }`, so one claimant left holding
     // a stale `true` would override the other's `false`.
     val imuContinuous by ExternalImuSettings.continuous.collectAsState()
-    LaunchedEffect(activity, mapWantsTracking, gpsIntervalMs, imuContinuous) {
+    LaunchedEffect(activity, mapNeeds, gpsIntervalMs, imuContinuous) {
         ExternalImuSettings.load(context)
         val engine = GeoEngine.get(context)
         engine.configure(
@@ -33,7 +33,8 @@ actual fun BindGeoToActivity(
                 activity == "external" ->
                     externalCameraConfig(gpsIntervalMs, imuContinuous)
                 activity == "capture" -> captureGeoConfig(gpsIntervalMs)
-                mapWantsTracking -> mapOnlyGeoConfig()
+                mapNeeds == MapGeoNeed.Fixes -> mapOnlyGeoConfig()
+                mapNeeds == MapGeoNeed.Compass -> compassOnlyGeoConfig()
                 else -> GeoConfig.Off
             },
         )

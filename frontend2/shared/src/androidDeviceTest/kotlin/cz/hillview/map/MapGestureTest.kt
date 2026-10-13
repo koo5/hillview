@@ -106,7 +106,7 @@ class MapGestureTest {
         // touches it has no business in. A tap in the middle is nowhere near
         // the arrow's grab zone, so the overlay must decline it.
         val view = mapView()
-        val overlay = BearingArrowOverlay().apply { tipRadiusPx = 240f }
+        val overlay = BearingArrowOverlay().apply { ringRadiusPx = 240f }
         val down = SystemClock.uptimeMillis()
         val centre = MotionEvent.obtain(
             down, down, MotionEvent.ACTION_DOWN, view.width / 2f, view.height / 2f, 0,
@@ -129,17 +129,17 @@ class MapGestureTest {
         val view = mapView()
         for (hold in listOf(true, false)) {
             val overlay = BearingArrowOverlay().apply {
-                tipRadiusPx = 240f
+                ringRadiusPx = 240f
                 bearingDeg = 0.0
                 requireHold = hold
             }
             val down = SystemClock.uptimeMillis()
-            val onTip = MotionEvent.obtain(
+            val onRing = MotionEvent.obtain(
                 down, down, MotionEvent.ACTION_DOWN,
                 view.width / 2f, view.height / 2f - 240f, 0,
             )
             assertTrue(
-                !overlay.onTouchEvent(onTip, view),
+                !overlay.onTouchEvent(onRing, view),
                 "requireHold=$hold: the press must fall through to the map",
             )
         }
@@ -156,7 +156,7 @@ class MapGestureTest {
         var bearings = 0
         var armed = 0
         val overlay = BearingArrowOverlay().apply {
-            tipRadiusPx = 240f
+            ringRadiusPx = 240f
             bearingDeg = 0.0
             requireHold = false
             onBearing = { bearings++ }
@@ -189,7 +189,7 @@ class MapGestureTest {
         val view = mapView()
         var bearings = 0
         val overlay = BearingArrowOverlay().apply {
-            tipRadiusPx = 240f
+            ringRadiusPx = 240f
             bearingDeg = 0.0
             requireHold = true
             onBearing = { bearings++ }
@@ -225,7 +225,7 @@ class MapGestureTest {
         val offBy = 27f * density
         for (hold in listOf(true, false)) {
             val overlay = BearingArrowOverlay().apply {
-                tipRadiusPx = 240f
+                ringRadiusPx = 240f
                 bearingDeg = 0.0
                 requireHold = hold
             }
@@ -258,7 +258,7 @@ class MapGestureTest {
         val view = mapView()
         var bearings = 0
         val overlay = BearingArrowOverlay().apply {
-            tipRadiusPx = 240f
+            ringRadiusPx = 240f
             bearingDeg = 0.0 // arrow points north; the touch is due east of it
             requireHold = false
             onBearing = { bearings++ }

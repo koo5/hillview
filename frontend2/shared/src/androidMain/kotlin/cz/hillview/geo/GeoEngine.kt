@@ -1,6 +1,7 @@
 package cz.hillview.geo
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
@@ -12,6 +13,10 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
+import com.google.android.gms.location.CurrentLocationRequest
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import cz.hillview.capture.CaptureStatsLog
 import cz.hillview.plugin.EnhancedSensorService
 import cz.hillview.plugin.GeoTrackingManager
@@ -66,6 +71,22 @@ const val OWNER_ACTIVITY = "activity"
 const val OWNER_EXTERNAL_SERVICE = "external-service"
 private const val FIX_SILENCE_BASE_MS = 60_000L
 private const val FIX_SILENCE_MAX_MS = 10 * 60_000L
+
+// Declination one-shots (GeoConfig.declinationFixMaxAgeMs): how long one may
+// try, when to ask again after one found nothing, and the least gap between
+// two, so a cached answer just short of the limit cannot make them spin.
+private const val DECLINATION_FIX_TIMEOUT_MS = 30_000L
+internal const val DECLINATION_FIX_RETRY_MS = 5 * 60_000L
+internal const val DECLINATION_FIX_MIN_GAP_MS = 60_000L
+
+/**
+ * When to ask for the next declination fix, given how old the one that just
+ * came back already was — null when none did. Asking again when it reaches
+ * [maxAgeMs] keeps the position used for declination no older than that.
+ */
+internal fun nextDeclinationFixInMs(fixAgeMs: Long?, maxAgeMs: Long): Long =
+    if (fixAgeMs == null) DECLINATION_FIX_RETRY_MS.coerceAtMost(maxAgeMs)
+    else (maxAgeMs - fixAgeMs).coerceIn(DECLINATION_FIX_MIN_GAP_MS, maxOf(maxAgeMs, DECLINATION_FIX_MIN_GAP_MS))
 
 /**
  * What to run the hardware at. The engine is TOLD this; it never decides —
@@ -122,6 +143,15 @@ data class GeoConfig(
      * toggle and not a silent default.
      */
     val imuContinuous: Boolean = false,
+    /**
+     * No fix STREAM, but a position for magnetic declination no older than
+     * this — the compass alone needs to know roughly where on Earth it is, not
+     * where you are standing. Met with one fused `getCurrentLocation` at a time
+     * (balanced power, so no GNSS), which answers from the platform's cache
+     * when that is young enough. Ignored while [locationIntervalMs] runs a
+     * stream: every fix already feeds declination. 0 = not wanted.
+     */
+    val declinationFixMaxAgeMs: Long = 0,
 ) {
     companion object {
         val Off = GeoConfig(sensors = false, sensorDelayUs = 0, locationIntervalMs = 0)
@@ -473,6 +503,9 @@ class GeoEngine private constructor(private val context: Context) {
             sensorsInBackground = claims.values.any { it.sensorsInBackground },
             imu = claims.values.any { it.imu },
             imuContinuous = claims.values.any { it.imuContinuous },
+            // The strictest age asked for, like the fastest interval.
+            declinationFixMaxAgeMs = claims.values.map { it.declinationFixMaxAgeMs }
+                .filter { it > 0 }.minOrNull() ?: 0L,
         )
     }
 
@@ -491,6 +524,8 @@ class GeoEngine private constructor(private val context: Context) {
             "geo",
             "engine -> " + if (!config.sensors && config.locationIntervalMs == 0L) "off" else
                 "sensors ${config.sensorDelayUs / 1000}ms, fixes ${config.locationIntervalMs}ms" +
+                    (if (config.locationIntervalMs == 0L && config.declinationFixMaxAgeMs > 0)
+                        " (declination fix within ${config.declinationFixMaxAgeMs / 60_000} min)" else "") +
                     (if (config.sensorsInBackground) " (sensors in background too)" else ""),
         )
         val previous = active
@@ -518,6 +553,7 @@ class GeoEngine private constructor(private val context: Context) {
         } else if (!wantLocation && hadLocation) {
             stopLocation()
         }
+        syncDeclinationFix()
     }
 
     /** The one rule for whether the sensors are registered at this moment. */
@@ -540,6 +576,7 @@ class GeoEngine private constructor(private val context: Context) {
                 (if (locationService != null) ", fix stream left registered" else ""),
         )
         syncSensors()
+        syncDeclinationFix()
     }
 
     private fun onForeground() {
@@ -551,6 +588,7 @@ class GeoEngine private constructor(private val context: Context) {
         // was not preceded by a stop: nothing to re-arm.
         if (!wasBackgrounded) return
         wasBackgrounded = false
+        syncDeclinationFix()
         // RE-ARM, unconditionally: whatever the platform did to the old
         // registrations while we were away, a fresh one is known-good. The
         // sensors are torn down and re-registered even if the config kept
@@ -696,6 +734,11 @@ class GeoEngine private constructor(private val context: Context) {
         return SystemClock.elapsedRealtime() - at
     }
 
+    /** How old the last declination one-shot's position is; null before the first. */
+    fun declinationFixAgeMs(): Long? = declinationFix?.let {
+        (SystemClock.elapsedRealtimeNanos() - it.elapsedRealtimeNanos) / 1_000_000
+    }
+
     /** One line for the Stats dialog: how alive each stream is right now. */
     fun livenessLine(): String {
         val now = SystemClock.elapsedRealtime()
@@ -707,6 +750,9 @@ class GeoEngine private constructor(private val context: Context) {
         return "geo: ${if (foreground) "foreground" else "background"}, " +
             "sensors " + (if (sensors == null) "off" else "raw event ${sensorAge ?: "never"}$valueAge") + ", " +
             "fix " + (if (locationService == null) "off" else (fixAge ?: "never")) +
+            (if (active.locationIntervalMs == 0L && active.declinationFixMaxAgeMs > 0)
+                ", declination fix " + (declinationFixAgeMs()?.let { "${it / 1000}s old" } ?: "none yet")
+            else "") +
             ", registrations $sensorStarts" +
             (if (sensorRestarts + fixRerequests > 0) ", restarts $sensorRestarts/$fixRerequests" else "")
     }
@@ -920,6 +966,8 @@ class GeoEngine private constructor(private val context: Context) {
             val kind = when (event.sensor.type) {
                 android.hardware.Sensor.TYPE_ACCELEROMETER -> ImuRing.KIND_ACCEL
                 android.hardware.Sensor.TYPE_GYROSCOPE -> ImuRing.KIND_GYRO
+                android.hardware.Sensor.TYPE_ROTATION_VECTOR -> ImuRing.KIND_RV
+                android.hardware.Sensor.TYPE_MAGNETIC_FIELD -> ImuRing.KIND_MAG
                 else -> return
             }
             val atMs = imuWallClockFor(event.timestamp)
@@ -1001,6 +1049,41 @@ class GeoEngine private constructor(private val context: Context) {
                 return
             }
         imuRegistered = true
+
+        // THE FUSED ATTITUDE, best-effort and DELIBERATELY NOT in `wanted` above.
+        // That list is all-or-nothing by design — a half-registered window reads as
+        // "this device has no gyroscope" — and the rotation vector must not be able
+        // to take the window down with it: accel and gyro are what a window is FOR,
+        // this is a diagnostic beside them. So it is registered after the pair has
+        // succeeded, at the rate the pair actually achieved, and a refusal costs
+        // nothing but a log line. Same listener, so the unregister paths already
+        // cover it.
+        for (type in listOf(
+            android.hardware.Sensor.TYPE_ROTATION_VECTOR,
+            // The magnetic field, so an attitude can be computed WITHOUT the HAL's
+            // fusion and compared against it — see ImuRing.KIND_MAG.
+            android.hardware.Sensor.TYPE_MAGNETIC_FIELD,
+        )) {
+            val sensor = manager.getDefaultSensor(type)
+            if (sensor == null) {
+                Log.i(TAG, "no sensor type $type — IMU windows go without it")
+                continue
+            }
+            val ok = try {
+                manager.registerListener(
+                    imuListener, sensor, rate,
+                    (IMU_BATCH_LATENCY_MS * 1_000).toInt(), handler,
+                )
+            } catch (e: SecurityException) {
+                // The HIGH_SAMPLING_RATE_SENSORS case, which THROWS rather than
+                // clamping. The pair above already survived it at this rate, but these
+                // are different sensors and may be policed differently.
+                Log.w(TAG, "${sensor.name} refused at ${rate}µs: ${e.message}")
+                false
+            }
+            Log.i(TAG, (if (ok) "  ✓ " else "  ✗ ") + "${sensor.name} in the IMU window")
+        }
+
         // The FIFO depth is the whole question for batching: a latency budget on a
         // sensor with fifoMaxEventCount == 0 saves nothing, and reading "batching
         // 200ms" in a log without it would be a false comfort.
@@ -1087,6 +1170,32 @@ class GeoEngine private constructor(private val context: Context) {
         // it. See imuHighWaterMs.
         val fresh = samples.filter { it.timestamp > imuHighWaterMs }
         if (fresh.isNotEmpty()) {
+            // WHERE THIS CLAIM STARTS, and it is deliberately not the first sample.
+            //
+            // It used to be `fresh.minOf { it.timestamp }`, which made consecutive
+            // claims exactly one sample period apart instead of adjacent: the previous
+            // claim ended at its last sample, this one began at its first, and the
+            // ~2.5 ms between them belonged to nobody. Measured on 692 boundaries of one
+            // drive: mean 2.597 ms, range 2–4. An exposure landing in one of those
+            // slivers is inside no claim at all, which happened to 3 of 698 exposures —
+            // 0.33 %, exactly the ratio of a 2.5 ms gap to a 750 ms capture interval.
+            // That defeats the containment lookup `stored_from_ms`/`stored_to_ms` exist
+            // for, and silently: the consumer gets "no photo owns this instant" when the
+            // samples either side are present and owned.
+            //
+            // The bound now MIRRORS THE FRESHNESS FILTER above rather than being derived
+            // from the data a second time — `> imuHighWaterMs` and `>= imuHighWaterMs+1`
+            // are the same line, which is why the gap could not have been intended. Two
+            // definitions of one boundary is what produced it.
+            //
+            // Clamped to the requested window so a claim can never reach back across a
+            // real pause in recording: after a 45 s gap this stays at the window's own
+            // start, the silence remains unclaimed, and "unclaimed" keeps meaning
+            // "nothing was recorded here" rather than "you landed in a crack".
+            //
+            // NOT an overlap. [.., H] then [H+1, ..] — no sample is ever in two claims,
+            // which is the whole point of the claim table.
+            val claimFromMs = maxOf(imuHighWaterMs + 1, fromMs)
             // Record WHICH samples this capture is responsible for, as DATA.
             // Deriving it does not work: the window a photo asks for and the
             // samples it actually adds are different things, so two consecutive
@@ -1099,9 +1208,9 @@ class GeoEngine private constructor(private val context: Context) {
                 forCaptureAtMs?.let {
                     cz.hillview.plugin.ImuClaimEntity(
                         capturedAtMs = it,
-                        // min/max, not first/last: batched bursts interleave,
-                        // so insertion order is not time order.
-                        fromMs = fresh.minOf { it.timestamp },
+                        fromMs = claimFromMs,
+                        // MAX, not last: batched bursts interleave, so insertion
+                        // order is not time order.
                         toMs = fresh.maxOf { it.timestamp },
                         sampleCount = fresh.size,
                     )
@@ -1315,12 +1424,38 @@ class GeoEngine private constructor(private val context: Context) {
             // compass and the bearings rows and wrong for a photo: at 200 ms the nearest
             // sample to an exposure is up to 100 ms away, which is what 32 uploaded
             // photos measured. Same thread as the callback, so this stays an append.
-            onRawSample = { raw -> attitudeRing.add(raw.toDeviceAttitude()) },
+            onRawSample = { raw ->
+                attitudeRing.add(raw.toDeviceAttitude())
+                // ...and into the WINDOW, so a stored sweep carries what the app
+                // published beside what the sensors said. Two rows per sample: the pose
+                // it answered with, and the decisions behind it. See ImuRing.KIND_POSE
+                // and KIND_DECIDE for why the output is recorded when it is in principle
+                // derivable. Guarded on the ring being wanted at all — outside a window
+                // this is the map's compass and nothing should be accumulating.
+                if (active.imu && raw.elapsedRealtimeNanos != 0L) {
+                    val atMs = raw.timestamp
+                    imuRing.add(
+                        atMs, raw.elapsedRealtimeNanos, ImuRing.KIND_POSE,
+                        raw.trueHeading, raw.pitch, raw.roll,
+                    )
+                    imuRing.add(
+                        atMs, raw.elapsedRealtimeNanos, ImuRing.KIND_DECIDE,
+                        (raw.deviceRotationDeg ?: -1).toFloat(),
+                        if (raw.branchCorrected == true) 1f else 0f,
+                        if (raw.azimuthMirrored == true) 1f else 0f,
+                    )
+                }
+            },
         ) { data ->
             // One sample, fanned out — the plugin's shape exactly.
             geoTracking.storeOrientationSensorData(data)
             _orientation.value = data
-        }.also { it.startSensor() }
+        }.also {
+            it.startSensor()
+            // Declination from the engine's own last position, which the
+            // next fix or one-shot then keeps current.
+            seedDeclination(it)
+        }
     }
 
     private fun stopSensors() {
@@ -1380,6 +1515,97 @@ class GeoEngine private constructor(private val context: Context) {
         }
         locationService = null
         _locationActive.value = false
+    }
+
+    // DECLINATION WITHOUT A FIX STREAM (GeoConfig.declinationFixMaxAgeMs).
+    // The walking compass needs to know roughly where on Earth it is — magnetic
+    // declination moves a few tenths of a degree per 100 km here — and it used
+    // to get that by running the whole fix stream at 2 s (user, 2026-10-11:
+    // "gps should possibly turn on for compass declination, but that should
+    // become some logic that just ensures that the oldest fix is no older than
+    // some reasonable value"). Now one fused getCurrentLocation at a time; the
+    // answer feeds the sensor stack and nothing else — not the tracking table,
+    // not the one state's fix. A balanced-power, possibly cached position is
+    // good enough for declination and not good enough to be a record.
+    // Main thread only, like the rest of configuration.
+
+    private val fusedClient by lazy { LocationServices.getFusedLocationProviderClient(context) }
+    private var declinationRequest: CancellationTokenSource? = null
+    private val declinationRefresh = Runnable { requestDeclinationFix() }
+
+    /**
+     * The last one-shot's answer. With the stream's last fix it seeds a sensor
+     * registration made later — a restart, a return from the background — so
+     * that it starts at the right declination instead of the 0° the service
+     * falls back to.
+     */
+    @Volatile private var declinationFix: Location? = null
+
+    /**
+     * Start or stop the one-shots to match [active] and the foreground (the
+     * sensors pause in the background, so declination is not needed there).
+     * Cancels anything in flight first, so the latest call always wins.
+     */
+    private fun syncDeclinationFix() {
+        mainHandler.removeCallbacks(declinationRefresh)
+        declinationRequest?.cancel()
+        declinationRequest = null
+        if (active.locationIntervalMs == 0L && active.declinationFixMaxAgeMs > 0 && foreground) {
+            mainHandler.post(declinationRefresh)
+        }
+    }
+
+    @SuppressLint("MissingPermission") // hasLocationPermission, first
+    private fun requestDeclinationFix() {
+        val maxAgeMs = active.declinationFixMaxAgeMs
+        if (active.locationIntervalMs > 0 || maxAgeMs <= 0 || !foreground) return
+        if (!hasLocationPermission()) {
+            // Tried again on the next configure or return to the foreground.
+            Log.w(TAG, "declination fix wanted without location permission")
+            return
+        }
+        val request = CurrentLocationRequest.Builder()
+            // No GNSS: wifi and cell towers place you to a block, and
+            // declination needs the town.
+            .setPriority(Priority.PRIORITY_BALANCED_POWER_ACCURACY)
+            // The platform answers from its cache when that is young enough,
+            // which after any other app's fix — or this one's stream — it is.
+            .setMaxUpdateAgeMillis(maxAgeMs)
+            .setDurationMillis(DECLINATION_FIX_TIMEOUT_MS)
+            .build()
+        val cancel = CancellationTokenSource().also { declinationRequest = it }
+        try {
+            fusedClient.getCurrentLocation(request, cancel.token).addOnCompleteListener { task ->
+                // Superseded: a later sync cancelled this and owns the schedule.
+                if (declinationRequest !== cancel) return@addOnCompleteListener
+                declinationRequest = null
+                val fix = if (task.isSuccessful) task.result else null
+                val ageMs = fix?.let { (SystemClock.elapsedRealtimeNanos() - it.elapsedRealtimeNanos) / 1_000_000 }
+                if (fix != null) {
+                    declinationFix = fix
+                    sensorService?.updateLocation(fix.latitude, fix.longitude)
+                }
+                val nextMs = nextDeclinationFixInMs(ageMs, maxAgeMs)
+                Log.i(
+                    TAG,
+                    (if (fix == null) "declination fix: none" else
+                        "declination fix: ${fix.provider} ±${fix.accuracy.toInt()} m, ${ageMs!! / 1000}s old") +
+                        " — next in ${nextMs / 1000}s",
+                )
+                mainHandler.postDelayed(declinationRefresh, nextMs)
+            }
+        } catch (e: SecurityException) {
+            declinationRequest = null
+            Log.w(TAG, "declination fix refused", e)
+            mainHandler.postDelayed(declinationRefresh, nextDeclinationFixInMs(null, maxAgeMs))
+        }
+    }
+
+    /** The newest position the engine knows, into a fresh sensor registration. */
+    private fun seedDeclination(service: EnhancedSensorService) {
+        val newest = listOfNotNull(_location.value, declinationFix)
+            .maxByOrNull { it.elapsedRealtimeNanos } ?: return
+        service.updateLocation(newest.latitude, newest.longitude)
     }
 
     fun hasLocationPermission(): Boolean =

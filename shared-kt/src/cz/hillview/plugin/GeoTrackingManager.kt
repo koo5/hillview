@@ -37,6 +37,12 @@ data class DumpStats(
  */
 private const val DUMP_INTERVAL_HINT_MS = 5 * 60 * 1000L
 
+/**
+ * Rows per page when streaming the IMU CSV. ~350 KB of entities in flight, and a
+ * million-row table becomes 200 queries rather than 200 000.
+ */
+private const val IMU_CSV_PAGE_ROWS = 5_000
+
 
 data class OrientationSensorData(
 	val magneticHeading: Float,  // Compass bearing in degrees from magnetic north (0-360°)
@@ -79,7 +85,102 @@ data class OrientationSensorData(
 	val elapsedRealtimeNanos: Long = 0L,
 
 	val source: String,     // Elect-able identity — "android" for the sensor stack
-	val detail: String? = null  // Which fusion mode produced it, within that source
+	val detail: String? = null,  // Which fusion mode produced it, within that source
+
+	/**
+	 * How the ANGLES ABOVE WERE ARRIVED AT, for the next time this device's fusion
+	 * misbehaves. All null outside [EnhancedSensorService.MODE_UPRIGHT_ROTATION_VECTOR],
+	 * because the hand-rolled filters compute no rotation matrix to describe.
+	 *
+	 * This exists because of what it cost not to have it. Two faults in this phone's
+	 * TYPE_ROTATION_VECTOR took a session each to pin down (a 180° attitude branch in
+	 * level landscape, a mirrored azimuth above the horizon) and both were measured
+	 * through a temporary log probe, because the stamp carried only the FINAL heading —
+	 * by which point our own corrections had already been applied and could no longer be
+	 * told apart from the HAL's output. These fields make a captured frame
+	 * self-describing: [rotationVector] is what the HAL said, the rest is what we did
+	 * with it, and the two are separable after the fact without a cable.
+	 *
+	 * See `cz.hillview.plugin.CameraPose` for the geometry and
+	 * docs/todo/roll-skews-the-bearing.md for the question they are next needed for.
+	 */
+	val rotationVector: List<Float>? = null,
+	/**
+	 * `det(R)` of the matrix `getRotationMatrixFromVector` produced. A rotation matrix
+	 * has determinant +1; anything else is not one, and the cheapest possible detector
+	 * for a HAL returning something that only looks like an attitude. Measured +1.0000
+	 * through both known faults — which is the point: it RULED OUT the malformed-matrix
+	 * explanation rather than confirming it, and a diagnostic that can do that is worth
+	 * four bytes.
+	 */
+	val matrixDeterminant: Float? = null,
+	/**
+	 * Which vector the azimuth came from: `camera`, `blended` or `top_edge`. With the
+	 * lens near vertical its azimuth is undefined, so the device's top edge takes over
+	 * through a blend — and a bearing that disagrees with expectations means something
+	 * different in each case. See `CameraPose.bearingReference`.
+	 */
+	val bearingReference: String? = null,
+	/**
+	 * How well-defined the azimuth was: the horizontal length of the lens vector, 1 with
+	 * the camera level and 0 with it pointing straight up or down. Near 0 the heading is
+	 * arbitrary however healthy the sensors are, and this is the number that says so.
+	 */
+	val bearingConditioning: Float? = null,
+	/** The azimuth of the LENS alone, before the top-edge fallback was blended in. */
+	val cameraBearingDeg: Float? = null,
+	/** The azimuth of the device's TOP EDGE — the fallback's own answer, for decomposing a blend. */
+	val deviceBearingDeg: Float? = null,
+	/**
+	 * Whether the 180° attitude-branch correction fired on this sample: the HAL handed
+	 * back the attitude whose roll sign disagrees with gravity, and we added 180° to the
+	 * azimuths and flipped the image roll. Recorded rather than re-derived, so a row
+	 * that was corrected stays distinguishable from one that never needed it.
+	 */
+	val branchCorrected: Boolean? = null,
+	/**
+	 * Whether the landscape-above-horizon azimuth mirror was undone on this sample.
+	 * Gated on the user's `landscape_armor22_workaround` pref, so false means either
+	 * "not affected" or "not enabled" — `landscape_azimuth_negation` in the upload says
+	 * which.
+	 */
+	val azimuthMirrored: Boolean? = null,
+	/**
+	 * The gravity-based ORIENTATION CLASS as degrees (0 / 90 / 180 / 270) — what
+	 * `device_rotation_deg` carries on a photo, here per sample.
+	 *
+	 * Recorded because it is the one input to the attitude path that NO sensor series can
+	 * reconstruct: `OrientationEventListener` quantizes to 45° buckets, has its own
+	 * hysteresis, and reports ORIENTATION_UNKNOWN near flat — which
+	 * [DeviceOrientation.fromDegrees] maps to FLAT_UP and [DeviceOrientation.toDegrees]
+	 * renders as 0, indistinguishable from PORTRAIT. A theory about this value flickering
+	 * during a rotation cost a session and could not be checked against any stored data,
+	 * because nothing stored it.
+	 */
+	val deviceRotationDeg: Int? = null,
+	/**
+	 * THE LOCAL FIELD, for judging whether the compass can be trusted HERE —
+	 * strength in µT and dip below horizontal in degrees. See `MagneticField.kt`;
+	 * both are properties of the location, so neither may change as the phone turns,
+	 * and the dip is a geometric invariant that cannot.
+	 *
+	 * Null outside the modes that register a magnetometer.
+	 */
+	val fieldMagnitudeUt: Float? = null,
+	val fieldDipDeg: Float? = null,
+	/**
+	 * WHAT THE FUSED MATRIX SAID about the two axes it no longer provides.
+	 *
+	 * [pitch] and [roll] come from gravity since 2026-10-10, which is what makes these
+	 * worth recording: the published value can no longer report the fused attitude's
+	 * misbehaviour, and that misbehaviour is what is under investigation. Two faults are
+	 * known — a 180° branch ambiguity, and a dynamic OVERSHOOT (a 0→90° sweep reported as
+	 * 0→100→90, consistent with the gyro over-reading by about a tenth and the reference
+	 * then pulling it back). Neither can reach the published axes now, so neither would be
+	 * visible without this.
+	 */
+	val matrixPitchDeg: Float? = null,
+	val matrixRollDeg: Float? = null,
 )
 
 
@@ -537,20 +638,23 @@ class GeoTrackingManager(private val context: Context) {
 						// silently when empty: a session with no captures, or one
 						// where the IMU was never asked for, has nothing to say and
 						// an empty file would only look like a failure.
-						val imu = database.imuDao().getAllSamples()
-						if (imu.isNotEmpty()) {
-							val imuAt = writeExportCsv(
-								"hillview_imu_${now}.csv",
-								imuSamplesToCsv(imu),
-							)
-							Log.i(TAG, "🢄📡 Dumped ${imu.size} IMU samples to $imuAt")
+						// COUNTED, not loaded: this is the table that ran the app out
+						// of memory, and asking how many rows there are must not be the
+						// thing that allocates them.
+						val imuCount = database.imuDao().count()
+						var imuWritten = 0
+						if (imuCount > 0) {
+							val imuAt = writeExportCsvStreaming("hillview_imu_${now}.csv") { out ->
+								imuWritten = writeImuSamplesCsv(out)
+							}
+							Log.i(TAG, "🢄📡 Dumped $imuWritten IMU samples to $imuAt")
 						}
 						// TIMED, because a dump that cannot keep up is a silent
 						// failure: the clear is part of the dump, so a dump slower
 						// than its own 5-minute interval would skip (see dumpMutex)
 						// and the table would grow without bound. The headroom is
 						// the thing to watch, not the row count.
-						val rows = bearings.size + locations.size + imu.size
+						val rows = bearings.size + locations.size + imuWritten
 						val ms = System.currentTimeMillis() - startedAt
 						lastDump.value = DumpStats(startedAt, rows, ms, ok = true)
 						Log.i(
@@ -562,7 +666,7 @@ class GeoTrackingManager(private val context: Context) {
 						EventLog.record(
 							"export",
 							"${bearings.size} bearings + ${locations.size} locations" +
-								(if (imu.isNotEmpty()) " + ${imu.size} IMU samples" else "") +
+								(if (imuWritten > 0) " + $imuWritten IMU samples" else "") +
 								" in ${ms}ms → $locationsAt",
 						)
 					} catch (e: Exception) {
@@ -628,7 +732,29 @@ class GeoTrackingManager(private val context: Context) {
 	 *
 	 * @return a human-readable locator of where the bytes actually went.
 	 */
-	private fun writeExportCsv(displayName: String, content: String): String {
+	/**
+	 * The String form, for the exports small enough to build in one piece.
+	 *
+	 * "Small enough" is a judgement, and it was wrong once: `imu_samples` at ~720 rows/s
+	 * reached a million rows after a few missed dumps, `joinToString` grew a
+	 * StringBuilder to 131 MB against a 268 MB heap, and the app died in
+	 * `imuSamplesToCsv` — which meant the CLEAR at the end of the dump never ran, so the
+	 * table grew and the next dump died harder. A self-reinforcing crash loop, and the
+	 * comment above `lastDump` had predicted exactly it ("a dump slower than its own
+	 * 5-minute interval would skip and the table would grow without bound").
+	 *
+	 * So the real implementation streams, and the big export pages its reads as well.
+	 */
+	private fun writeExportCsv(displayName: String, content: String): String =
+		writeExportCsvStreaming(displayName) { it.write(content) }
+
+	/**
+	 * Open the export target and hand a Writer to [body] — nothing is held whole.
+	 *
+	 * Both targets are the same two as before, in the same order and with the same
+	 * fallback rules: the user's chosen folder through SAF, else app-private storage.
+	 */
+	private fun writeExportCsvStreaming(displayName: String, body: (java.io.Writer) -> Unit): String {
 		val prefs = context.getSharedPreferences("hillview_tracking_prefs", Context.MODE_PRIVATE)
 		val treeUriString = prefs.getString(EXPORT_TREE_URI_PREF, null)
 		if (treeUriString != null) {
@@ -641,8 +767,8 @@ class GeoTrackingManager(private val context: Context) {
 				val fileUri = DocumentsContract.createDocument(
 					context.contentResolver, parent, "text/csv", displayName,
 				) ?: throw java.io.IOException("createDocument returned null")
-				context.contentResolver.openOutputStream(fileUri)?.use {
-					it.write(content.toByteArray(Charsets.UTF_8))
+				context.contentResolver.openOutputStream(fileUri)?.use { out ->
+					out.bufferedWriter(Charsets.UTF_8).use(body)
 				} ?: throw java.io.IOException("openOutputStream returned null")
 				return exportFolderDisplayName(treeUriString) + "/" + displayName
 			} catch (e: SecurityException) {
@@ -665,7 +791,7 @@ class GeoTrackingManager(private val context: Context) {
 		val dir = File(context.getExternalFilesDir(null), "GeoTrackingDumps")
 		if (!dir.exists()) dir.mkdirs()
 		val file = File(dir, displayName)
-		file.writeText(content)
+		file.bufferedWriter(Charsets.UTF_8).use(body)
 		return file.absolutePath
 	}
 
@@ -694,6 +820,41 @@ class GeoTrackingManager(private val context: Context) {
 	 * can. Both travel because only the wall clock relates a sample to a photo's
 	 * `captured_at`.
 	 */
+	/**
+	 * Every IMU sample to [out], a page at a time. Returns how many rows were written.
+	 *
+	 * Memory is O(page), not O(table). The page size is a round 5 000 rows — about
+	 * 350 KB of entities, far below anything that matters, and large enough that a
+	 * million rows is 200 queries rather than 200 000.
+	 *
+	 * The key for the next page comes from the last row of this one, so a sample
+	 * arriving mid-dump (the engine keeps writing) is simply picked up by a later page
+	 * or missed by this dump and caught by the next — never duplicated, because the
+	 * keyset is strictly greater than what was already written.
+	 */
+	private fun writeImuSamplesCsv(out: java.io.Writer): Int {
+		out.write("#timestamp,kind,sequence,x,y,z,elapsedNanos\n")
+		var afterTimestamp = Long.MIN_VALUE
+		var afterKind = ""
+		var afterSequence = Int.MIN_VALUE
+		var written = 0
+		while (true) {
+			val page = database.imuDao()
+				.samplesAfter(afterTimestamp, afterKind, afterSequence, IMU_CSV_PAGE_ROWS)
+			if (page.isEmpty()) break
+			for (s in page) {
+				out.write("${s.timestamp},${s.kind},${s.sequence},${s.x},${s.y},${s.z},${s.elapsedNanos}\n")
+			}
+			written += page.size
+			val last = page.last()
+			afterTimestamp = last.timestamp
+			afterKind = last.kind
+			afterSequence = last.sequence
+			if (page.size < IMU_CSV_PAGE_ROWS) break
+		}
+		return written
+	}
+
 	private fun imuSamplesToCsv(samples: List<ImuSampleEntity>): String {
 		val header = "#timestamp,kind,sequence,x,y,z,elapsedNanos\n"
 		val rows = samples.joinToString("\n") {

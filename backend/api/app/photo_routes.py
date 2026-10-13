@@ -1710,6 +1710,26 @@ _ATTITUDE_FIELDS: dict = {
 	'age_ms': int,
 	'device_rotation_deg': int,
 	'landscape_azimuth_negation': bool,
+	# HOW the angles above were arrived at: the HAL's raw quaternion and the
+	# arithmetic applied to it, kept separable. Everything else in this object
+	# is a function of rotation_vector, so a frame carrying it stays
+	# re-derivable against a later understanding of the geometry — which is the
+	# whole reason it is here, after two faults in one device's fusion each
+	# proved unmeasurable from the final heading alone.
+	'rotation_vector': list,
+	'matrix_determinant': float,
+	'bearing_reference': str,
+	'bearing_conditioning': float,
+	'camera_bearing_deg': float,
+	'device_bearing_deg': float,
+	'branch_corrected': bool,
+	'azimuth_mirrored': bool,
+	# What the fused matrix said about the two axes pitch_deg/roll_deg stopped coming
+	# from in metadata_version 3 (they come from gravity now). Published for the same
+	# reason as the rest: the pair's DIFFERENCE is the measurement of the fusion's
+	# error, and a reader with only the published values cannot make it.
+	'matrix_pitch_deg': float,
+	'matrix_roll_deg': float,
 }
 
 # What the RECEIVER said about its own fix — error bars and motion, never the
@@ -1775,9 +1795,12 @@ _IMU_WINDOW_FIELDS: dict = {
 	# what makes an artifact findable: a photo's own array holds its own exposure in
 	# 1 case out of 86 (measured 2026-09-28) because the claims tile the session
 	# rather than centring on their photo, so "the samples at this exposure" is always
-	# a question about someone else's artifact. Claims tile and do not overlap, so
-	# exactly one photo owns any instant and containment answers it from this list
-	# alone -- no fetching candidates in order to read their t0_ns.
+	# a question about someone else's artifact. Claims are ADJACENT and do not overlap
+	# ([.., H] then [H+1, ..]), so inside a stretch of continuous recording exactly one
+	# photo owns any instant and containment answers it from this list alone -- no
+	# fetching candidates in order to read their t0_ns. Across a real pause in recording
+	# the claims do not abut, and containment correctly returns nothing: no photo's
+	# artifact holds samples that were never recorded.
 	'stored_from_ms': int,
 	'stored_to_ms': int,
 	'accel_peak_mps2': float,
@@ -1895,9 +1918,18 @@ def _attitude(exif_data: Optional[dict]) -> Optional[dict]:
 	Distinct from the top-level ``bearing``, which is the ELECTED answer and may
 	have been set by hand; this is the MEASUREMENT, and when the two disagree
 	that disagreement is the point. See ``attitudeProvenanceJson`` in frontend2
-	for what each key means and, importantly, what each does NOT mean —
-	``roll_deg`` is the residual within ``device_rotation_deg``, not an absolute
-	rotation, and ``magnetometer_calibration`` rates the heading only.
+	for what each key means and, importantly, what each does NOT mean — before
+	2026-10-08 ``roll_deg`` was the residual within ``device_rotation_deg``
+	rather than an absolute rotation, and ``magnetometer_calibration`` rates the
+	heading only.
+
+	The HAL diagnostics added 2026-10-10 (``rotation_vector`` and the fields
+	beside it) are published on the same reasoning, and they disclose nothing
+	further: a unit quaternion is the heading, pitch and roll this response
+	already gives, in another basis. What they add is the ability to CHECK those
+	three — against each other, against ``inertial.gravity``, and against
+	whatever the correction code is believed to do — on someone else's frames,
+	which is where a systematic orientation error is found.
 
 	Absent before 2026-09-26, and absent on every photo taken before the app
 	started recording it.

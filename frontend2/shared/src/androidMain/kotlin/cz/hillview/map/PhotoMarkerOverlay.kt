@@ -8,6 +8,7 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Overlay
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.sin
 
 /**
@@ -129,6 +130,11 @@ class PhotoMarkerOverlay : Overlay() {
                     marker,
                     point.x.toFloat() + (7f * density * sin(rad)).toFloat(),
                     point.y.toFloat() - (7f * density * cos(rad)).toFloat(),
+                    // The cross stays behind: the original counter-translates
+                    // it by the same 7px (optimizedMarkers.ts:181) so it
+                    // marks the photo's true point.
+                    gpsX = point.x.toFloat(),
+                    gpsY = point.y.toFloat(),
                 )
             }
         }
@@ -171,7 +177,18 @@ class PhotoMarkerOverlay : Overlay() {
         }
     }
 
-    private class Placed(val marker: PhotoMarker, val x: Float, val y: Float)
+    /**
+     * A marker's place on screen: [x]/[y] where its body is drawn (and
+     * tapped), [gpsX]/[gpsY] the photo's true point, which the cross marks.
+     * The two differ only by the 7px pile nudge.
+     */
+    private class Placed(
+        val marker: PhotoMarker,
+        val x: Float,
+        val y: Float,
+        val gpsX: Float = x,
+        val gpsY: Float = y,
+    )
 
     private fun drawSolo(
         canvas: Canvas,
@@ -187,6 +204,8 @@ class PhotoMarkerOverlay : Overlay() {
         // Nothing to declutter, so no offset — the arrow already says which
         // way it looks. (The Tauri app always offsets by 7px; that was a
         // stand-in for the overlap handling now done by the rose.)
+        // With roses OFF, though, the 7px nudge is already in placed.x/y —
+        // and the cross must NOT follow it: it goes on placed.gpsX/gpsY.
         val cx = placed.x
         val cy = placed.y
         val alphaScale = if (marker.greyed) 0.45f else 1f
@@ -200,11 +219,15 @@ class PhotoMarkerOverlay : Overlay() {
 
         if (bearing != null) drawArrow(canvas, cx, cy, rad, density, selected, alphaScale)
 
+        // On the photo's TRUE point, not the nudged body: the cross is the
+        // one part of the marker that says exactly where it was taken.
         cross.strokeWidth = 1f * density
         cross.alpha = (153 * alphaScale).toInt()
         val arm = 2.5f * density
-        canvas.drawLine(cx - arm, cy, cx + arm, cy, cross)
-        canvas.drawLine(cx, cy - arm, cx, cy + arm, cross)
+        val gx = placed.gpsX
+        val gy = placed.gpsY
+        canvas.drawLine(gx - arm, gy, gx + arm, gy, cross)
+        canvas.drawLine(gx, gy - arm, gx, gy + arm, cross)
         return cx to cy
     }
 
@@ -353,7 +376,7 @@ class PhotoMarkerOverlay : Overlay() {
 }
 
 /**
- * The dashed range ring. It is a **screen-constant** circle — the Tauri app
+ * The range ring. It is a **screen-constant** circle — the Tauri app
  * derives `range` from a fixed 70 CSS pixels, so the ring keeps its size
  * while zoom changes what it means on the ground. Drawn straight at that
  * pixel radius rather than round-tripping through metres, which would only
@@ -406,10 +429,90 @@ class GpsMarkerOverlay : Overlay() {
     }
 }
 
+/**
+ * How far the receiver says the fix may be off: a disc of the fix's
+ * horizontal accuracy, in metres on the ground, round [GpsMarkerOverlay]'s
+ * crosshair (user, 2026-10-10: "gps accuracy circle with semi-opaque fill").
+ *
+ * NOT the original's: Map.svelte declares an `accuracyCircle` (line 123)
+ * and never draws one. An addition, not a port.
+ *
+ * Its own overlay rather than part of the crosshair's, because the two
+ * want opposite places in the draw order: the crosshair goes over the photo
+ * markers so a pile of them cannot bury it, while a disc that can be tens of
+ * metres wide would tint every marker inside it from on top. So this one is
+ * the bottom layer, under the range ring too, so the threshold line stays
+ * exactly as it is drawn.
+ *
+ * Ground-sized, unlike the range ring: it says something about the earth,
+ * so it grows and shrinks with zoom.
+ */
+class GpsAccuracyOverlay : Overlay() {
+    var position: GeoPoint? = null
+    /** The fix's horizontal accuracy, metres. Null or zero draws nothing. */
+    var accuracyM: Float? = null
+    var visible: Boolean = false
+
+    private val blue = Color.rgb(0x42, 0x85, 0xF4)
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.argb(0x40, Color.red(blue), Color.green(blue), Color.blue(blue))
+    }
+    private val rim = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = Color.argb(0x99, Color.red(blue), Color.green(blue), Color.blue(blue))
+    }
+
+    override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
+        if (shadow || !visible) return
+        val p = position ?: return
+        val metres = accuracyM?.takeIf { it > 0f && it.isFinite() } ?: return
+        val projection = mapView.projection
+        val centre = projection.toPixels(p, null)
+        // Measured off the projection, the way the range is: a point that
+        // far east of the fix, in screen pixels. That keeps Mercator's
+        // stretch with latitude and the map's rotation out of the sum.
+        val edge = projection.toPixels(p.destinationPoint(metres.toDouble(), 90.0), null)
+        val radius = hypot(
+            (edge.x - centre.x).toFloat(),
+            (edge.y - centre.y).toFloat(),
+        )
+        if (radius <= 0f) return
+        val x = centre.x.toFloat()
+        val y = centre.y.toFloat()
+        canvas.drawCircle(x, y, radius, fill)
+        rim.strokeWidth = 1f * mapView.context.resources.displayMetrics.density
+        canvas.drawCircle(x, y, radius, rim)
+    }
+}
+
+/**
+ * The one circle on the map: the range, and the bearing handle as well.
+ *
+ * There used to be two, concentric and 21 dp apart: this one, which said
+ * what the circle MEANS, and a faint blue ring at the arrow's tip radius,
+ * which was what actually answered a finger (user, 2026-10-10: "This should
+ * be unified into one circle somehow"). [BearingArrowOverlay] now grabs THIS
+ * ring and draws its hold against it, so what the circle says and what it
+ * does are the same line.
+ *
+ * And the line is the range EXACTLY (same day: "the circle should give users
+ * the exact threshold of the range"): a thin solid stroke on the threshold,
+ * where it used to be the middle of an 8.8 dp dashed band — see RangeRing.kt.
+ *
+ * Centred on the VIEW, as the arrow and its touch handling are, and not on
+ * the spatial centre projected back to pixels. At rest those are one point,
+ * but the spatial centre arrives here a recomposition after a pan has
+ * already moved the map, so the ring would trail the handle by a frame —
+ * and one circle cannot be in two places.
+ */
 class RangeCircleOverlay : Overlay() {
-    /** Screen radius in device pixels (70dp worth). */
+    /**
+     * The range threshold's screen radius in device pixels (70dp worth): the
+     * radius MapScreen measures the range off, so the line drawn here is the
+     * line the viewer culls at. See RangeRing.kt for where the rest sits.
+     */
     var radiusPx: Float = 0f
-    var centre: GeoPoint? = null
     var visible: Boolean = true
 
     private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -423,18 +526,16 @@ class RangeCircleOverlay : Overlay() {
 
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
         if (shadow || !visible) return
-        val c = centre ?: return
         if (radiusPx <= 0f) return
         val density = mapView.context.resources.displayMetrics.density
-        val point = android.graphics.Point()
-        mapView.projection.toPixels(c, point)
+        val cx = mapView.width / 2f
+        val cy = mapView.height / 2f
 
-        canvas.drawCircle(point.x.toFloat(), point.y.toFloat(), radiusPx, inner)
-        // Leaflet weight/dash are CSS pixels, i.e. dp here.
-        ring.strokeWidth = 8.8f * density
-        ring.pathEffect = android.graphics.DashPathEffect(
-            floatArrayOf(5f * density, 15f * density), 0f,
-        )
-        canvas.drawCircle(point.x.toFloat(), point.y.toFloat(), radiusPx, ring)
+        canvas.drawCircle(cx, cy, radiusPx, inner)
+        // The threshold: solid and thin, exactly on the range, so in and out
+        // of range is a line you can see. No dashed band any more — see
+        // RangeRing.kt.
+        ring.strokeWidth = RANGE_THRESHOLD_LINE_DP * density
+        canvas.drawCircle(cx, cy, radiusPx, ring)
     }
 }

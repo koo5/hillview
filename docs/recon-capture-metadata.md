@@ -29,7 +29,7 @@ grouped objects, not a flat sprawl of keys, because the set will keep growing:
 
 | object | what it holds | phase |
 |---|---|---|
-| `attitude` | device pose: headings, pitch, roll, the two accuracies, fusion, device rotation | DONE |
+| `attitude` | device pose: headings, pitch, roll, the two accuracies, fusion, device rotation, and (2026-10-10) HOW the angles were arrived at — the HAL's raw quaternion, `det(R)`, which vector the bearing came from and how well-conditioned it was, and whether each of the two corrections fired | DONE |
 | `exposure` | the rule asked for and what it resolved to | pre-existing |
 | `alt_location` | the position stream the photo did NOT record | pre-existing |
 | `lens` | intrinsics, distortion, focus, zoom, focal length, skew | 2 |
@@ -191,6 +191,10 @@ disjoint and easy to conflate:
 
 | | app photos (frontend2) | external frames (`pics`) |
 |---|---|---|
+
+The IMU artifact carries three kinds as of 2026-10-10: `accel` (m/s²), `gyro` (rad/s) and `rv` — `TYPE_ROTATION_VECTOR` as a unit quaternion's vector part, three floats at six decimals. `w` comes back as `sqrt(1 - x² - y² - z²)`, which is what `SensorManager.getRotationMatrixFromVector` itself does with a 3-element vector, so the existing row shape holds it losslessly and no migration was needed. Replay it with `CameraPose.cameraPoseFromRotationVector` — the same geometry the phone ran.
+
+It is there because of what its absence cost: accel and gyro describe the TRUE motion across an exposure, but not what the fusion REPORTED during it, and both attitude faults found on this device were about the reported value. Each had to be chased with a person watching a readout. With `rv` recorded, a window answers that offline.
 | route | the upload carries everything: `attitude`, `fix`, `lens`, `motion`, and `imu_samples` | the CSV dumps, which are the ONLY route |
 | joined by | nothing — it is all one record | time, against the logs |
 | needs the dumps | no | yes, entirely |
@@ -473,8 +477,10 @@ in order to decide whether to download.
 
 `inertial.imu_window.stored_from_ms` / `stored_to_ms` (2026-09-28) are the claimed
 slice, written by the deferred rewrite because the claim is the only place it is known.
-Claims tile and do not overlap, so exactly one photo owns any instant and containment
-answers the question from a photo list alone. `stored_from_ms` existed once and was
+Claims are ADJACENT and do not overlap — `[.., H]` then `[H+1, ..]` — so inside a stretch
+of continuous recording exactly one photo owns any instant and containment answers the
+question from a photo list alone. (That adjacency had to be FIXED to be true; see "the
+three exposures that belonged to no photo" below.) `stored_from_ms` existed once and was
 removed on the argument that "the payload's own `t0_ms` says where it starts" — true,
 and beside the point: it says so only after the fetch.
 
@@ -542,6 +548,193 @@ the app; recoverable from each photo's artifact if it is ever worth a pass.
 **And the lesson that generalises:** a data class whose payload fields are nullable with
 defaults will let a rewrite drop them silently. Every argument in that constructor was
 load-bearing and none of them was required.
+
+## The three exposures that belonged to no photo
+
+Reported 2026-09-28 as "minor, unexplained: 3 of 698 portrait-car exposures fall inside
+NO photo's `stored_from_ms..stored_to_ms` claim, on an otherwise seamless tiling."
+Reproduced and explained the next day, and the explanation falsified a sentence this
+document had just gained.
+
+**The samples were not missing.** The exposure instants fell in the gap BETWEEN two
+consecutive claims:
+
+```
+16:08:28.269   previous claim ends 2 ms before,  next begins 1 ms after
+16:08:47.933   previous claim ends 1 ms before,  next begins 2 ms after
+16:09:24.194   previous claim ends 1 ms before,  next begins 2 ms after
+```
+
+Every boundary had that gap — 692 of them in that span, mean 2.597 ms, range 2–4, i.e.
+one sample period at 398 Hz. `GeoEngine.persistImuWindow` bounded each claim by the
+samples it held (`fresh.minOf { it.timestamp } .. fresh.maxOf { … }`), so one claim ended
+at its last sample while the next began at its first, and the ~2.5 ms between them was
+owned by nobody. The rate follows: a 2.5 ms gap against a 750 ms capture interval is
+0.33 %, so ~2.3 of 698 expected, 3 observed.
+
+**Why it mattered more than "minor".** `stored_from_ms`/`stored_to_ms` had just been
+introduced as THE retrieval mechanism — a consumer finds the artifact covering an instant
+by containment — and this document, the API allowlist, the Kotlin doc and two tests all
+stated that claims tile and therefore exactly one photo owns any instant. They do not, and
+a naive containment lookup misses ~0.3 % of exposures silently. A careful reader hit it
+immediately and had no way to tell a crack from missing data.
+
+**The fix is that the bound now mirrors the freshness filter** instead of being derived
+from the data a second time: `maxOf(imuHighWaterMs + 1, fromMs)`. `> imuHighWaterMs` and
+`>= imuHighWaterMs + 1` are the same line, which is why the gap cannot have been intended
+— two definitions of one boundary is what produced it. Adjacency, NOT overlap: `[.., H]`
+then `[H+1, ..]`, so no sample is ever in two claims, which is the whole point of the
+claim table.
+
+The clamp to the requested window is what keeps it honest across a real pause: after a
+45 s break in recording a claim stays at its own window's start, the silence remains
+unclaimed, and "unclaimed" goes on meaning *nothing was recorded here* rather than *you
+landed in a crack*. The same holds for samples written by `flushContinuousImu`, which
+stores and advances the high-water WITHOUT a claim — those rows are in the tracking
+database and in no photo's artifact, so containment correctly finds no owner.
+
+**And the test that should have caught it said it did.**
+`consecutiveCapturesOwnDisjointRanges` carried the comment "...and consecutive claims
+abut rather than leaving holes" while asserting only that no SAMPLE is in two claims —
+a different statement, and the weaker one. Disjointness and adjacency are two properties
+and it checked one. There is now a test per property, including one that walks the run at
+37 ms steps (coprime with the sample period) and requires every instant to have exactly
+one owner.
+
+## `capture_timing.metadata_version` — the contract, as a number
+
+Added 2026-10-08, because the attitude rewrite was the first change that made OLD AND NEW
+ROWS LOOK IDENTICAL AND MEAN DIFFERENT THINGS. `build` already identifies the code, but
+reading it means a lookup from git sha to semantics; this is the thing a consumer can
+branch on.
+
+**The rule: adding a field never bumps it.** Absence of a key is already unambiguous. It
+moves only when an existing field is REINTERPRETED.
+
+| value | what the attitude means |
+|---|---|
+| absent | before 2026-10-08. `pitch_deg`/`roll_deg` are Euler angles off a matrix remapped by the quantized `device_rotation_deg`: device-frame, discontinuous at quadrant boundaries, degenerate in landscape. The azimuth was shifted 180° past 90° of roll, and negated on top of that when `landscape_azimuth_negation` was true. |
+| **1** | from 2026-10-08. `pitch_deg` and `roll_deg` from the camera-axis transform — continuous in every orientation, pitch POSITIVE LOOKING DOWN, roll the image's rotation about the optical axis, both equal to the `inertial.gravity` formulas by construction. `landscape_azimuth_negation` is inert. The heading is the camera's where the lens is off vertical and the device's TOP EDGE where it is not; `pitch_deg` says which. |
+| **2** | from 2026-10-10. Everything v1 says about MEANING still holds; the VALUES are now corrected for two measured faults in this device's fused rotation vector. The azimuths and `roll_deg` take +180° when the HAL returns the attitude whose roll sign disagrees with gravity; the azimuth is unmirrored in landscape above the horizon when the user's pref is on, so `landscape_azimuth_negation` is LIVE again and `attitude.azimuth_mirrored` says whether it fired. The HAL's raw quaternion is stamped alongside (`attitude.rotation_vector` and the fields with it), so a v2 frame is re-derivable rather than taken on trust. |
+| **3** | from 2026-10-10, hours after v2. `pitch_deg` and `roll_deg` come from GRAVITY (`asin(g_z/|g|)`, `atan2(g_x, g_y)`) instead of from the fused rotation matrix — they never needed the magnetometer, and the 180° branch ambiguity exists only because the matrix must also answer which way is north. Over 94 right-branch captures the two rolls differ by mean −0.95° (sd 3.33) and the two pitches by −0.29° (sd 1.32), so nothing systematic is lost. With the phone flat, gravity has no in-plane direction and the matrix's roll is published instead (`GRAVITY_ROLL_FLOOR`); pitch never defers. The heading and both corrections are unchanged. |
+
+Emitted first in the object, so it is the first thing a reader meets. Nested in
+`capture_timing` for the same reason `build` is — the object is a declared untyped dict
+server-side, so no worker deploy — and with the same caveat: both belong in a top-level
+`metadata` object once the rehaul lands.
+
+## The attitude maths: where the lens points, not how the phone is tilted
+
+Rewritten 2026-10-08, after `/shared/app_bugs/02` and one afternoon of deliberate
+orientation captures. The old path was `remapCoordinateSystem` keyed on a QUANTIZED
+orientation class, then `getOrientation`, then two step functions keyed on `roll` — one
+commented `// magic`. All three of its symptoms have one cause.
+
+**The sensor was never the compass.** It is `TYPE_ROTATION_VECTOR`, Android's fused
+orientation; the magnetometer is registered alongside only for its calibration status,
+and declination is added afterwards. What was being remapped is the rotation MATRIX, and
+azimuth, pitch and roll were all read out of the remapped frame — so the earlier claim
+that "pitch/roll are in the portrait frame and not remapped" was wrong in both halves.
+
+**The cause.** The portrait remap sends the device's Y axis to world Z — up — which is
+the "phone is held upright" part. Neither landscape remap sends anything to Z; they are
+in-plane rotations about the screen normal. So in landscape the frame handed to
+`getOrientation` has no axis near world up: pitch pins near ∓90 and roll goes
+ill-conditioned. And because the orientation classifier only calls it landscape from 45°,
+a phone rolled 38° got the PORTRAIT remap applied to it.
+
+**Measured against gravity, 2026-10-03:**
+
+| | portrait | landscape |
+|---|---|---|
+| `pitch_deg` vs `asin(g_z/\|g\|)` | agrees to ≤0.8° on 6 captures | −56.7 / −84.4 / −68.0 where gravity says −33.7 / −4.4 / +21.8 — not monotonic |
+| `roll_deg` | agrees with `atan2(g_x, g_y)` | flips −176.8 → +2.7 between consecutive frames |
+| bearing | reference | **1.0° from portrait on the same scene** |
+
+So there is **no inherent landscape bearing bias** — the earlier ~20° hint from 09-10
+orientation switches does not reproduce, and across 16 landscape captures the median
+bearing error against the nearest un-rolled neighbour is −3.0°. What IS broken is
+mid-roll: three deliberate ~40° captures came out **43–52°** off their own un-rolled
+neighbours, the error tracking the roll angle.
+
+And the two corrections were keyed on `roll` — the very quantity the landscape remap
+made degenerate. The sweep above shows them switching on and off between consecutive
+frames while the phone merely tilted.
+
+**The replacement** transforms the camera axis instead of reading Euler angles
+(`cz.hillview.plugin.CameraPose`): the lens direction is minus the matrix's third column
+in world (East, North, Up), so the bearing is `atan2` of its horizontal part, the pitch
+is `asin` of its vertical part, and the image roll comes from world-up expressed in
+device coordinates — the matrix's third row, which is also what the gravity vector
+points along. No orientation class, no `remapCoordinateSystem`, no `abs(roll) > 90`
+branches, no A22 toggle, and continuous through every pose.
+
+`CameraPoseTest` builds matrices from NAMED DEVICE AXES — the opposite direction from the
+code, so a sign error cannot cancel — and pins: the same bearing in portrait, at 10/38/45/60/89°
+of roll and in landscape; a monotonic up/level/down sweep held in landscape; and the
+identity with the gravity formulas that the prod check rests on.
+
+**Two conventions, now stated because one was wrong.** `pitch_deg` is POSITIVE LOOKING
+DOWN — the code said "positive up" and the data says otherwise (a level portrait capture
+reads −4.5 with the lens 4.6° above the horizon). `roll_deg` is now the image's rotation
+about the optical axis rather than a residual within a quadrant.
+
+**What the degeneracy became.** A lens pointed straight up or down has no bearing, and
+`atan2(0, 0)` returns 0 — so the old code published "due north" for a photo of the
+pavement. `CameraPose.horizontalLength` is that condition as a number
+(cos of the elevation), with `BEARING_CONDITION_FLOOR` naming the threshold and a log
+line when it trips. The pose is still published, because pitch and roll are perfectly
+well defined there.
+
+**Reading the archive.** `capture_timing.build` separates the two eras. Portrait rows
+were already right. Landscape rows from before are recoverable as
+`pitch = (pitch_deg + 90) × (−1 if |roll_deg| > 90 else +1)` — which is NOT the
+`wrap(roll_deg + 180)` the bug report proposed; that came from a near-level car drive
+where the elevation barely varied and it does not survive a real sweep.
+
+**Still open:** `landscape_azimuth_negation` is now inert and still recorded (it remains
+a true fact about the settings, and pre-2026-10-08 rows cannot be read without it), so
+the settings toggle no longer does anything — remove it or keep it as a kill switch is a
+product decision, not made here. And the absolute landscape↔portrait offset that
+rotation deltas structurally cannot see is still unmeasured.
+
+### The flat phone, and why the old path was not simply wrong
+
+Caught on the first day of real use (user, 2026-10-09): *"the new remapping does what was
+promised, but the old one had an advantage: when the phone was held roughly flat, it would
+still show more or less correct bearing. Good for using the map with phone on a table."*
+
+Correct, and it localises what the old design was actually doing. `getOrientation`'s
+azimuth is the direction of the device's **top edge**, projected horizontally — and that
+is exactly the reference a map wants from a phone lying on a desk. Its orientation
+classifier even had a FLAT case with "no remapping needed", which is why: unremapped, it
+was already the right answer there. The remap existed to convert the top edge into the
+lens direction for the postures where a photo is taken. So the old code was switching
+between two references on posture; the bug was that it did so on a quantized class and
+got landscape's conversion wrong.
+
+**The two references are complementary, not rival.** Held up to shoot, the lens is
+horizontal and the top edge points at the sky. Flat on a table, the lens points at the
+table and the top edge is horizontal. And that is provable rather than observed: the
+device's +Y and −Z are orthogonal unit vectors, so their vertical components satisfy
+u_y² + u_z² ≤ 1, hence their horizontal lengths satisfy hc² + hd² ≥ 1 and
+**max(hc, hd) ≥ 1/√2 always**. There is no posture in which both are bad.
+
+So the published heading is `pointingBearingDeg`: the camera's wherever hc ≥ 0.707 (the
+lens within 45° of level, which covers every shooting posture including landscape), the
+top edge's below hc ≤ 0.259 (the lens within ~15° of vertical), blended across the band.
+
+**The camera DOMINATES rather than sharing, and that is the whole design.** In landscape
+held upright both axes are horizontal — lens forward, top edge sideways — so a blend
+weighted by conditioning alone would split the difference and skew the bearing by up to
+45°, which is the mid-roll bug in a new costume. A test pins that case specifically.
+
+**No new provenance field, deliberately.** Which reference answered is a function of the
+camera's conditioning, which is a function of `pitch_deg`, which every photo already
+carries: `|pitch_deg| < 45` is the camera, `> 75` the top edge, between a blend. Nothing
+is hidden and the four-list tax is not paid for a derived value. The consequence worth
+stating: a photo shot with the phone flat carries a bearing that is NOT where the lens
+pointed — and its own pitch of ~±90 says so.
 
 ## Pitch has three homes — which is which
 

@@ -31,15 +31,23 @@ claim, so:
 | `sensorsInBackground` | `any` |
 | `imu` | `any` |
 | `imuContinuous` | `any` |
+| `declinationFixMaxAgeMs` | `min` of those asked for (only used while no claim runs a fix stream) |
 
 There are exactly two claimants: `OWNER_ACTIVITY` (the composable binding) and
-`OWNER_EXTERNAL_SERVICE` (the foreground service). The three configs:
+`OWNER_EXTERNAL_SERVICE` (the foreground service). The four configs:
 
 | config | `sensors` | `sensorDelayUs` | `imu` | `imuContinuous` | background |
 |---|---|---|---|---|---|
 | `captureGeoConfig` | true | 30 ms | **true, always** | false | no |
 | `externalCameraConfig` | true | 30 ms | **= toggle** | = toggle | **yes** |
 | `mapOnlyGeoConfig` | true | 100 ms | false | false | no |
+| `compassOnlyGeoConfig` | true | 100 ms | false | false | no |
+
+`mapOnlyGeoConfig` is follow-me, or the arrow in car mode, with a fix every 2 s.
+`compassOnlyGeoConfig` is the walking compass alone (2026-10-11): no fix stream,
+only a position for declination, kept under 30 minutes old by one fused
+`getCurrentLocation` at a time (balanced power). See `mapGeoNeed` and
+`GeoEngine.requestDeclinationFix`.
 
 So fast sampling runs when the capture activity is in the foreground, or when the
 external activity is running with its toggle on — and in the external case it
