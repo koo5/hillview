@@ -196,6 +196,7 @@ PROFILES = {
 	**vm_profiles("dev4", "192.168.122.64"),
 	**vm_profiles("dev4-3", "192.168.122.31", ygg_reachable_locally=True),
 	**vm_profiles("dev4-2", "192.168.122.37", ygg_reachable_locally=True),
+	**vm_profiles("dev44", "192.168.122.3", ygg_reachable_locally=True),
 }
 
 

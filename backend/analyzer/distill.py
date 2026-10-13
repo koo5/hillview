@@ -4,11 +4,19 @@ Distillation library for merging multiple analysis sessions into a single result
 
 import fcntl
 import json
+import os
 import re
 import sys
+import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
+# Independent of the model selected for acquisition. Adding a model here makes
+# its already-recorded answers eligible; no history needs rewriting.
+TRUSTED_MODELS = tuple(model.strip() for model in os.environ.get(
+	"ANALYZER_TRUSTED_MODELS",
+	"nvidia/nemotron-nano-12b-v2-vl:free,qwen/qwen3-vl-30b-a3b-thinking",
+).split(",") if model.strip())
 
 def lock_path_for(json_path: Path) -> Path:
 	"""The lock file guarding a sessions JSON file."""
@@ -77,13 +85,20 @@ def save_sessions(json_path: Path, sessions: list[dict], *, lock: bool = True):
 	json_path.parent.mkdir(parents=True, exist_ok=True)
 
 	if not lock:
-		with open(json_path, "w") as f:
-			json.dump(sessions, f, indent=2)
+		# A stopped collector must not leave the trusted history truncated.
+		with tempfile.NamedTemporaryFile(mode="w", dir=json_path.parent, delete=False) as f:
+			try:
+				json.dump(sessions, f, indent=2)
+				f.flush()
+				os.fsync(f.fileno())
+				os.replace(f.name, json_path)
+			finally:
+				if os.path.exists(f.name):
+					os.unlink(f.name)
 		return
 
 	with file_lock(lock_path_for(json_path)):
-		with open(json_path, "w") as f:
-			json.dump(sessions, f, indent=2)
+		save_sessions(json_path, sessions, lock=False)
 
 
 def _session_matches(
@@ -362,7 +377,9 @@ def parse_object_distance(obj: dict, context: str) -> float | None:
 
 def get_sorted_successful_sessions(sessions: list[dict]) -> list[dict]:
 	"""Return sessions without parse errors, sorted by timestamp (most recent first)."""
-	successful = [s for s in sessions if not s.get("result", {}).get("parse_error", True)]
+	successful = [s for s in sessions
+		if not s.get("result", {}).get("parse_error", True)
+		and s.get("metadata", {}).get("model") in TRUSTED_MODELS]
 	successful.sort(key=lambda s: s.get("metadata", {}).get("timestamp", ""), reverse=True)
 	return successful
 
