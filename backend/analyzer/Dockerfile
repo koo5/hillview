@@ -8,8 +8,9 @@ COPY --from=ghcr.io/astral-sh/uv:0.11.5 /uv /bin/uv
 WORKDIR /app/analyzer
 
 # deps from the analyzer's own pyproject (httpx, dotenv, sqlalchemy, asyncpg, geoalchemy2)
-COPY backend/analyzer/pyproject.toml ./
-RUN uv pip install --system -r pyproject.toml
+COPY backend/analyzer/pyproject.toml backend/analyzer/uv.lock ./
+RUN uv export --frozen --no-dev --no-emit-project -o /tmp/analyzer-requirements.txt \
+    && uv pip install --system -r /tmp/analyzer-requirements.txt
 
 # the backend common package (models/database) — reached via PYTHONPATH, replacing
 # the script's repo-layout sys.path hack (which becomes a harmless no-op in here)
@@ -18,6 +19,7 @@ COPY backend/analyzer/*.py /app/analyzer/
 
 ENV PYTHONPATH=/app/backend
 ENV ANALYZER_DATA_DIR=/data
+ENV PYTHONUNBUFFERED=1
 
 RUN useradd --create-home --uid 1001 analyzer && mkdir -p /data && chown analyzer /data
 USER analyzer

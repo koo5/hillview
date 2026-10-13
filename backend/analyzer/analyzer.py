@@ -78,6 +78,7 @@ from analyze_photo import (
 )
 
 from distill import (
+	TRUSTED_MODELS,
 	load_sessions,
 	save_sessions,
 	find_duplicate,
@@ -130,6 +131,7 @@ class Outcome:
 	kind: str
 	analysis: dict | None = None   # the complete document for photos.analysis; only ever set when kind == 'ok'
 	junk_attempts: int = 0         # kind == 'junk': failed attempts for the failing pass, counted from the JSON file
+	queried: bool = False
 
 
 # The keys readers get. Everything else distill produces (description, objects,
@@ -317,6 +319,9 @@ async def process_photo(
 			verbose=verbose
 		)
 		sessions.append(features_session)
+		save_sessions(json_path, sessions, lock=False)
+		if features_session.get("result", {}).get("error"):
+			return Outcome('error', queried=True)
 
 		if features_session.get("result", {}).get("parse_error"):
 			print(f"    Features: ✗ parse error")
@@ -364,6 +369,8 @@ async def process_photo(
 
 	# Save sessions
 	save_sessions(json_path, sessions, lock=False)
+	if not distances_dup and distances_session.get("result", {}).get("error"):
+		return Outcome('error', queried=True)
 
 	if not (features_ok and distances_ok):
 		# A pass came back unparseable this run. Nothing reaches the database —
@@ -376,7 +383,11 @@ async def process_photo(
 		)
 		print(f"    Junk: failed attempt #{junk_attempts} for this model+prompt"
 			  + (" — giving up" if junk_attempts >= MAX_JUNK_ATTEMPTS else ""))
-		return Outcome('junk', junk_attempts=junk_attempts)
+		return Outcome('junk', junk_attempts=junk_attempts, queried=True)
+
+	queried = not (features_dup and distances_dup)
+	if model not in TRUSTED_MODELS:
+		return Outcome('collected', queried=queried)
 
 	# Distill results
 	distilled = distill_sessions(sessions)
@@ -391,7 +402,7 @@ async def process_photo(
 		for k, v in distilled.items():
 			print(f"      {k}: {v}")
 
-	return Outcome('ok', analysis=db_document(distilled))
+	return Outcome('ok', analysis=db_document(distilled), queried=queried)
 
 
 # ---------------------------------------------------------------------------
@@ -513,6 +524,33 @@ async def claim_next(datadir: Path, dry_run: bool, deferred: dict[str, datetime]
 			return photo, lock_file
 
 
+async def claim_refresh(datadir: Path, cursor, prefer: str, deferred: dict):
+	"""Visit completed photos in stable order, with the same JSON lock as the queue.
+
+	Only selection uses the DB here; publication is still controlled by trust.
+	Keyset pagination avoids repeatedly scanning cached photos or a huge NOT IN.
+	"""
+	while True:
+		async with SessionLocal() as db:
+			stmt = select(Photo).where(Photo.processing_status == 'completed',
+				Photo.deleted == False, Photo.file_md5.isnot(None))
+			rank = (Photo.analysis.isnot(None) if prefer == "missing" else Photo.analysis.is_(None)).cast(Integer)
+			stmt = stmt.order_by(rank, Photo.id)
+			if cursor is not None:
+				previous_rank, previous_id = cursor
+				stmt = stmt.where(or_(rank > int(previous_rank),
+					(rank == int(previous_rank)) & (Photo.id > previous_id)))
+			photo = (await db.execute(stmt.limit(1))).scalars().first()
+		if photo is None:
+			return None
+		cursor = (photo.analysis is not None if prefer == "missing" else photo.analysis is None, photo.id)
+		if deferred.get(photo.id, datetime.min.replace(tzinfo=timezone.utc)) > datetime.now(timezone.utc):
+			continue
+		lock_file = acquire_file_lock(lock_path_for(json_path_for(datadir, photo)), blocking=False)
+		if lock_file is not None:
+			return photo, lock_file
+
+
 async def record_outcome(photo: Photo, outcome: Outcome, dry_run: bool) -> None:
 	"""
 	Second short transaction. A complete run writes the document (if it changed
@@ -552,7 +590,9 @@ async def main_loop(
 	verbose: bool,
 	once: bool,
 	sleep_interval: int,
-	dry_run: bool = False
+	dry_run: bool = False,
+	prefer: str = "missing",
+	interval: float = 60,
 ):
 	"""Main processing loop."""
 	datadir.mkdir(parents=True, exist_ok=True)
@@ -570,11 +610,15 @@ async def main_loop(
 
 	deferred: dict[str, datetime] = {}  # this process's own skip list, see claim_next
 	processed = 0
+	cursor = None
+	refresh = prefer == "update" or model not in TRUSTED_MODELS
 
-	async with SessionLocal() as db:
-		added = await sync_queue(db)
-		remaining = await count_remaining(db)
-	print(f"[{datetime.now().strftime('%H:%M:%S')}] Queued: {added} new. Photos to analyze: {remaining}")
+	if not refresh:
+		async with SessionLocal() as db:
+			added = await sync_queue(db)
+			remaining = await count_remaining(db)
+		print(f"[{datetime.now().strftime('%H:%M:%S')}] Queued: {added} new. Photos to analyze: {remaining}")
+	print(f"  Preference: {prefer}; trusted models: {TRUSTED_MODELS}")
 
 	while True:
 		# # Count remaining unanalyzed photos
@@ -588,7 +632,10 @@ async def main_loop(
 		# print(f"[{datetime.now().strftime('%H:%M:%S')}] Remaining photos to analyze: {remaining}")
 
 		try:
-			claimed = await claim_next(datadir, dry_run, deferred)
+			if refresh:
+				claimed = await claim_refresh(datadir, cursor, prefer, deferred)
+			else:
+				claimed = await claim_next(datadir, dry_run, deferred)
 		except Exception as e:
 			print(f"    Error claiming a photo: {e}")
 			traceback.print_exc()
@@ -597,10 +644,11 @@ async def main_loop(
 			continue
 
 		if claimed is None:
-			async with SessionLocal() as db:
-				added = await sync_queue(db)
-			if added:
-				continue  # photos finished processing (or went stale) since the last sync; try them now
+			if not refresh:
+				async with SessionLocal() as db:
+					added = await sync_queue(db)
+				if added:
+					continue  # photos finished processing (or went stale) since the last sync; try them now
 
 			if once:
 				print("No photos to analyze.")
@@ -608,9 +656,12 @@ async def main_loop(
 
 			print(f"[{datetime.now().strftime('%H:%M:%S')}] No photos to analyze, sleeping {sleep_interval}s...")
 			await asyncio.sleep(sleep_interval)
+			cursor = None
 			continue
 
 		photo, lock_file = claimed
+		if refresh:
+			cursor = (photo.analysis is not None if prefer == "missing" else photo.analysis is None, photo.id)
 
 		print(f"[{datetime.now().strftime('%H:%M:%S')}] Processing photo...")
 		try:
@@ -622,7 +673,12 @@ async def main_loop(
 				outcome = Outcome('error')
 
 			try:
-				await record_outcome(photo, outcome, dry_run)
+				if model in TRUSTED_MODELS:
+					await record_outcome(photo, outcome, dry_run)
+				else:
+					print("    Recorded answers; query model is not trusted for distillation")
+				if refresh and outcome.kind not in ('ok', 'collected', 'cached'):
+					deferred[photo.id] = next_retry_for(outcome, datetime.now(timezone.utc))
 			except Exception as e:
 				print(f"    Error recording outcome: {e}")
 				traceback.print_exc()
@@ -637,10 +693,10 @@ async def main_loop(
 		if outcome.kind == 'error':
 			print(f"sleeping {ERROR_SLEEP}s before continuing...")
 			await asyncio.sleep(ERROR_SLEEP)
-		else:
-			await asyncio.sleep(1)
+		elif outcome.queried or not refresh:
+			await asyncio.sleep(interval if refresh else 1)
 
-		if processed % 20 == 0:
+		if processed % 20 == 0 and not refresh:
 			async with SessionLocal() as db:
 				if processed % 100 == 0:
 					await sync_queue(db)
@@ -682,8 +738,14 @@ def main():
 		default=30,
 		help="Sleep interval in seconds when no photos (default: 30)"
 	)
+	parser.add_argument("--interval", type=float, default=60,
+		help="Seconds between photos requiring calls when revisiting existing data")
+	parser.add_argument("--prefer", choices=("missing", "update"), default="missing",
+		help="Prioritize photos without assessments, or revisit all photos for the query model")
 
 	args = parser.parse_args()
+	if args.interval < 0 or args.sleep <= 0:
+		parser.error("--interval must be nonnegative and --sleep positive")
 
 	# Verify API key file is configured
 	if not os.environ.get("OPENROUTER_API_KEY_FILE"):
@@ -696,7 +758,9 @@ def main():
 		verbose=args.verbose,
 		once=args.once,
 		sleep_interval=args.sleep,
-		dry_run=args.dry_run
+		dry_run=args.dry_run,
+		prefer=args.prefer,
+		interval=args.interval,
 	))
 
 

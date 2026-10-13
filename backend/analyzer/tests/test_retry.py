@@ -33,7 +33,7 @@ from analyzer import (
 	next_retry_for,
 )
 
-MODEL = "some/model"
+MODEL = "qwen/qwen3-vl-30b-a3b-thinking"
 PROMPT = "Analyze this photo.\n{schema}"
 TEMPERATURE = 0
 MAX_TOKENS = 6666
