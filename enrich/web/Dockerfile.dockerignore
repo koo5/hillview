@@ -1,9 +1,0 @@
-# allowlist: repo-root build context, but only these trees are needed
-# (same pattern as scripts/analyzer/Dockerfile.dockerignore)
-*
-!enrich/web
-!shared/zoomview
-!shared/terrain
-enrich/web/node_modules
-enrich/web/.svelte-kit
-enrich/web/build
