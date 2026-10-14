@@ -24,6 +24,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
+import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -185,8 +186,14 @@ object PhotoTableDump {
                 limit = PHOTO_DUMP_SHARD_ROWS,
                 offset = shard * PHOTO_DUMP_SHARD_ROWS,
             )
-            val csv = photoTableCsv(rows)
-            val hash = csv.hashCode().toString()
+            // TWO STREAMING PASSES over rows already in memory, and no shard text
+            // anywhere. The first only hashes, because the decision below needs the
+            // hash BEFORE anything is written; the second writes. Both hold one row at
+            // a time, which is what the OutOfMemoryError this replaced was about.
+            val hash = ConcatHash()
+                .append(photoTableHeader())
+                .also { h -> rows.forEach { h.append(photoTableRowText(it)) } }
+                .value().toString()
             hashes += hash
             // A closed shard's bytes do not change when a photo is taken, so
             // the usual dump writes exactly one file however large the table
@@ -196,7 +203,19 @@ object PhotoTableDump {
                 val result = writeCsv(
                     app,
                     photoDumpFileName(shard),
-                    csv,
+                    { stream ->
+                        // Buffered, and a row at a time: writing straight to a
+                        // MediaStore stream per row would be ten thousand syscalls.
+                        stream.bufferedWriter(Charsets.UTF_8).use { writer ->
+                            writer.write(photoTableHeader())
+                            val line = StringBuilder(1_200)
+                            for (row in rows) {
+                                line.setLength(0)
+                                appendPhotoTableRow(line, row)
+                                writer.append(line)
+                            }
+                        }
+                    },
                     previousUris.getOrNull(shard)?.takeIf { it.isNotEmpty() },
                 )
                 where = result.where
@@ -323,15 +342,20 @@ object PhotoTableDump {
     private fun writeCsv(
         app: Context,
         fileName: String,
-        csv: String,
+        /**
+         * Writes the shard INTO the stream it is handed, a row at a time. Not a String
+         * and not a ByteArray: either one meant the whole shard in memory, which is the
+         * OutOfMemoryError this replaced — and it may be called more than once, since
+         * the MediaStore paths below try up to three ways to reach the row.
+         */
+        write: (OutputStream) -> Unit,
         remembered: String?,
     ): WriteResult {
-        val bytes = csv.toByteArray(Charsets.UTF_8)
         val folder = PhotoStorage.folderBase
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
-                return writeViaMediaStore(app, folder, fileName, bytes, remembered)
+                return writeViaMediaStore(app, folder, fileName, write, remembered)
             } catch (e: Exception) {
                 Log.w(TAG, "MediaStore write failed, trying the file API", e)
             }
@@ -343,7 +367,7 @@ object PhotoTableDump {
             )
             if (!dir.exists()) dir.mkdirs()
             val file = File(dir, fileName)
-            file.writeBytes(bytes)
+            file.outputStream().use(write)
             return WriteResult(file.absolutePath, uri = null, durable = true)
         } catch (e: Exception) {
             Log.w(TAG, "public file write failed, falling back to app-private", e)
@@ -351,7 +375,7 @@ object PhotoTableDump {
         val dir = File(app.getExternalFilesDir(null), "PhotoTableDumps")
         if (!dir.exists()) dir.mkdirs()
         val file = File(dir, fileName)
-        file.writeBytes(bytes)
+        file.outputStream().use(write)
         return WriteResult(file.absolutePath, uri = null, durable = false)
     }
 
@@ -359,7 +383,7 @@ object PhotoTableDump {
         app: Context,
         folder: String,
         fileName: String,
-        bytes: ByteArray,
+        write: (OutputStream) -> Unit,
         remembered: String?,
     ): WriteResult {
         val resolver = app.contentResolver
@@ -372,7 +396,7 @@ object PhotoTableDump {
         val claimed = remembered?.let { saved ->
             try {
                 val uri = Uri.parse(saved)
-                writeTo(resolver, uri, bytes)
+                writeTo(resolver, uri, write)
                 uri
             } catch (e: Exception) {
                 Log.w(TAG, "the remembered index row is gone — claiming another", e)
@@ -385,7 +409,7 @@ object PhotoTableDump {
 
         val found = findInMediaStore(app, relativePath, fileName)
         if (found != null) {
-            writeTo(resolver, found, bytes)
+            writeTo(resolver, found, write)
             return WriteResult(locator(app, found, relativePath, fileName), found.toString(), true)
         }
 
@@ -403,7 +427,7 @@ object PhotoTableDump {
                 put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
             },
         ) ?: throw IOException("MediaStore insert returned null")
-        writeTo(resolver, inserted, bytes)
+        writeTo(resolver, inserted, write)
         return WriteResult(locator(app, inserted, relativePath, fileName), inserted.toString(), true)
     }
 
@@ -411,8 +435,12 @@ object PhotoTableDump {
      * "wt" truncates: without it a shorter table would leave the tail of the
      * previous dump behind, and a CSV with a stale tail is worse than none.
      */
-    private fun writeTo(resolver: android.content.ContentResolver, uri: Uri, bytes: ByteArray) {
-        resolver.openOutputStream(uri, "wt")?.use { it.write(bytes) }
+    private fun writeTo(
+        resolver: android.content.ContentResolver,
+        uri: Uri,
+        write: (OutputStream) -> Unit,
+    ) {
+        resolver.openOutputStream(uri, "wt")?.use(write)
             ?: throw IOException("openOutputStream returned null")
     }
 
@@ -533,15 +561,45 @@ internal fun photoDumpIntervalMs(photoCount: Int): Long = when {
  * Header prefixed with `#`, as the geo dumps do — one CSV dialect in this
  * app, not two.
  */
+/**
+ * NOT FOR THE DUMP PATH — see [photoTableHeader] and [appendPhotoTableRow], which the
+ * dump streams through instead.
+ *
+ * This materialises the whole thing, and at ten thousand rows that was an
+ * OutOfMemoryError: the builder held ~19 MB of chars, `toString` copied it to another
+ * 19 MB, and `toByteArray` made a third copy — about 48 MB of peak for one shard, on a
+ * 268 MB heap (crash 2026-10-14, the second of exactly this shape after the IMU CSV's in
+ * `64313ec6`). The capacity hint below was also four times short at the real ~970 chars
+ * per row, so the builder reached its size by doubling, with a transient copy each time.
+ *
+ * Kept because small, bounded lists — tests, a handful of rows — are clearer written this
+ * way, and because deleting it would hide what the streaming version is for.
+ */
 internal fun photoTableCsv(rows: List<PhotoEntity>): String {
-    // Straight into one builder. The obvious spelling — a list of cells per
-    // row, joined — allocates thirty-odd strings and a list for every photo,
-    // which at ten thousand rows is the bulk of the work this does.
-    val out = StringBuilder(64 + rows.size * 220)
-    out.append('#')
-    PHOTO_DUMP_COLUMNS.joinTo(out, ",")
-    out.append('\n')
-    for (row in rows) {
+    val out = StringBuilder(64 + rows.size * 1_000)
+    out.append(photoTableHeader())
+    for (row in rows) appendPhotoTableRow(out, row)
+    return out.toString()
+}
+
+/** One row as text, for the hashing pass — a single row, never the shard. */
+internal fun photoTableRowText(row: PhotoEntity): String =
+    StringBuilder(1_200).also { appendPhotoTableRow(it, row) }.toString()
+
+/** The `#`-prefixed header line, newline included. */
+internal fun photoTableHeader(): String =
+    "#" + PHOTO_DUMP_COLUMNS.joinToString(",") + "\n"
+
+/**
+ * ONE ROW, appended — the unit the dump streams.
+ *
+ * Appends rather than returning a String, so a caller can reuse one small builder across
+ * ten thousand rows and never hold more than a row at a time. The obvious spelling — a
+ * list of cells per row, joined — allocates thirty-odd strings and a list per photo,
+ * which at ten thousand rows is the bulk of the work this does.
+ */
+internal fun appendPhotoTableRow(out: StringBuilder, row: PhotoEntity) {
+    run {
         out.cell(row.id)
         out.cell(row.filename)
         out.cell(row.path)
@@ -590,7 +648,31 @@ internal fun photoTableCsv(rows: List<PhotoEntity>): String {
         out.cell(row.inertialJson)
         out.cell(row.captureTimingJson, last = true)
     }
-    return out.toString()
+}
+
+/**
+ * `String.hashCode()` OF A CONCATENATION, without concatenating.
+ *
+ * The dump decides whether a shard changed by comparing hashes, and it streams now, so
+ * the whole text is never in one String to call `hashCode()` on. This reproduces it
+ * exactly: for `A + B`, `hash = hash(A) * 31^|B| + hash(B)`, all in wrapping Int
+ * arithmetic, which is what `String.hashCode` is defined in.
+ *
+ * Exactly, and not approximately, on purpose — a different hash function would have
+ * invalidated every stored shard hash and rewritten the whole table once, on every
+ * phone, for no reason. A test pins the identity against the real `hashCode`.
+ */
+internal class ConcatHash {
+    private var value = 0
+
+    fun append(part: CharSequence): ConcatHash {
+        var pow = 1
+        repeat(part.length) { pow *= 31 }
+        value = value * pow + part.toString().hashCode()
+        return this
+    }
+
+    fun value(): Int = value
 }
 
 /** One cell and its separator; [last] ends the row instead. */
