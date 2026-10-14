@@ -44,7 +44,7 @@ const FRONTEND_URL = resolveFrontendUrl();
  *
  * Why: Chromium's own resolver probes for a global IPv6 route and, finding none,
  * stops returning AAAA answers. An IPv6-only name — the Yggdrasil origins
- * (`*-ygg` profiles in scripts/host_profiles.py, e.g. hv.jj.internal → 200::/7)
+ * (`*-ygg` profiles in hosts.toml, whose names resolve into 200::/7)
  * — then fails every goto with net::ERR_NAME_NOT_RESOLVED in chromium while
  * firefox and webkit pass. Mapping to an address literal skips that probe.
  */

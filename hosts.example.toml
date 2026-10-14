@@ -1,0 +1,50 @@
+# Host topology for scripts/set_host.py — copy to hosts.toml (gitignored), or to
+# ~/.config/hillview/hosts.toml to share one copy across worktrees.
+#
+# Without either file the only profile is the built-in `localhost` (every
+# service on its own localhost port, plain HTTP), which is enough to run the
+# stack and the web test leg. Add entries here when the stack is reached from
+# other devices: a phone (a `-raw` profile on a LAN IP) or an HTTPS/HTTP-2 Caddy
+# origin (`-local` / `-ygg`), which the Playwright suite wants to avoid the
+# HTTP/1.1 connection-cap flakes.
+#
+# Profiles are named <hostname>-<raw|local|ygg>; `set_host.py --for web|android`
+# picks one from `hostname`. See scripts/host_profiles.py for what each key is.
+
+
+# ---- generated: three profiles per machine (-raw, -local, -ygg) -----------
+# For machines that are clones of the standard layout: api 8055, worker 8056,
+# frontend 3000, umami 3344, pics file-server 9999, one Caddy vhost per name.
+[vm_template]
+local = "hv.{machine}.local"            # LAN name of the machine's Caddy vhost
+ygg = "hv.{machine}.example.internal"   # name it is published under elsewhere
+
+[vm.mybox]                    # must equal `hostname` on that machine
+ip = "192.168.1.50"           # LAN address, for the -raw (Android) profile
+ygg_reachable_locally = false # can mybox itself reach its ygg name?
+# Extra api/worker env this machine carries in every profile:
+# env = { PANORAMAX_BASE_URL = "https://hv.mybox.example.internal/geovisio" }
+
+
+# ---- written out: one profile, every key explicit -------------------------
+# For a machine that does not fit the template. Use "<fill-in>" for a value
+# not known yet — set_host refuses to apply a profile that still has one.
+[profiles.otherbox-raw]
+summary = "every service on its own port, plain HTTP, LAN IP"
+note = "Android against otherbox"
+# frontend_url = "https://..."   # the origin Playwright targets; omit to let it
+#                                # spawn the dev server on :8212
+# reachable_locally = true       # -ygg profiles only
+
+# api/worker env, rendered into .env
+[profiles.otherbox-raw.env]
+WORKER_URL = "http://192.168.1.60:8056"   # browser-facing: the upload client calls it
+PICS_URL = "http://192.168.1.60:9999/"
+
+# rendered into frontend/.env
+[profiles.otherbox-raw.frontend_env]
+VITE_BACKEND = "http://192.168.1.60:8055/api"
+
+# FILE_POOLS rewrite: container path -> URL that serves it (files pools only)
+[profiles.otherbox-raw.pools]
+"/app/pics" = "http://192.168.1.60:9999/"
