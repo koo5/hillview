@@ -3,6 +3,14 @@
 
 services:
 
+  analyzer:
+    # The copied session history is owned by the dev user's uid/gid, unlike
+    # named volumes. Keep new answers writable by that user too.
+    user: "${ANALYZER_UID:-1000}:${ANALYZER_GID:-1000}"
+
+  analyzer-alternative:
+    user: "${ANALYZER_UID:-1000}:${ANALYZER_GID:-1000}"
+
   # One-shot root container fixing volume ownership before api/worker start.
   # Named volumes are created root-owned (and uids baked into rebuilt images
   # can drift), while api and worker both run as non-root uid 1001 — first

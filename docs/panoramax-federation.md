@@ -300,11 +300,12 @@ the dev box's `/pics` route in `~/caddy/Caddyfile` sends
    api container has applied migration 033 — grants reference the schema).
 3. `docker compose --profile panoramax up -d --build panoramax` (dev:
    `./compose.sh --profile panoramax up -d --build panoramax`).
-   On the dev box the service is reachable at
-   `https://hv.dev4-2.jj.internal/geovisio/api/…`: the vhost snippet has
-   `handle_path /geovisio/* { reverse_proxy localhost:8058 }` and `.env.dev`
-   sets `PANORAMAX_BASE_URL=https://hv.dev4-2.jj.internal/geovisio` so
-   self/next links round-trip through Caddy. (Editing the bind-mounted
+   On a dev box behind Caddy the service is reachable at
+   `https://<vhost>/geovisio/api/…`: the vhost snippet has
+   `handle_path /geovisio/* { reverse_proxy localhost:8058 }` and the
+   machine's `hosts.toml` entry sets `PANORAMAX_BASE_URL=https://<vhost>/geovisio`
+   (rendered into `.env` by `scripts/set_host.py`) so self/next links
+   round-trip through Caddy. (Editing the bind-mounted
    Caddyfile replaces its inode; `caddy reload` then still reads the old
    file — recreate the caddy container.)
 4. Caddy vhost (lives outside the repo, `~/caddy/Caddyfile` on the VM). See the

@@ -367,10 +367,12 @@ def call_openrouter_api(
 	}
 
 	with httpx.Client(timeout=250.0) as client:
-		while True:
+		for attempt in range(3):
 			response = client.post(OPENROUTER_API_URL, json=payload, headers=headers)
 
 			if response.status_code == 502:
+				if attempt == 2:
+					response.raise_for_status()
 				print(f"[{datetime.now().isoformat()}] Got HTTP 502, retrying in 15s...")
 				time.sleep(15)
 				continue
@@ -382,6 +384,8 @@ def call_openrouter_api(
 				raise RuntimeError(f"API response is not valid JSON: {response.text}")
 
 			if "error" in api_result and api_result["error"].get("code") == 502:
+				if attempt == 2:
+					raise RuntimeError("OpenRouter returned 502 after three attempts")
 				print(f"[{datetime.now().isoformat()}] Got 502 in response body, retrying in 15s...")
 				time.sleep(15)
 				continue
@@ -417,7 +421,10 @@ def run_analysis(
 	final_image_url: str,
 	image_hash: str | None,
 	prompt_text: str,
-	verbose: bool
+	verbose: bool,
+	*,
+	max_tokens: int | None = None,
+	temperature: float | None = None,
 ) -> dict:
 	"""
 	Run analysis on a photo and return the session result.
@@ -447,8 +454,8 @@ def run_analysis(
 				]
 			}
 		],
-		"max_tokens": MAX_TOKENS,
-		"temperature": TEMPERATURE,
+		"max_tokens": MAX_TOKENS if max_tokens is None else max_tokens,
+		"temperature": TEMPERATURE if temperature is None else temperature,
 		"response_format": {"type": "json_object"},
 		"provider": {"sort": "price"}
 	}
@@ -473,7 +480,21 @@ def run_analysis(
 	}
 
 	# Call API
-	api_result, content = call_openrouter_api(payload, verbose)
+	try:
+		api_result, content = call_openrouter_api(payload, verbose)
+	except Exception as error:
+		session["result"] = {
+			"duration_ms": int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000),
+			"parse_error": True, "error": str(error), "cost": None,
+		}
+		if isinstance(error, httpx.HTTPStatusError):
+			session["result"]["http_status"] = error.response.status_code
+			try:
+				session["result"]["provider_error"] = error.response.json()
+			except ValueError:
+				session["result"]["provider_error"] = error.response.text[:2000]
+		print(f"OpenRouter request failed: {session['result']}")
+		return session
 	end_time = datetime.now(timezone.utc)
 
 	# Parse response
@@ -491,6 +512,15 @@ def run_analysis(
 		"total_tokens": usage.get("total_tokens"),
 		"parse_error": parse_error
 	}
+	session["raw_response"] = content
+	session["result"].update({
+		"usage": usage,
+		"cost": usage.get("cost"),
+		"generation_id": api_result.get("id"),
+		"model": api_result.get("model"),
+		"provider": api_result.get("provider"),
+		"finish_reason": api_result.get("choices", [{}])[0].get("finish_reason"),
+	})
 
 	if analysis is not None:
 		session["analysis"] = analysis

@@ -1,6 +1,8 @@
 import { T } from './helpers/timeouts';
 import { defineConfig, devices } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
+import dns from 'node:dns';
+import { isIP } from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -34,6 +36,33 @@ function resolveFrontendUrl(): string | undefined {
 }
 
 const FRONTEND_URL = resolveFrontendUrl();
+
+/**
+ * Chromium-only `--host-resolver-rules` pinning the target host to the address
+ * the OS resolves it to (getaddrinfo — /etc/hosts included, same as Firefox and
+ * WebKit see).
+ *
+ * Why: Chromium's own resolver probes for a global IPv6 route and, finding none,
+ * stops returning AAAA answers. An IPv6-only name — the Yggdrasil origins
+ * (`*-ygg` profiles in hosts.toml, whose names resolve into 200::/7)
+ * — then fails every goto with net::ERR_NAME_NOT_RESOLVED in chromium while
+ * firefox and webkit pass. Mapping to an address literal skips that probe.
+ */
+async function chromiumHostResolverArgs(): Promise<string[]> {
+  if (!FRONTEND_URL) return [];
+  const host = new URL(FRONTEND_URL).hostname;
+  if (isIP(host) || host === 'localhost') return [];
+  try {
+    const { address, family } = await dns.promises.lookup(host);
+    const literal = family === 6 ? `[${address}]` : address;
+    return [`--host-resolver-rules=MAP ${host} ${literal}`];
+  } catch {
+    // Unresolvable here too — let chromium report it like the other browsers.
+    return [];
+  }
+}
+
+const CHROMIUM_HOST_RESOLVER_ARGS = await chromiumHostResolverArgs();
 
 /**
  * @see https://playwright.dev/docs/test-configuration
@@ -114,6 +143,7 @@ export default defineConfig({
             // an SSL error (a pageerror that console-checking tests flag). This
             // flag makes Chromium accept the cert for SW fetches too.
             '--ignore-certificate-errors',
+            ...CHROMIUM_HOST_RESOLVER_ARGS,
           ]
         }
       },

@@ -308,12 +308,13 @@ services:
         condition: service_started
 
 
-  analyzer:
+  analyzer: &analyzer
     # LLM photo analyzer (production component; previously a manually-run script).
     # Opt-in via profile: docker compose --profile analyzer up -d --build analyzer
     build:
       context: .
       dockerfile: backend/analyzer/Dockerfile
+    image: ${COMPOSE_PROJECT_NAME:-hillview}-analyzer
     container_name: hillview_analyzer
     profiles: ["analyzer"]
     restart: unless-stopped
@@ -325,7 +326,8 @@ services:
       - OPENROUTER_API_KEY_FILE=/run/secrets/OPENROUTER_API_KEY
       - ANALYZER_DATA_DIR=/data
       - ANALYZER_FETCH_IMAGES=${ANALYZER_FETCH_IMAGES:-false}
-    command: ["python", "analyzer.py", "--verbose", "--model", "${ANALYZER_MODEL:-nvidia/nemotron-nano-12b-v2-vl:free}"]
+      - ANALYZER_TRUSTED_MODELS=${ANALYZER_TRUSTED_MODELS-nvidia/nemotron-nano-12b-v2-vl:free,qwen/qwen3-vl-30b-a3b-thinking}
+    command: ["python", "analyzer.py", "--verbose", "--model", "${ANALYZER_MODEL:-nvidia/nemotron-nano-12b-v2-vl:free}", "--prefer", "${ANALYZER_PREFER:-missing}", "--interval", "${ANALYZER_INTERVAL:-60}"]
     volumes:
       - ./backend/data/analyzer:/data
     secrets:
@@ -333,6 +335,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  analyzer-alternative:
+    <<: *analyzer
+    container_name: hillview_analyzer_alternative
+    profiles: ["analyzer-alternative"]
+    command: ["python", "analyzer.py", "--verbose", "--model", "${ANALYZER_ALTERNATIVE_MODEL:-dots-studio/dots-3-note-preview:free}", "--prefer", "${ANALYZER_PREFER:-update}", "--interval", "${ANALYZER_INTERVAL:-60}"]
 
 
 volumes:
@@ -357,7 +365,7 @@ secrets:
   firebase_credentials:
       file: ./secrets/firebase_credentials
   OPENROUTER_API_KEY:
-      file: ./scripts/analyzer/secrets/OPENROUTER_API_KEY
+      file: ./secrets/OPENROUTER_API_KEY
 
 
 networks:

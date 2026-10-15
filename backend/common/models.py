@@ -182,6 +182,41 @@ class SiteState(Base):
 	updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
+class PhotoAnalysisQueue(Base):
+	"""Work queue of the LLM photo analyzer (backend/analyzer).
+
+	A row exists only while a photo is NOT done under the analyzer's running
+	ANALYZER_VERSION: never analysed, leased to an analyzer, backing off after
+	a failure, or given up on. The analyzer enqueues every completed photo whose
+	``photos.analysis`` document carries a different ``analyzer_version`` (no
+	key = 0), and a complete run writes the document and deletes the row. So
+	"produced by which version" lives in one place only — the document — and a
+	version bump re-queues everything on the analyzer's next sync.
+
+	Deliberately NOT columns on ``photos``. The analyzer claims work with
+	``SELECT ... FOR UPDATE SKIP LOCKED``; locking a row here instead of the
+	photo row keeps API writers and ``ALTER TABLE photos`` from ever queueing
+	behind the analyzer. And the claim is a *lease* (``next_retry`` pushed into
+	the future in a short transaction), not a lock held across the LLM call:
+	``database.py`` kills any session idle in a transaction for five minutes,
+	and docs/db-session-cancellation.md says why no transaction may span a
+	network call.
+
+	``last_attempted_version`` is the ANALYZER_VERSION of the last claim on the
+	photo (NULL = queued, never claimed); ``next_retry`` only means anything
+	under that version: a future time = a lease or a backoff, ``infinity`` =
+	given up. Eligible = the version differs, or ``next_retry`` has passed.
+	What happened and why is NOT here: the per-md5 JSON file in the analyzer's
+	datadir records every attempt, and this table must not become a second,
+	disagreeing account of it.
+	"""
+	__tablename__ = "photo_analysis_queue"
+
+	photo_id: Mapped[str] = mapped_column(String, ForeignKey("photos.id", ondelete="CASCADE"), primary_key=True)
+	last_attempted_version: Mapped[Optional[int]] = mapped_column(Integer)
+	next_retry: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("'epoch'"))
+
+
 class CachedRegion(Base):
 	__tablename__ = "cached_regions"
 

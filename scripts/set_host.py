@@ -8,13 +8,15 @@ remember the whole set, every time, for every tool. This owns the swap instead.
 
     ./scripts/set_host.py                    show the current profile
     ./scripts/set_host.py --list             show every profile
-    ./scripts/set_host.py jj-ygg             switch
-    ./scripts/set_host.py jj-ygg --keep-db   switch, keep existing photos
+    ./scripts/set_host.py mybox-local        switch
+    ./scripts/set_host.py mybox-local --keep-db  switch, keep existing photos
+    ./scripts/set_host.py --for web          switch to this machine's web profile
 
 Profiles are named <machine>-<how you reach it>: `raw` is every service on its
 own port over plain HTTP (the only thing Android can use), `ygg` is the single
 HTTPS/HTTP-2 origin published over Yggdrasil, `local` is a Caddy origin that is
-only reachable on the LAN. jj has no `local` — its Caddy name is an ygg name.
+only reachable on the LAN. The built-in `localhost` is the fallback for a
+machine with no profiles of its own.
 
 Switching clears the dev database by default: a stored photo's URLs were built
 from the PICS_URL in force when it was written, so rows made under the previous
@@ -31,7 +33,8 @@ touching a line you wrote, the active profile is self-documenting in the file,
 and reverting is deleting the block. Re-running replaces the block rather than
 stacking another one.
 
-Profiles live in scripts/host_profiles.py. Restart the stack afterwards — api
+Profiles are declared in hosts.toml (gitignored; format in hosts.example.toml),
+built by scripts/host_profiles.py. Restart the stack afterwards — api
 and worker read these at container start:
 
     docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
@@ -46,7 +49,7 @@ import sys
 import urllib.error
 import urllib.request
 
-from host_profiles import PROFILES, profile_for, unset_keys
+from host_profiles import HOSTS_FILE, LOCALHOST, PROFILES, profile_for, unset_keys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -249,7 +252,7 @@ def describe_current():
 	if not url or url.startswith("http://"):
 		print("  ! plain HTTP/1.1 origin — the connection-cap flake class is ACTIVE here")
 		print("    (stalled chunks / module-script errors, worst on WebKit + Firefox).")
-		print("    For a clean run:  ./scripts/set_host.py jj-ygg")
+		print("    For a clean run, switch to an h2 profile (./scripts/set_host.py --list).")
 	return 0
 
 
@@ -267,6 +270,7 @@ def main():
 	args = parser.parse_args()
 
 	if args.list:
+		print(f"from {HOSTS_FILE or 'built-ins only (no hosts.toml; see hosts.example.toml)'}\n")
 		for name, profile in PROFILES.items():
 			missing = unset_keys(profile)
 			flag = f"  [incomplete: {len(missing)} unset]" if missing else ""
@@ -280,10 +284,15 @@ def main():
 		if resolved is None:
 			sys.exit(
 				f"set_host: no {args.leg} profile for host {host!r}.\n"
-				f"  Expected {host}-raw for android, or {host}-local / a locally "
-				f"reachable {host}-ygg for web.\n"
+				f"  Expected {host}-raw in {HOSTS_FILE or 'hosts.toml (see hosts.example.toml)'};\n"
+				f"  a device cannot reach this machine's localhost, so there is no fallback.\n"
 				f"  see: ./scripts/set_host.py --list"
 			)
+		if resolved == LOCALHOST and not args.profile:
+			# Loud on purpose: on a machine that HAS profiles, this means the hosts
+			# file went missing (a fresh worktree, say), not that localhost is meant.
+			print(f"set_host: no {args.leg} profile for host {host!r} in "
+			      f"{HOSTS_FILE or 'any hosts.toml'}; falling back to {LOCALHOST!r}")
 		if args.profile and args.profile != resolved:
 			sys.exit(f"set_host: --for {args.leg} resolves to {resolved!r} on {host}, "
 			         f"which contradicts the {args.profile!r} you named")
@@ -303,7 +312,7 @@ def main():
 		sys.exit(
 			f"set_host: profile {args.profile!r} is incomplete — these are still unset:\n"
 			+ "".join(f"  {key}\n" for key in missing)
-			+ "Fill them in scripts/host_profiles.py first; refusing to write a\n"
+			+ f"Fill them in {HOSTS_FILE} first; refusing to write a\n"
 			  "half-configured stack that would fail in confusing ways."
 		)
 
