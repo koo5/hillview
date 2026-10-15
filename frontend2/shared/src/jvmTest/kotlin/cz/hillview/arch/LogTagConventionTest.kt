@@ -130,21 +130,5 @@ class LogTagConventionTest {
      * `OneStateArchitectureTest` does — a test must not depend on where Gradle
      * happened to start it.
      */
-    private fun sourceRoots(): List<File> {
-        // canonicalFile, not absoluteFile: the latter keeps the "." component,
-        // which shifts every parentFile step by one and made this look for
-        // shared-kt inside frontend2/.
-        var dir: File? = File(".").canonicalFile
-        while (dir != null) {
-            if (File(dir, "src/commonMain").isDirectory) {
-                val module = File(dir, "src")
-                // <repo>/frontend2/shared -> <repo>
-                val repo = dir.parentFile?.parentFile
-                val sharedKt = repo?.let { File(it, "shared-kt/src") }
-                return listOfNotNull(module, sharedKt?.takeIf { it.isDirectory })
-            }
-            dir = dir.parentFile
-        }
-        fail("could not locate the shared module's src/ from ${File(".").absolutePath}")
-    }
+    private fun sourceRoots(): List<File> = kotlinSourceRoots()
 }

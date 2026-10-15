@@ -1707,8 +1707,16 @@ private fun EcoSlider(
     }
 }
 
-/** How long the just-taken photo sits in the corner. */
-private const val CAPTURE_FLASH_MS = 1_200L
+/**
+ * How long the just-taken photo sits in the corner.
+ *
+ * Two seconds, not the one a confirmation needs, because this one is also a
+ * TARGET: it has to be noticed and then reached for, and it sits on top of
+ * the 📷 selector, so a tap that arrives late does not miss — it opens the
+ * resolution menu instead (user-raised, 2026-10-15: "let's make it tappable
+ * for two seconds").
+ */
+private const val CAPTURE_FLASH_MS = 2_000L
 
 /**
  * The shutter's confirmation — what was just taken, for a moment.
