@@ -1,4 +1,5 @@
 """Best-of routes – photos ranked by a composite score."""
+import hashlib
 import logging
 from typing import Optional
 
@@ -6,13 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy import and_, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from geoalchemy2.functions import ST_X, ST_Y
 
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
-from common.models import Photo, PhotoAnnotation, PhotoRating, PhotoRatingType, User
+from common.models import Photo, PhotoAnnotation, PhotoRating, PhotoRatingType, SiteState, User
 from hillview_routes import legal_rights_to_license
 from common.utc import format_utc
 from auth import get_current_user_optional_ssr
@@ -39,6 +41,109 @@ def page_offset(page: Optional[int]) -> int:
 	return (int(page) - 1) * BESTOF_PAGE_SIZE
 
 
+def ranking_terms():
+	"""The score's building blocks: (thumbs_up_sub, annotation_sub, score_raw).
+
+	Shared by the listing and the sitemap fingerprint so "the ranking" has one
+	definition. score_raw is kept unlabelled: a SELECT alias can't be referenced
+	from WHERE, so the filter and the cursor comparison use the raw expression.
+	"""
+	# Subquery: thumbs-up count per photo
+	thumbs_up_sub = (
+		select(
+			PhotoRating.photo_id,
+			func.count(PhotoRating.id).label('thumbs_up_count')
+		)
+		.where(
+			and_(
+				PhotoRating.photo_source == 'hillview',
+				PhotoRating.rating == PhotoRatingType.THUMBS_UP
+			)
+		)
+		.group_by(PhotoRating.photo_id)
+		.subquery('thumbs_up_sub')
+	)
+
+	# Subquery: effective annotation count (from annotation controller)
+	annotation_sub = effective_annotation_count_subquery()
+
+	# Resolution bonus: floor(max(0, width - 10000) / 1000)
+	resolution_bonus = func.floor(
+		func.greatest(0, func.coalesce(Photo.width, 0) - 10000) / 10000
+	)
+
+	score_raw = (
+		func.coalesce(thumbs_up_sub.c.thumbs_up_count, 0)
+		+ func.coalesce(annotation_sub.c.annotation_count, 0)
+		+ resolution_bonus
+	)
+	return thumbs_up_sub, annotation_sub, score_raw
+
+
+def ranked(query, thumbs_up_sub, annotation_sub, score_raw):
+	"""Join the score onto a Photo select, keep the ranked set, order it."""
+	return (
+		query
+		.outerjoin(thumbs_up_sub, Photo.id == thumbs_up_sub.c.photo_id)
+		.outerjoin(annotation_sub, Photo.id == annotation_sub.c.photo_id)
+		.where(Photo.deleted == False)
+		# A photo earns its place here — one like, one annotation, or being a
+		# large panorama is enough, but zero is not. Without this the "best of"
+		# was the whole collection: on a 52k-photo dump 98% scored zero and
+		# sorted by nothing but id, so the ranking ran out of meaning after a
+		# few hundred rows and the tail was thin content (a camera filename and
+		# a thumbnail) that dilutes crawl budget. It also keeps the listing
+		# bounded — the page's own empty state already promises this reading:
+		# "Photos will appear here as they receive ratings and annotations".
+		.where(score_raw > 0)
+		.order_by(score_raw.desc(), Photo.id.desc())
+	)
+
+
+BESTOF_STATE_KEY = 'bestof_page1'
+
+
+@router.get("/lastmod")
+async def get_bestof_lastmod(db: AsyncSession = Depends(get_db)):
+	"""When /bestof (page 1, as a crawler sees it) last changed — the sitemap's <lastmod>.
+
+	The ranking's inputs are not all timestamped (a rating removal is a hard
+	delete, a soft-delete a bare flag), and the ones that are would over-fire on
+	changes deep in the list. So this fingerprints the OUTPUT instead: the
+	ordered (id, score, content_updated_at) of page 1 — id+score is the
+	ranking, content_updated_at is the card's text (title, place, annotation
+	labels all bump it, see migration 034) — hashed and compared with the
+	stored one in site_state. A differing hash is written together with now();
+	an equal one leaves the row alone, so its updated_at is "the last time this
+	page looked different". No auth, no hidden-content filter: the anonymous
+	view is the crawler's view.
+
+	A read that may write, deliberately: the value is only ever needed by
+	whoever fetches the sitemap, so computing it then (and not on a timer)
+	costs one page-1 query per sitemap fetch and no scheduler. Two concurrent
+	fetches race harmlessly — the upsert's WHERE makes the second a no-op.
+	"""
+	thumbs_up_sub, annotation_sub, score_raw = ranking_terms()
+	rows = (await db.execute(
+		ranked(select(Photo.id, score_raw, Photo.content_updated_at), thumbs_up_sub, annotation_sub, score_raw)
+		.limit(BESTOF_PAGE_SIZE)
+	)).all()
+	digest = hashlib.sha256(
+		"\n".join(f"{pid}:{int(score)}:{format_utc(ts) or ''}" for pid, score, ts in rows).encode()
+	).hexdigest()
+
+	stmt = pg_insert(SiteState).values(key=BESTOF_STATE_KEY, value={"hash": digest})
+	stmt = stmt.on_conflict_do_update(
+		index_elements=[SiteState.key],
+		set_={"value": stmt.excluded.value, "updated_at": func.now()},
+		where=SiteState.value['hash'].astext.is_distinct_from(stmt.excluded.value['hash'].astext),
+	)
+	await db.execute(stmt)
+	await db.commit()
+	updated_at = await db.scalar(select(SiteState.updated_at).where(SiteState.key == BESTOF_STATE_KEY))
+	return {"lastmod": format_utc(updated_at)}
+
+
 @router.get("/photos")
 async def get_best_photos(
 	request: Request,
@@ -55,42 +160,11 @@ async def get_best_photos(
 	await general_rate_limiter.enforce_rate_limit(request, 'public_read', current_user)
 
 	try:
-		# Subquery: thumbs-up count per photo
-		thumbs_up_sub = (
-			select(
-				PhotoRating.photo_id,
-				func.count(PhotoRating.id).label('thumbs_up_count')
-			)
-			.where(
-				and_(
-					PhotoRating.photo_source == 'hillview',
-					PhotoRating.rating == PhotoRatingType.THUMBS_UP
-				)
-			)
-			.group_by(PhotoRating.photo_id)
-			.subquery('thumbs_up_sub')
-		)
-
-		# Subquery: effective annotation count (from annotation controller)
-		annotation_sub = effective_annotation_count_subquery()
-
-		# Resolution bonus: floor(max(0, width - 10000) / 1000)
-		resolution_bonus = func.floor(
-			func.greatest(0, func.coalesce(Photo.width, 0) - 10000) / 10000
-		)
-
+		thumbs_up_sub, annotation_sub, score_raw = ranking_terms()
+		score_expr = score_raw.label('score')
 		annotation_count_expr = func.coalesce(annotation_sub.c.annotation_count, 0).label('annotation_count')
 
-		# Total score. Kept unlabelled too: a SELECT alias can't be referenced from
-		# WHERE, so the filter and the cursor comparison use the raw expression.
-		score_raw = (
-			func.coalesce(thumbs_up_sub.c.thumbs_up_count, 0)
-			+ func.coalesce(annotation_sub.c.annotation_count, 0)
-			+ resolution_bonus
-		)
-		score_expr = score_raw.label('score')
-
-		query = (
+		query = ranked(
 			select(
 				Photo,
 				User.username,
@@ -98,21 +172,8 @@ async def get_best_photos(
 				ST_X(Photo.geometry).label('longitude'),
 				score_expr,
 				annotation_count_expr
-			)
-			.join(User, Photo.owner_id == User.id)
-			.outerjoin(thumbs_up_sub, Photo.id == thumbs_up_sub.c.photo_id)
-			.outerjoin(annotation_sub, Photo.id == annotation_sub.c.photo_id)
-			.where(Photo.deleted == False)
-			# A photo earns its place here — one like, one annotation, or being a
-			# large panorama is enough, but zero is not. Without this the "best of"
-			# was the whole collection: on a 52k-photo dump 98% scored zero and
-			# sorted by nothing but id, so the ranking ran out of meaning after a
-			# few hundred rows and the tail was thin content (a camera filename and
-			# a thumbnail) that dilutes crawl budget. It also keeps the listing
-			# bounded — the page's own empty state already promises this reading:
-			# "Photos will appear here as they receive ratings and annotations".
-			.where(score_raw > 0)
-			.order_by(score_expr.desc(), Photo.id.desc())
+			).join(User, Photo.owner_id == User.id),
+			thumbs_up_sub, annotation_sub, score_raw,
 		)
 
 		# Cursor-based pagination: cursor format is "score:photo_id"

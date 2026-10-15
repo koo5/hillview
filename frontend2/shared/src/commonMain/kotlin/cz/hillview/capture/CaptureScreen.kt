@@ -1,6 +1,7 @@
 package cz.hillview.capture
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
@@ -35,6 +36,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -50,10 +52,12 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import cz.hillview.upload.PendingUpload
 import cz.hillview.upload.UploadPipeline
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.testTag
@@ -91,12 +95,18 @@ internal object CaptureSessionCounters {
 @Composable
 fun CaptureScreen(
     onOpenSettings: () -> Unit = {},
+    /** Where the just-taken thumbnail sends a tap. */
+    onOpenPhoto: (String) -> Unit = {},
     uploadPipeline: UploadPipeline = org.koin.compose.koinInject(),
     uploadSettingsRepo: cz.hillview.settings.UploadSettingsRepository =
         org.koin.compose.koinInject(),
 ) {
     val capture = rememberPhotoCapture()
     val state = capture.state
+    val scope = rememberCoroutineScope()
+    // The photo rows, for turning the file the shutter just wrote into the
+    // row id the single-photo screen is keyed on.
+    val photoBrowser: cz.hillview.devicephotos.DevicePhotoBrowser = org.koin.compose.koinInject()
     val queueStats by uploadPipeline.stats.collectAsState()
     val uploadSettings by uploadSettingsRepo.settings.collectAsState()
     val sessionManager: cz.hillview.auth.SessionManager = org.koin.compose.koinInject()
@@ -153,6 +163,26 @@ fun CaptureScreen(
     // "has fix" that could never go stale.
     LaunchedEffect(Unit) {
         mapState.lastFix.collect { capture.stampFix = it }
+    }
+    // The third record: what the device itself was measuring. Elected or
+    // not, past the bearing's dead-band or not — see DeviceAttitude. Roll
+    // has no other route out of the app, and a hand-set bearing leaves the
+    // stamp with no tilt at all without it.
+    LaunchedEffect(Unit) {
+        mapState.deviceAttitude.collect { capture.stampAttitude = it }
+    }
+    // The inertial half of the same record — gravity and linear acceleration.
+    LaunchedEffect(Unit) {
+        mapState.deviceMotion.collect { capture.stampMotion = it }
+    }
+    // A setting, not a measurement — but it decides what a landscape heading
+    // MEANS (EnhancedSensorService negates the azimuth past 90° of roll
+    // under it), so the stamp records which way it was.
+    val compassSettingsRepo: cz.hillview.settings.CompassSettingsRepository =
+        org.koin.compose.koinInject()
+    val compassSettings by compassSettingsRepo.settings.collectAsState()
+    LaunchedEffect(compassSettings.landscapeWorkaround) {
+        capture.compassLandscapeWorkaround = compassSettings.landscapeWorkaround
     }
     // The capture stamp bearing IS the map's bearing state (Tauri:
     // locationData.bearing = bearingState.bearing): car mode's
@@ -338,6 +368,25 @@ fun CaptureScreen(
         }
     }
 
+    // The shutter's confirmation: the photo just taken, bottom-left, for a
+    // moment — where every camera app puts it, and over the 📷 selector
+    // because that is the corner it belongs in and the selector is not what
+    // you are looking at a tenth of a second after the shutter.
+    //
+    // In an interval run it is a PLACEHOLDER (user-decided): the image costs
+    // a decode per shot, and a run fires one every 0.2 s while the capture
+    // pipeline wants that CPU and that memory. A plain box still says "one
+    // landed", which is all it has to say when they are landing continuously.
+    var flash by remember { mutableStateOf<CaptureFlash?>(null) }
+    LaunchedEffect(state.lastPhoto) {
+        val photo = state.lastPhoto ?: return@LaunchedEffect
+        // `repeating` is read here rather than keyed on: the question is
+        // whether THIS shot was part of a run, not whether one is running now.
+        flash = CaptureFlash(locator = photo.path, placeholderOnly = repeating)
+        delay(CAPTURE_FLASH_MS)
+        flash = null
+    }
+
     // Every capture goes straight into the offline-first pipeline; it no-ops
     // when logged out and the entry survives for auto-upload-on-login.
     LaunchedEffect(state.lastPhoto) {
@@ -365,6 +414,14 @@ fun CaptureScreen(
                 exposureJson = photo.snapshot.exposure?.let { exposureProvenanceJson(it) },
                 pitchDeg = photo.snapshot.pitchDeg?.toDouble(),
                 altLocationJson = photo.snapshot.altLocation?.let { altLocationJson(it) },
+                attitudeJson = attitudeProvenanceJson(photo.snapshot),
+                fixJson = fixProvenanceJson(photo.snapshot),
+                lensJson = lensProvenanceJson(photo.snapshot),
+                inertialJson = inertialProvenanceJson(photo.snapshot),
+                captureTimingJson = captureTimingJson(photo.snapshot),
+                captureTiming = photo.snapshot.captureTiming,
+                // Kept so the deferred window's rewrite does not lose it.
+                motionSample = photo.snapshot.motion,
                 // Snapshot, not a live read — see PendingUpload.license.
                 license = uploadSettings.license,
             )
@@ -418,6 +475,20 @@ fun CaptureScreen(
     // fact the screen could not show — and a run kept starting, or not, by
     // surprise (user-raised: "i keep missing it").
     var ladderVisible by remember { mutableStateOf(false) }
+    // The same ladder opened by the ⏱ button instead of a held shutter
+    // (user, 2026-10-10: "the whole interval overlay could also be
+    // triggered by an explicit button next to the camera settings
+    // button"). It stays up with no finger on it; touching it is the held
+    // gesture from there on — press, slide, release on a rung to start,
+    // on the button's side to close. Separate from ladderVisible, which
+    // the held gesture owns and clears in its own finally.
+    var ladderPinned by remember { mutableStateOf(false) }
+    // The 📷 selector's right edge in root px, for placing ⏱ beside it.
+    var cameraButtonRight by remember { mutableStateOf<Float?>(null) }
+    // Null while the ladder is open = the finger is on the button's side
+    // (CancelZone), the one release that does nothing. There used to be a
+    // third answer, armedCapture — that side took one photo, and the cancel
+    // lived off the pane (2026-09-18 → 2026-10-10).
     var armedIndex by remember { mutableStateOf<Int?>(null) }
     // Where the finger is on the scale RIGHT NOW, whether or not it is over
     // the catch zone yet: the rung it is level with, and the exact fraction
@@ -445,6 +516,71 @@ fun CaptureScreen(
     // gesture reads. One rect for both, which is the property the old
     // fixed-height slider did not have.
     var paneBounds by remember { mutableStateOf<Rect?>(null) }
+    // ...minus the corner the Main page's floating controls occupy. The
+    // ladder used to run the pane's full height and put its top rungs —
+    // VIDEO among them — behind the hamburger (emulator-caught 2026-09-17).
+    // Computed here, in ONE place, and used for the drawing AND the mapping:
+    // insetting only the picture would put back exactly the disagreement
+    // between what is drawn and what is read that this control was rebuilt
+    // to remove.
+    val ladderTopInset = cz.hillview.main.FLOATING_CONTROLS_HEIGHT
+    val ladderTopInsetPx = with(androidx.compose.ui.platform.LocalDensity.current) {
+        ladderTopInset.toPx()
+    }
+    val ladderBounds = paneBounds?.let {
+        Rect(it.left, it.top + ladderTopInsetPx, it.right, it.bottom)
+    }
+
+    // One reading of the finger for both ways the ladder opens — a held
+    // shutter and the ⏱ button — so the two cannot drift apart. [pos] is in
+    // root coordinates, [buttonLeft] the shutter's left edge; the answer is
+    // whether a release there would land on the ladder.
+    fun followLadderFinger(pos: Offset, buttonLeft: Float): Boolean {
+        val overLadder: Boolean
+        // The screen is the catch zone, in two
+        // halves split at the button's left
+        // edge: left of it the ladder, the
+        // button's own side the way out — a
+        // mid-gesture thumb is not a precision
+        // instrument. NOT bounded by the pane:
+        // in portrait the map is right under
+        // the shutter, and a slide to the
+        // bottom rung that overshot onto it
+        // used to cancel (see overLadderAt).
+        overLadder = overLadderAt(pos.x, buttonLeft)
+        // The ladder spans the pane, so the pane
+        // is the scale. Height is read whatever
+        // the finger's x is: the ladder shows
+        // where the gesture is landing even
+        // while the thumb is still on the
+        // button, so the target is visible
+        // BEFORE the slide left commits to it.
+        val zone = ladderBounds
+        if (zone != null && zone.height > 0f) {
+            hoverIndex = rungIndexAt(pos.y, zone.top, zone.bottom)
+            pointerFraction =
+                ladderFractionAt(pos.y, zone.top, zone.bottom)
+            if (overLadder) intervalIndex = hoverIndex
+        }
+        armedIndex = if (overLadder) intervalIndex else null
+        return overLadder
+    }
+
+    // What a release does, given what followLadderFinger last answered.
+    fun releaseLadder(overLadder: Boolean) {
+        // Released on the ladder: the top
+        // rung starts a recording, any
+        // interval rung starts a run. On
+        // the button's side: nothing.
+        val rung = INTERVAL_LADDER.getOrNull(intervalIndex)
+        when {
+            overLadder && rung is LadderRung.Video -> {
+                videoEngaged = engageSportsIfAuto()
+                capture.startVideo()
+            }
+            overLadder && rung is LadderRung.Every -> repeating = true
+        }
+    }
 
     // The capture pane IS the camera stream — the original's camera-content
     // fills with the video and positions every control absolutely over it
@@ -461,6 +597,14 @@ fun CaptureScreen(
             .background(Color.Black),
     ) {
         capture.CameraPane(Modifier.fillMaxSize())
+
+        // WHERE THE LENS POINTS, over the preview and centred in the same pane the
+        // preview is centred in — the one point a FIT_CENTER letterbox leaves fixed.
+        // See ViewfinderCentre for why the centre specifically, and why it is on by
+        // default.
+        if (mapSettings.showViewfinderCentre) {
+            ViewfinderCentre(Modifier.align(Alignment.Center))
+        }
 
         // Top-left stack near the original pill's spot (CameraOverlay
         // .svelte: top 60px / left 60px) — pulled LOWER than the original's
@@ -495,6 +639,7 @@ fun CaptureScreen(
             CameraOverlayUi(
                 suppressHint = showBearingHint,
                 state = state,
+                diagnostics = mapSettings.showDiagnostics,
                 bearingMode = mapSettings.bearingMode,
                 // What a capture would stamp when it is NOT the fix: the map
                 // centre, live — while claimed over a fix, and whenever there
@@ -727,6 +872,46 @@ fun CaptureScreen(
                                 mapSettingsRepo.update { it.copy(stillCaptureMode = mode) }
                             }
                         }
+                        // What the photo's bearing and pitch actually describe:
+                        // the middle of the frame. A knob because an overlay
+                        // over the subject is a matter of taste, and because a
+                        // bearing sweep needs it ON (see ViewfinderCentre).
+                        Text(
+                            "Centre mark",
+                            color = Color(0x99FFFFFF),
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(start = 12.dp, top = 6.dp),
+                        )
+                        listOf(true, false).forEach { on ->
+                            ResolutionOption(
+                                label = if (on) "Shown" else "Hidden",
+                                selected = mapSettings.showViewfinderCentre == on,
+                                tag = "viewfinder-centre-option-${if (on) "on" else "off"}",
+                            ) {
+                                showResolutionMenu = false
+                                mapSettingsRepo.update { it.copy(showViewfinderCentre = on) }
+                            }
+                        }
+                        // Whether the compass can be trusted where you are
+                        // standing — for picking a spot to measure an azimuth
+                        // from, which is the one job a disturbed field makes
+                        // impossible. See MagneticField.kt.
+                        Text(
+                            "Diagnostics",
+                            color = Color(0x99FFFFFF),
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(start = 12.dp, top = 6.dp),
+                        )
+                        listOf(true, false).forEach { on ->
+                            ResolutionOption(
+                                label = if (on) "Shown" else "Hidden",
+                                selected = mapSettings.showDiagnostics == on,
+                                tag = "diagnostics-option-${if (on) "on" else "off"}",
+                            ) {
+                                showResolutionMenu = false
+                                mapSettingsRepo.update { it.copy(showDiagnostics = on) }
+                            }
+                        }
                         // Decoupled from the mode on purpose: CameraX's
                         // default ties them (100 for Quality, 95 otherwise)
                         // and the two trades have nothing to do with each
@@ -755,9 +940,46 @@ fun CaptureScreen(
                     onClick = { showResolutionMenu = !showResolutionMenu },
                     modifier = Modifier
                         .background(LightGlass, CircleShape)
+                        // Where the ⏱ button goes: beside this one, but
+                        // drawn later (see there), so it cannot share a Row.
+                        .onGloballyPositioned { cameraButtonRight = it.boundsInRoot().right }
                         .testTag("camera-selector-button"),
                 ) { Text("📷", style = MaterialTheme.typography.titleMedium) }
             }
+        }
+
+        // AFTER the 📷 selector, so it paints over it — the corner a camera
+        // app puts the last shot in, and the selector is not what anyone is
+        // looking at a tenth of a second after the shutter.
+        flash?.let { shot ->
+            CaptureFlashThumbnail(
+                shot = shot,
+                onOpen = { locator ->
+                    scope.launch {
+                        // Resolved only on a tap: the capture path knows the
+                        // path and the pipeline assigns the row id, so asking
+                        // per shot would be a query per shot for something
+                        // almost never used.
+                        //
+                        // Briefly retried because the thumbnail appears the
+                        // moment the FILE exists, while the ROW is written by
+                        // the pipeline on its own coroutine — a tap in that
+                        // gap would otherwise do nothing at all, which reads
+                        // as a dead control rather than as being early.
+                        var id: String? = null
+                        repeat(10) {
+                            if (id == null) {
+                                id = photoBrowser.idForLocator(locator)
+                                if (id == null) delay(100)
+                            }
+                        }
+                        id?.let(onOpenPhoto)
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 8.dp, bottom = 6.dp),
+            )
         }
 
         // The lower-right column: the ⚡ shutter-speed control stacked over
@@ -920,7 +1142,7 @@ fun CaptureScreen(
         }
 
         // The catch zone, drawn as what it IS: the gesture accepts any point
-        // left of the button (pos.x < circle.left) — the ladder is not a
+        // left of the button (overLadderAt) — the ladder is not a
         // thin track to aim at. Nothing said so, and precision-aiming at a
         // line was the real reason arming kept being missed (user-caught:
         // "i kept trying to target the track exactly").
@@ -931,7 +1153,7 @@ fun CaptureScreen(
         // the gesture both, where the old rotated slider drew one scale
         // beside the button and read another.
         val circle = circleBounds
-        if (ladderVisible && circle != null) {
+        if ((ladderVisible || ladderPinned) && circle != null) {
             val zoneWidth = with(androidx.compose.ui.platform.LocalDensity.current) {
                 (circle.left - paneOrigin.x).coerceAtLeast(0f).toDp()
             }
@@ -942,8 +1164,115 @@ fun CaptureScreen(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .fillMaxHeight()
+                    .padding(top = ladderTopInset)
                     .width(zoneWidth),
             )
+            // The rest of the pane, the button's side: the way out. Drawn
+            // for the same reason the ladder is — the hit-box, at its size.
+            val cancelWidth = with(androidx.compose.ui.platform.LocalDensity.current) {
+                ((paneBounds?.right ?: circle.right) - circle.left).coerceAtLeast(0f).toDp()
+            }
+            CancelZone(
+                // Armed only with a finger to release: a pinned ladder
+                // nobody is touching cancels nothing yet. (pointerFraction
+                // is set exactly while a finger is on the scale.)
+                armed = armedIndex == null && pointerFraction != null,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .fillMaxHeight()
+                    .padding(top = ladderTopInset)
+                    .width(cancelWidth),
+            )
+            if (ladderPinned) {
+                // The pinned ladder takes its own touches: a press anywhere
+                // on the pane is the held gesture from there on, read by
+                // the same followLadderFinger — release on a rung starts
+                // it, on the button's side closes. Drawn after the zones
+                // and before the shutter and the ⏱ button, which keep
+                // their own taps (a shutter press un-pins; see there).
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .testTag("capture-interval-overlay")
+                        .pointerInput(ladderBounds) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown()
+                                down.consume()
+                                val buttonLeft = circleBounds?.left ?: return@awaitEachGesture
+                                var overLadder =
+                                    followLadderFinger(paneOrigin + down.position, buttonLeft)
+                                try {
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull { it.id == down.id }
+                                            ?: event.changes.first()
+                                        overLadder =
+                                            followLadderFinger(paneOrigin + change.position, buttonLeft)
+                                        change.consume()
+                                        if (event.changes.none { it.pressed }) {
+                                            ladderPinned = false
+                                            // The held gesture checks these
+                                            // before its ladder opens; this
+                                            // one opened on a button, so
+                                            // they are asked at the release.
+                                            when {
+                                                !overLadder -> Unit
+                                                !shutterEnabled(capture.state.ready) ->
+                                                    ignoredPress = "camera not ready"
+                                                capture.state.capturing ->
+                                                    ignoredPress = "previous shot still in flight"
+                                                else -> releaseLadder(overLadder)
+                                            }
+                                            break
+                                        }
+                                    }
+                                } finally {
+                                    armedIndex = null
+                                    pointerFraction = null
+                                }
+                            }
+                        },
+                )
+            }
+        }
+
+        // The ⏱ button: the ladder without the hold (user, 2026-10-10).
+        // Beside the 📷 selector, but drawn HERE, after the ladder: on a
+        // pinned overlay that spot is the bottom rung, so a second tap meant
+        // to close it would otherwise start a 0.2 s run. Hidden while a held
+        // gesture owns the ladder, where it would sit on the bottom rung's
+        // value; disabled while a run or a recording is going, which the
+        // shutter stops.
+        if (!ladderVisible) {
+            val timerStart = cameraButtonRight
+                ?.takeIf { state.availableResolutions.isNotEmpty() }
+                ?.let {
+                    with(androidx.compose.ui.platform.LocalDensity.current) {
+                        (it - paneOrigin.x).toDp()
+                    } + 4.dp
+                }
+                ?: 8.dp
+            TextButton(
+                onClick = {
+                    ladderPinned = !ladderPinned
+                    if (ladderPinned) {
+                        showResolutionMenu = false
+                        showShutterMenu = false
+                        // Open pointing at the last run's rung: with no
+                        // finger to read, that is the best guess at the
+                        // next one.
+                        hoverIndex = intervalIndex
+                    }
+                },
+                enabled = ladderPinned ||
+                    (shutterEnabled(state.ready) && !repeating && !state.recording),
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = timerStart, bottom = 6.dp)
+                    .background(if (ladderPinned) Color(0xCC4CAF50) else LightGlass, CircleShape)
+                    .semantics { selected = ladderPinned }
+                    .testTag("capture-interval-button"),
+            ) { Text("⏱", style = MaterialTheme.typography.titleMedium) }
         }
 
         // Bottom-centre stack over the video: hints and gate escapes above
@@ -1008,10 +1337,12 @@ fun CaptureScreen(
             // 300 ms (the original's "shorter timeout for quicker
             // response") unfolds the interval ladder over the pane beside
             // the still-held thumb; sliding onto it picks a rung live;
-            // RELEASING there starts the repeating run. Releasing back over
-            // the button cancels, as the original's release-over-nothing
-            // does. A tap stops a running run. The graded ladder is this
-            // port's take on the original's fixed slow/fast pair.
+            // RELEASING there starts the repeating run — anywhere left of
+            // the button, below the pane included, which is the bottom
+            // rung. Releasing back on the button's side is the cancel
+            // (CancelZone; it took one photo from 2026-09-18 to
+            // 2026-10-10). A tap stops a running run. The graded ladder is
+            // this port's take on the original's fixed slow/fast pair.
             var clusterOrigin by remember { mutableStateOf(Offset.Zero) }
             // Camera readiness is the only gate (see shutterEnabled). The
             // location gate — no fix, no photo, unless lifted — is gone:
@@ -1052,6 +1383,10 @@ fun CaptureScreen(
                             if (!circle.contains(clusterOrigin + down.position)) {
                                 return@awaitEachGesture
                             }
+                            // A press on the shutter takes over from a
+                            // ladder the ⏱ button pinned: a tap is a photo,
+                            // a hold opens the ladder the held way.
+                            ladderPinned = false
                             // STOPPING comes before the gate, deliberately.
                             // The location gate exists to withhold a capture
                             // that would have no position; it has no business
@@ -1060,7 +1395,13 @@ fun CaptureScreen(
                             // recording unstoppable — every press answered
                             // "no GPS fix" — and the same trap held a
                             // repeating run.
-                            if (state.recording) {
+                            // capture.state, not `state`: every read in this
+                            // block goes to the CONTROLLER, live. `state` is
+                            // the value this lambda closed over when
+                            // pointerInput last restarted, and the flags below
+                            // move without restarting it. See the capturing
+                            // guard for the bug that cost.
+                            if (capture.state.recording) {
                                 // Recording behaves exactly like a run: any
                                 // completed press on the button ends it.
                                 val up = waitForUpOrCancellation() ?: return@awaitEachGesture
@@ -1077,11 +1418,32 @@ fun CaptureScreen(
                                 if (circle.contains(clusterOrigin + up.position)) repeating = false
                                 return@awaitEachGesture
                             }
-                            if (!gateOpen) {
-                                ignoredPress = if (!state.ready) "camera not ready" else "no GPS fix"
+                            if (!shutterEnabled(capture.state.ready)) {
+                                ignoredPress =
+                                    if (!capture.state.ready) "camera not ready" else "no GPS fix"
                                 return@awaitEachGesture
                             }
-                            if (state.capturing) {
+                            // LIVE, and NOT a pointerInput key.
+                            //
+                            // Read from the stale snapshot (until 2026-09-22)
+                            // this was a shutter that stayed dead until the
+                            // pane was left and re-entered, answering every
+                            // press "previous shot still in flight". The trap:
+                            // stopping a run sets `repeating = false`, which IS
+                            // a key, so the handler restarts — and if the run's
+                            // last shot was still in flight at that instant,
+                            // the new lambda closed over capturing = true and
+                            // kept it forever, since nothing it could still do
+                            // changes a key. (Same shape as the two before it:
+                            // the run loop's launch-time guard, and recording
+                            // becoming a key.)
+                            //
+                            // A key is the WRONG cure here: capturing toggles
+                            // per shot, and restarting pointerInput cancels the
+                            // gesture in progress — during a run, the press
+                            // meant to stop it. The controller is the truth;
+                            // ask it.
+                            if (capture.state.capturing) {
                                 ignoredPress = "previous shot still in flight"
                                 return@awaitEachGesture
                             }
@@ -1100,7 +1462,7 @@ fun CaptureScreen(
                             // the last run's rung — the thumb is on the
                             // button at the foot of the scale, and that is
                             // what the bottom band should say.
-                            paneBounds?.let { zone ->
+                            ladderBounds?.let { zone ->
                                 val y = (clusterOrigin + down.position).y
                                 hoverIndex = rungIndexAt(y, zone.top, zone.bottom)
                                 pointerFraction = ladderFractionAt(y, zone.top, zone.bottom)
@@ -1113,37 +1475,10 @@ fun CaptureScreen(
                                     val change = event.changes.firstOrNull { it.id == down.id }
                                         ?: event.changes.first()
                                     val pos = clusterOrigin + change.position
-                                    // Everything left of the button is the
-                                    // ladder's catch zone — a mid-gesture
-                                    // thumb is not a precision instrument.
-                                    overLadder = pos.x < circle.left
-                                    // The ladder spans the pane, so the pane
-                                    // is the scale. Height is read whatever
-                                    // the finger's x is: the ladder shows
-                                    // where the gesture is landing even
-                                    // while the thumb is still on the
-                                    // button, so the target is visible
-                                    // BEFORE the slide left commits to it.
-                                    val zone = paneBounds
-                                    if (zone != null && zone.height > 0f) {
-                                        hoverIndex = rungIndexAt(pos.y, zone.top, zone.bottom)
-                                        pointerFraction =
-                                            ladderFractionAt(pos.y, zone.top, zone.bottom)
-                                        if (overLadder) intervalIndex = hoverIndex
-                                    }
-                                    armedIndex = if (overLadder) intervalIndex else null
+                                    overLadder = followLadderFinger(pos, circle.left)
                                     change.consume()
                                     if (event.changes.none { it.pressed }) {
-                                        // Released on the ladder: the top
-                                        // rung starts a recording, any
-                                        // interval rung starts a run.
-                                        val rung = INTERVAL_LADDER.getOrNull(intervalIndex)
-                                        if (overLadder && rung is LadderRung.Video) {
-                                            videoEngaged = engageSportsIfAuto()
-                                            capture.startVideo()
-                                        } else if (overLadder && rung is LadderRung.Every) {
-                                            repeating = true
-                                        }
+                                        releaseLadder(overLadder)
                                         break
                                     }
                                 }
@@ -1246,7 +1581,7 @@ fun CaptureScreen(
                                 )
                                 armedRung is LadderRung.Every -> Text(
                                     armedRung.label,
-                                    style = MaterialTheme.typography.labelSmall,
+                                    style = MaterialTheme.typography.labelLarge,
                                     color = Color.White,
                                 )
                                 repeating -> Text(
@@ -1264,17 +1599,19 @@ fun CaptureScreen(
                     // common splits — the original cause of "i keep missing
                     // it"); the ladder itself now names the rung too, in
                     // the band it is highlighting.
-                    if (ladderVisible) {
+                    if (ladderVisible || ladderPinned) {
                         Text(
                             text = when {
                                 armedRung is LadderRung.Video -> "release: record"
                                 armedRung is LadderRung.Every ->
                                     "release: start ${armedRung.label} run"
-                                // The bottom rung and the button itself are
-                                // the same act, so they get the same word.
+                                // Pinned by ⏱ and nobody touching it yet.
+                                pointerFraction == null -> "tap an interval"
+                                // The button's side: the one release
+                                // that does nothing.
                                 else -> "release: cancel"
                             },
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.labelLarge,
                             color = when {
                                 armedRung is LadderRung.Video -> Color(0xFFFF5252)
                                 armedRung is LadderRung.Every -> Color(0xFF69F0AE)
@@ -1365,6 +1702,68 @@ private fun EcoSlider(
                     .requiredWidth(140.dp)
                     .rotate(-90f)
                     .testTag("eco-fps-slider"),
+            )
+        }
+    }
+}
+
+/** How long the just-taken photo sits in the corner. */
+private const val CAPTURE_FLASH_MS = 1_200L
+
+/**
+ * The shutter's confirmation — what was just taken, for a moment.
+ *
+ * [placeholderOnly] is the interval-run case: the shot happened, and saying
+ * so is worth a box, but decoding the image is not worth doing every 0.2 s
+ * while the capture pipeline wants the same CPU and the same memory.
+ */
+internal data class CaptureFlash(
+    val locator: String,
+    val placeholderOnly: Boolean,
+)
+
+/**
+ * The last shot, bottom-left, over the 📷 selector — the corner every camera
+ * app uses for it, and a tap opens the photo on its own page.
+ *
+ * The placeholder is not tappable on purpose: during a run the finger is on
+ * the shutter, and a target that navigates away from a capture in progress
+ * under a thumb that is aiming at the shutter is a trap, not an affordance.
+ */
+@Composable
+private fun CaptureFlashThumbnail(
+    shot: CaptureFlash,
+    onOpen: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier
+            .size(56.dp)
+            .background(Color(0xCC111111), RoundedCornerShape(6.dp))
+            .border(2.dp, Color(0xCCFFFFFF), RoundedCornerShape(6.dp))
+            .then(
+                if (shot.placeholderOnly) {
+                    Modifier
+                } else {
+                    Modifier.clickable { onOpen(shot.locator) }
+                },
+            )
+            .testTag("capture-flash"),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (shot.placeholderOnly) {
+            Text("📷", style = MaterialTheme.typography.titleMedium)
+        } else {
+            // 128 px, not the list's 512: this is a 56 dp box that lives for
+            // a second, and the decode happens on the phone that is holding
+            // the camera open.
+            cz.hillview.devicephotos.PhotoThumbnail(
+                locator = shot.locator,
+                targetPx = 128,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(4.dp))
+                    .testTag("capture-flash-image"),
             )
         }
     }

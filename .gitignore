@@ -45,3 +45,7 @@ scripts/enrich/runs/
 
 # staged by enrich/recon/build.sh at image-build time (copies of other trees)
 enrich/recon/vendor/
+docker-compose.prod.yml
+
+# per-deployment host topology, see hosts.example.toml
+/hosts.toml

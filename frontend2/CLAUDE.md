@@ -32,19 +32,40 @@ porting, read it first — `frontend/src/lib/`, especially `mapState.ts`,
 one. Divergences are allowed, but they are DECISIONS: state them at the call
 site and in `docs/frontend2-status.md`, never as silence.
 
+What the original does is already written down control by control in
+`docs/tauri-map-ui-contract.md`, `docs/tauri-capture-ui-contract.md` and
+`docs/tauri-viewer-ui-contract.md`; what it is *supposed* to do, as its test
+suites assert it, in `docs/app-behaviour-scenarios.md`. Port from those, not
+from memory.
+
 ## Logging
 
-Every tag carries the `hv-` prefix (`hv-GeoEngine`, `hv-Sensors`), so the
-whole app is one grep on a real device:
+Tags come from `hvTag("GeoEngine")` (shared-kt, `LogTag.kt`) — never a
+hand-written `"hv-…"` string. The prefix exists in one place, and
+`LogTagConventionTest` fails the build if a tag skips the helper; it used to be
+a convention held by 49 copies, and three tests had already lost it.
 
 ```bash
-adb logcat | grep hv-
+adb logcat | grep hv-                      # this project's own output
+adb logcat --pid=$(adb shell pidof cz.hillview.debug)   # ...and what the
+                                           # PLATFORM says about it
 ```
 
-Keep it when adding a tag. The in-app event log (`EventLog.record`) is for
+Prefer the PID form when hunting a crash: a `FATAL EXCEPTION` is logged under
+`AndroidRuntime`, not under any `hv-` tag, so the grep hides exactly the thing
+you are looking for. The in-app event log (`EventLog.record`) is for
 things a USER may need to see later — a re-registration, an export, a stand
 down; it survives without a cable attached and shows up in the Event log
 screen.
+
+## Sensors and battery
+
+When the inertial sensors run, what every constant is pinned to, and what breaks
+if you change the window length or add a fast-mode toggle:
+[docs/imu-sampling-design.md](../docs/imu-sampling-design.md). Read it before
+touching `GeoConfig`, `GeoDefaults` or anything that claims the engine — the
+claim merge is `any { }`, so a per-screen toggle silently does nothing while
+another claim is live.
 
 ## Building and testing
 
@@ -71,4 +92,11 @@ questions about sensor fusion or device pose — only a real phone can.
 
 `docs/frontend2-status.md` is the status page: what is done, what is
 deferred, and the findings that cost a session to learn. Read it before
-starting something that sounds like it has been touched before.
+starting something that sounds like it has been touched before. It links
+the design records it grew: `frontend2-rewrite-plan.md`,
+`frontend2-geo-engine-design.md` (the one position/bearing stream — built;
+the reasoning is the valuable part), `frontend2-capture-backlog.md`.
+
+[docs/native-auth.md](../docs/native-auth.md) covers the Credential Manager +
+Google ID-token login — concepts, security reasoning, and where everything
+lives.

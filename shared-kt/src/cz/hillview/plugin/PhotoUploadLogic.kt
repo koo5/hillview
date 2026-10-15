@@ -58,7 +58,7 @@ class PhotoUploadLogic(internal val context: Context) {
 	private val editDao = database.editDao()
 
 	companion object {
-		private const val TAG = "hv-Upload"
+		private val TAG = hvTag("Upload")
 		private const val doLog = false
 		private const val PREFS_NAME = "hillview_upload_prefs"
 		private const val PREF_SERVER_URL = "server_url"
@@ -99,6 +99,12 @@ class PhotoUploadLogic(internal val context: Context) {
 
 	private val prefs: SharedPreferences by lazy { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
 	private val authManager by lazy { AuthenticationManager(context) }
+
+	// What this client owes the SERVER about photos it has already sent:
+	// ratings, deletions, and the tagging kinds to come. A step of THIS drain,
+	// not a schedule of its own — see PhotoOutboxPusher and
+	// docs/upload-one-funnel.md.
+	private val outboxPusher by lazy { PhotoOutboxPusher(context, client, authManager) }
 	private val clientCrypto by lazy { ClientCryptoManager(context) }
 	private val notificationHelper by lazy { NotificationHelper(context) }
 
@@ -154,6 +160,21 @@ class PhotoUploadLogic(internal val context: Context) {
 
 				// Process any pending edits before upload loop
 				processPendingEdits()
+
+				// What is owed to the server about photos already up there.
+				// BEFORE the file loop deliberately: a rating or a deletion
+				// is a few hundred bytes, and making the user wait behind a
+				// queue of 25 MB JPEGs to have a thumbs-up land would be the
+				// wrong way round. Rows for photos not yet uploaded are not
+				// selected at all (the join in getPushable), so this costs
+				// one query when there is nothing to say.
+				getServerUrl()?.let { url ->
+					try {
+						outboxPusher.pushAll(url)
+					} catch (e: Exception) {
+						Log.w(TAG, "outbox push failed; rows stay dirty", e)
+					}
+				}
 
 				// Process photos one at a time with validation on each iteration
 
@@ -337,6 +358,20 @@ class PhotoUploadLogic(internal val context: Context) {
 								serverPhotoId,
 								System.currentTimeMillis()
 							)
+							// The photo now HAS a server id, so anything the
+							// outbox was holding for it can go — and one case
+							// must go now rather than at the next drain: a
+							// deletion asked for while this very file was in
+							// flight. Sent bytes cannot be recalled, so
+							// "delete it before it uploads" becomes "delete it
+							// the moment it lands".
+							getServerUrl()?.let { url ->
+								try {
+									outboxPusher.afterUpload(photo.id, url)
+								} catch (e: Exception) {
+									Log.w(TAG, "post-upload outbox push failed", e)
+								}
+							}
 							if (uploadedCount % RECONNECT_EVERY_N_UPLOADS == 0) {
 								// Drop the pooled edge connection so the next upload
 								// re-load-balances — see RECONNECT_EVERY_N_UPLOADS.
@@ -856,7 +891,7 @@ class PhotoUploadLogic(internal val context: Context) {
 		photo.longitude?.let { put("longitude", it) }
 		photo.altitude?.let { put("altitude", it) }
 		if (photo.bearing != 0.0) put("bearing", photo.bearing)
-		if (photo.accuracy > 0) put("accuracy", photo.accuracy)
+		photo.accuracyMOrNull?.let { put("accuracy", it) }
 		// Millisecond ISO — the whole reason the clock-calibration work can
 		// trust uploads: EXIF DateTimeOriginal is second-granular.
 		PhotoUtils.formatTimestampToIsoMillis(photo.capturedAt)?.let { put("captured_at", it) }
@@ -868,6 +903,47 @@ class PhotoUploadLogic(internal val context: Context) {
 		// anyway. Null stays absent rather than becoming 0 — see
 		// PhotoEntity.pitch.
 		photo.pitch?.let { put("pitch", it) }
+		// What the DEVICE measured, as opposed to what the photo is stamped
+		// as facing: roll (which had no route off the phone at all before
+		// this), the raw and corrected headings, the fusion behind them, the
+		// quantized device pose, the landscape-workaround flag. One object,
+		// like alt_location below, and folded into the UserComment the same
+		// way — the worker must DECLARE it to receive it (BrowserMetadata),
+		// or pydantic drops it silently.
+		// Each of these is one object the worker must DECLARE to receive
+		// (BrowserMetadata) and list in PROVENANCE_KEYS to copy onward.
+		// docs/recon-capture-metadata.md has the whole contract.
+		listOf(
+			"attitude" to photo.attitudeJson,
+			"fix" to photo.fixJson,
+			"lens" to photo.lensJson,
+			"inertial" to photo.inertialJson,
+			// Pre-declared server-side before anything sent it (BrowserMetadata +
+			// PROVENANCE_KEYS, 2026-09-27), precisely so this line needs no deploy.
+			"capture_timing" to photo.captureTimingJson,
+		).forEach { (key, json) ->
+			json?.let {
+				try {
+					put(key, JSONObject(it))
+				} catch (e: Exception) {
+					Log.w(TAG, "${key}Json on ${photo.id} is not valid JSON, dropping: $it")
+				}
+			}
+		}
+		// The RAW window, and the ONE metadata field that deliberately does
+		// NOT become provenance: it is a bulk artifact, not a fact about the
+		// shutter. The worker declares it like the rest but leaves it out of
+		// PROVENANCE_KEYS, gzips it, and stores it beside the photo's
+		// renditions — `exif_data` is read wholesale on every detail request
+		// and has no business carrying a time series.
+		// docs/recon-capture-metadata.md, Phase 5.
+		photo.imuSamplesJson?.let {
+			try {
+				put("imu_samples", JSONObject(it))
+			} catch (e: Exception) {
+				Log.w(TAG, "imuSamplesJson on ${photo.id} is not valid JSON, dropping")
+			}
+		}
 		// The original's alt_location: the backend synthesizes it into the
 		// UserComment provenance (test_background_location_provenance.py).
 		photo.altLocationJson?.let {
@@ -1387,10 +1463,23 @@ class PhotoUploadLogic(internal val context: Context) {
         pitch: Double? = null,
         /** The other position stream, as JSON — see PhotoEntity.altLocationJson. */
         altLocationJson: String? = null,
+        /** What the device measured at the shutter — see PhotoEntity.attitudeJson. */
+        attitudeJson: String? = null,
+        /** What the receiver said about its fix — see PhotoEntity.fixJson. */
+        fixJson: String? = null,
+        /** The camera's calibration and settings — see PhotoEntity.lensJson. */
+        lensJson: String? = null,
+        /** How the phone was moving — see PhotoEntity.inertialJson. */
+        inertialJson: String? = null,
+        /** What captured_at means — see PhotoEntity.captureTimingJson. */
+        captureTimingJson: String? = null,
         // The refiner's upload gate (PhotoEntity.uploadHoldUntil): non-zero
         // keeps the drain off the row until then, so refinement wins the
         // race against an expedited upload.
         uploadHoldUntil: Long = 0,
+        // Which enrichers still owe this row (PhotoEntity.uploadHoldReasons).
+        // The deadline above is only the escape hatch if one of them dies.
+        uploadHoldReasons: Int = 0,
     ): String {
         // Generate ID if not provided (using the hash from Rust)
         val photoId = if (id.isNullOrEmpty()) {
@@ -1425,7 +1514,13 @@ class PhotoUploadLogic(internal val context: Context) {
             license = license,
             pitch = pitch,
             altLocationJson = altLocationJson,
+            attitudeJson = attitudeJson,
+            fixJson = fixJson,
+            lensJson = lensJson,
+            inertialJson = inertialJson,
+            captureTimingJson = captureTimingJson,
             uploadHoldUntil = uploadHoldUntil,
+            uploadHoldReasons = uploadHoldReasons,
         )
 
         // Insert into database (will replace if exists due to OnConflictStrategy.REPLACE)

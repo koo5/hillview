@@ -62,9 +62,33 @@ class OneStateArchitectureTest {
         // An allowlist entry that understates what a file does is how a
         // violation hides in plain sight, so this one spells it out — and an
         // entry that OVERSTATES it is how one grows back unnoticed.
+        // Three things, and the entry spells them out because an allowlist
+        // entry that UNDERSTATES what a file does is how a violation hides in
+        // plain sight (and one that overstates it is how one grows back).
+        //   1. the Stats liveness line — asks whether the hardware is alive,
+        //      which the state cannot answer (a frozen sample and a still phone
+        //      look identical in it);
+        //   2. the device-pose sensor, DevicePoseState's one writer, which
+        //      exists to aim CameraX;
+        //   3. persistImuWindow at the shutter (2026-09-26) — the engine holds a
+        //      high-rate IMU ring in memory and writes the slice around the
+        //      exposure. It ASKS rather than observes, once per capture, because
+        //      a 100 Hz buffer is not user-facing state and has no business
+        //      passing through recomposition. Nothing is READ from the hardware
+        //      here: the call returns a summary of what was persisted.
+        //   4. attitudeAt / motionAt at the SAVE (2026-09-28) — the same arrangement as
+        //      3, for the same reason. The engine keeps a few seconds of attitude and
+        //      motion so a capture can ask what the device was doing at the instant it
+        //      exposed, which is 250 ms to 1.2 s after the press. It was tried in the
+        //      capture first, fed from the stamp setters, and the samples arrived through
+        //      two conflated StateFlows and the composition's dispatcher: 20 uploaded
+        //      photos measured attitude hits +-88 ms from the exposure, a 33 Hz stream
+        //      delivered as ~9 Hz. ASKS, once per capture, and gets a remembered SAMPLE
+        //      rather than a hardware read.
         "capture/PhotoCapture.android.kt" to
-            "Stats liveness line + the device-pose sensor, which exists to aim " +
-            "CameraX and publishes to DevicePoseState",
+            "Stats liveness line + the device-pose sensor (DevicePoseState's one " +
+            "writer, which aims CameraX) + persistImuWindow at the shutter + " +
+            "attitudeAt/motionAt at the save",
         // Claims the engine so tracking outlives the pane it was started
         // from, and reads fixes for its own status line.
         "external/ExternalCameraService.kt" to "foreground-service claim",

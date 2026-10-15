@@ -49,6 +49,54 @@ ClientCryptoManager. frontend2 does not yet *run* it (its Ktor UploadQueue is
 still the live path); wiring + retiring the queue is the next step. See
 docs/frontend2-rewrite-plan.md.
 
+## The two builds do not agree on dependency versions
+
+Same source, two classpaths — and they are further apart than the toolchain note
+above suggests. Measured 2026-09-27:
+
+| | Tauri app | frontend2 |
+|---|---|---|
+| okhttp | **4.11.0** (declared, `tauri-plugin-hillview/android/build.gradle.kts`) | **5.3.2** (resolved: `libs` pins 4.12.0, ktor 3.4.3 drags `okhttp-jvm` 5.x in, highest wins) |
+| Room | 2.6.1 | 2.8.4 |
+| kotlinx-serialization | 1.5.1 | 1.9.0 |
+| Kotlin | 2.0.20 | 2.4.x |
+
+**So a "redundant" warning here may be load-bearing there.** `Response.body` is
+`@Nullable` in okhttp 4.11.0 and `@NotNull` in 5.3.2 — verified twice, by javap on
+both jars and by compiling frontend2 against the forced-down version. frontend2
+therefore reports a dozen "Unnecessary safe call on a non-null receiver of type
+'ResponseBody'" in `PhotoUploadLogic`, `AuthenticationManager`,
+`PanoramaxPhotoLoader` and `StreamPhotoLoader` that are the ONLY form compiling in
+both apps. They stay. Do not "clean them up"; `?.` on a non-null receiver is
+merely redundant, while `.` on a nullable one does not compile.
+
+The asymmetry is what makes this a trap: only frontend2's build log gets read, so
+a warning that is wrong for the Tauri app is invisible, and a fix that breaks the
+Tauri app is invisible until someone builds it.
+
+Before acting on any "unnecessary"/"redundant" warning in this directory, compile
+frontend2 against the OTHER app's version — no source edit needed:
+
+```bash
+cat > /tmp/force.gradle <<'EOF'
+allprojects { configurations.all { resolutionStrategy {
+    force 'com.squareup.okhttp3:okhttp:4.11.0'
+} } }
+EOF
+cd frontend2 && ./gradlew --init-script /tmp/force.gradle \
+    :shared:compileAndroidMain --rerun-tasks
+```
+
+If the warning disappears under the older version, the code it points at is
+required. (Forcing kotlinx-serialization down to 1.5.1 this way fails in KSP
+instead — fall back to `javap -v` on the two jars and read the
+`@Nullable`/`@NotNull` after each method's Code block.)
+
+Checked and found NOT to diverge, so these were safe to act on: Room's
+`Migration.migrate` parameter is named `db` in 2.6.1 and 2.8.4 alike (our 25
+overrides were renamed from `database` to match), and serialization's
+`JsonElement.jsonObject` is `@NotNull` in 1.5.1 and 1.9.0 alike.
+
 ## Auditable refactor method (how code moves here)
 
 Converged on during the PhotoUploadLogic split; use it for every move:

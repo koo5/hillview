@@ -3,6 +3,8 @@ photo processing service
 """
 import asyncio
 import contextlib
+import gzip
+import math
 import os
 import pathlib
 import json
@@ -368,8 +370,36 @@ PROVENANCE_KEYS = (
 	# rewrite and carries the whole stamp in the upload metadata instead —
 	# so the synthesized UserComment must say what a written one would.
 	'location_age_ms', 'exposure', 'refined',
+	# Everything the phone knows about how a frame was taken — see
+	# BrowserMetadata in worker/app.py for each object's key list, and
+	# docs/recon-capture-metadata.md for why each is ONE object rather than a
+	# column per field. Declared there AND listed here, or the key is dropped
+	# silently at one end or the other.
+	'attitude', 'fix', 'lens', 'inertial',
+	# Pre-declared, nothing sends it yet -- see BrowserMetadata.capture_timing for
+	# why it is here before its contents exist. Copied only when present (the
+	# comprehension below skips None), so listing it early is inert.
+	'capture_timing',
 	'v',
 )
+
+# `imu_samples` is DECLARED in BrowserMetadata and deliberately ABSENT from the
+# list above, which is the only key of which that is true. Every other object
+# added to that model belonged in the UserComment; this one does not.
+#
+# It is a bulk artifact: a few thousand samples, tens of kilobytes, against a
+# handful of numbers for everything else here. `exif_data` is read WHOLESALE on
+# every photo detail request and on every map bounds query that projects it, so a
+# time series in there is a cost paid by every reader forever. It travels to the
+# storage pool as a gzipped file instead and the row keeps a URL —
+# `ProcessedPhotoData.imu_samples_url`. Its SUMMARY still rides the UserComment,
+# inside `motion.imu_window`, which is what a reader who only wants to know how
+# shaky a frame was should look at.
+#
+# Named here rather than merely omitted, because "not in this tuple" is
+# indistinguishable from an oversight, and this project has already lost two keys
+# for weeks to exactly that ambiguity.
+IMU_SAMPLES_KEY_DELIBERATELY_NOT_PROVENANCE = 'imu_samples'
 
 # Metadata keys that reach the UserComment under a DIFFERENT name, because the
 # wire name does not say what it measures. `accuracy` is the receiver's
@@ -1449,6 +1479,137 @@ class PhotoProcessor:
 			raise RuntimeError("No upload method configured: either pass keep_pics_in_worker (with ALLOW_KEEP_PICS_IN_WORKER=true), set USE_CDN=true (with BUCKET_NAME), or provide photo_id and client_signature for API upload")
 
 
+	# Most samples one photo's payload may carry, ACROSS ALL SENSORS.
+	#
+	# The number is the capture ring's capacity (`ImuRing(capacity = 16_000)` in
+	# GeoEngine, mirrored as IMU_PAYLOAD_MAX_SAMPLES in shared-kt), not a byte
+	# figure someone picked: no honest window can exceed the buffer that produced
+	# it, so a payload claiming more did not come from this app. Bytes would be
+	# the wrong unit anyway — the cost that matters is rows.
+	#
+	# TOTAL, matching the producer. This said "per SENSOR" while the app bounded
+	# the total, so the two disagreed by a factor of two in the permissive
+	# direction: 16 000 accelerometer PLUS 16 000 gyroscope rows would have passed
+	# here and could never have been produced. One ring, one number.
+	IMU_MAX_SAMPLES_TOTAL = 16_000
+
+	# Sensor names we will store. A fixed set, because this becomes a filename
+	# and a public artifact; an open set lets a client name a key anything.
+	IMU_KINDS = ('accel', 'gyro')
+
+	@staticmethod
+	def _validate_imu_samples(payload: Optional[dict]) -> Optional[dict]:
+		"""Return a payload safe to store, or None.
+
+		This is the ONLY client-supplied bulk artifact in the pipeline, which is a
+		new combination here: everything else large is produced by the worker from
+		an image it decoded itself, and everything else client-supplied is a
+		handful of scalars that `_provenance_object` bounds at the API. So the
+		checks are explicit rather than inherited.
+
+		Rebuilt key by key rather than filtered in place, so nothing a client
+		invented can ride along: an unknown sensor name, an extra axis, a nested
+		object. Ragged is rejected outright rather than truncated to the shortest
+		axis — a window whose x has 400 entries and y has 399 is not a window with
+		399 samples, it is a bug somewhere upstream, and silently repairing it
+		would hide that forever.
+		"""
+		if not isinstance(payload, dict) or not payload:
+			return None
+		out = {}
+		for kind in PhotoProcessor.IMU_KINDS:
+			block = payload.get(kind)
+			if not isinstance(block, dict):
+				continue
+			axes = {}
+			ok = True
+			for axis in ('x', 'y', 'z'):
+				v = block.get(axis)
+				if not isinstance(v, list) or not v:
+					ok = False
+					break
+				if len(v) > PhotoProcessor.IMU_MAX_SAMPLES_TOTAL:
+					logger.warning(f"IMU payload {kind}.{axis} has {len(v)} samples, over the cap — dropping {kind}")
+					ok = False
+					break
+				# bool is an int subclass, so it must be excluded explicitly.
+				if any(isinstance(n, bool) or not isinstance(n, (int, float)) or not math.isfinite(n) for n in v):
+					logger.warning(f"IMU payload {kind}.{axis} holds a non-finite or non-numeric value — dropping {kind}")
+					ok = False
+					break
+				axes[axis] = [float(n) for n in v]
+			if not ok:
+				continue
+			if len({len(v) for v in axes.values()}) != 1:
+				lengths = {k: len(v) for k, v in axes.items()}
+				logger.warning(f"IMU payload {kind} axes are ragged ({lengths}) — dropping {kind}")
+				continue
+			n = len(axes['x'])
+			gaps = block.get('dt_us')
+			# n-1 gaps for n samples, by the encoder's contract. A mismatch means
+			# the two ends disagree about the encoding, which is worse than absence.
+			if not isinstance(gaps, list) or len(gaps) != n - 1 or any(
+				isinstance(g, bool) or not isinstance(g, int) or g < 0 for g in gaps
+			):
+				logger.warning(f"IMU payload {kind} has {len(gaps) if isinstance(gaps, list) else 'no'} gaps for {n} samples — dropping {kind}")
+				continue
+			t0_ms, t0_ns = block.get('t0_ms'), block.get('t0_ns')
+			if not isinstance(t0_ms, int) or isinstance(t0_ms, bool) or t0_ms <= 0:
+				logger.warning(f"IMU payload {kind} has no usable t0_ms — dropping {kind}")
+				continue
+			entry = {'t0_ms': t0_ms, 'dt_us': list(gaps), **axes}
+			if isinstance(t0_ns, int) and not isinstance(t0_ns, bool) and t0_ns > 0:
+				entry['t0_ns'] = t0_ns
+			out[kind] = entry
+		if not out:
+			return None
+		total = sum(len(v['x']) for v in out.values())
+		if total > PhotoProcessor.IMU_MAX_SAMPLES_TOTAL:
+			logger.warning(
+				f"IMU payload holds {total} samples across {len(out)} sensors, over the "
+				f"{PhotoProcessor.IMU_MAX_SAMPLES_TOTAL} cap — dropping the whole payload")
+			return None
+		return out
+
+	async def _store_imu_samples(self, payload: Optional[dict], unique_id: str, output_base: str,
+								  photo_id: Optional[str], client_signature: Optional[str],
+								  keep_pics_in_worker: bool = False) -> Optional[str]:
+		"""Gzip the raw IMU window and store it beside the photo's renditions.
+
+		Same road as the image variants and the DZI pyramid (`_get_size_url`), so
+		it lands in whichever pool this deployment uses and needs no second
+		storage concept. Gzipped because the payload is decimal text of bounded
+		alphabet — it compresses to about a third, measured.
+
+		A failure here NEVER fails the photo. The window is an enrichment; losing
+		it costs a reconstruction some precision, while failing the upload costs
+		the user their picture. That asymmetry is the whole reason this is wrapped
+		and the DZI generation next door is not.
+		"""
+		clean = self._validate_imu_samples(payload)
+		if not clean:
+			return None
+		try:
+			user_id_part, photo_id_part = unique_id.split('/', 1)
+			user_id_part = validate_user_id(user_id_part)
+			imu_dir = os.path.join(output_base, 'opt', 'imu', user_id_part)
+			out_path = validate_file_path(
+				os.path.join(imu_dir, sanitize_filename(f"{photo_id_part}.json.gz")), output_base)
+			relative_path = os.path.relpath(out_path, output_base)
+			os.makedirs(pathlib.Path(out_path).parent, exist_ok=True)
+			body = json.dumps(clean, separators=(',', ':')).encode()
+			with gzip.open(out_path, 'wb', compresslevel=9) as fh:
+				fh.write(body)
+			counts = {k: len(v['x']) for k, v in clean.items()}
+			logger.info(
+				f"IMU window for {unique_id}: {counts}, "
+				f"{len(body)} B -> {os.path.getsize(out_path)} B gzipped")
+			return await self._get_size_url(out_path, relative_path, photo_id, client_signature,
+											keep_pics_in_worker=keep_pics_in_worker)
+		except Exception as e:
+			logger.warning(f"Could not store the IMU window for {unique_id}: {e}", exc_info=True)
+			return None
+
 	async def _anonymize_image(self, source_path: str, encoding: Optional[str] = None) -> tuple[Optional[str], dict]:
 		"""Anonymize image by blurring people and vehicles.
 
@@ -1704,6 +1865,13 @@ class PhotoProcessor:
 		encoding = metadata.get('encoding') if metadata else None
 		sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override, quality=quality, fast=fast, encoding=encoding, output_base=output_base, keep_pics_in_worker=keep_pics_in_worker, local_pyramid_path=local_pyramid_path)
 
+		# The raw inertial window, stored as its own gzipped artifact rather than
+		# folded into exif_data. NOT in PROVENANCE_KEYS by design — see the note
+		# there, and docs/recon-capture-metadata.md, Phase 5.
+		imu_samples_url = await self._store_imu_samples(
+			(metadata or {}).get('imu_samples'), unique_id, output_base,
+			photo_id, client_signature, keep_pics_in_worker=keep_pics_in_worker)
+
 		# Extract captured_at from EXIF DateTimeOriginal (with corruption fix)
 		raw_data = exif_data.get('data', {})
 		captured_at_raw = raw_data.get('DateTimeOriginal') or raw_data.get('CreateDate')
@@ -1727,7 +1895,8 @@ class PhotoProcessor:
 			'description': description,
 			'is_public': is_public,
 			'user_id': user_id,
-			'captured_at': captured_at
+			'captured_at': captured_at,
+			'imu_samples_url': imu_samples_url
 		}
 
 

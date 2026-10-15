@@ -106,7 +106,10 @@ actual fun MapScreen(
     // readout has to be able to see it.
     val trackingPhase by session.bearingPhase.collectAsState()
     val locationTracking by session.locationTracking.collectAsState()
-    var locationFlash by remember { mutableStateOf(false) }
+    // Fixes counted for the button's flash. A count, not the flag it used
+    // to be: the flag could stick lit for good — see rememberFixFlash.
+    var flashFixes by remember { mutableStateOf(0L) }
+    val locationFlash = rememberFixFlash(flashFixes)
     // The last fix is a RECORD in the one state now (MapStateHolder.lastFix,
     // 2026-09-09), not a copy held here. In BACKGROUND tracking the fix
     // callback deliberately stops writing spatial state (exploring must not
@@ -150,7 +153,6 @@ actual fun MapScreen(
         // any spam.
         markerSource.refresh()
     }
-    var arrowTipPx by remember { mutableStateOf(120f) }
     // The front photo: what the gallery would show and the marker drawn as
     // selected. Recomputed from bearing + range, or set by tapping.
     var selectedPhotoId by remember { mutableStateOf<String?>(null) }
@@ -189,7 +191,19 @@ actual fun MapScreen(
             return@LaunchedEffect
         }
         session.setBearingPhase(TrackingPhase.Starting)
-        val started = controller.startBearing(mapSettings.bearingMode) { heading, accuracy, magnetic, pitch ->
+        val started = controller.startBearing(
+            mode = mapSettings.bearingMode,
+            // The ATTITUDE record: every sample, past the dead-band or not,
+            // elected or not. The bearing below is throttled to 1° and can be
+            // overridden by hand; this is what the device actually measured,
+            // and it is the one state's answer for a manual row's pitch/roll
+            // and for the photo stamp's attitude provenance.
+            onAttitude = { data ->
+                // One conversion, shared with the engine's lookup ring — see
+                // toDeviceAttitude for why it is not written twice.
+                state.updateDeviceAttitude(data.toDeviceAttitude())
+            },
+        ) { heading, accuracy, magnetic, pitch ->
             session.setBearingPhase(TrackingPhase.Active)
             // Both modes drive the bearing state past a 1° dead-band:
             // walking from the compass, car from the gps-kalman course
@@ -222,6 +236,12 @@ actual fun MapScreen(
         }
     }
 
+    // The inertial record: gravity and linear acceleration, for the life of
+    // the pane. See MapSensorController.observeMotion.
+    LaunchedEffect(Unit) {
+        controller.observeMotion { state.updateDeviceMotion(it) }
+    }
+
     // The fix RECORD: every fix the engine publishes, whatever the tracking
     // mode, into the one state through its funnel. This is the writer for
     // the position's second stream — the capture pane stamps from it, the
@@ -229,7 +249,12 @@ actual fun MapScreen(
     // fix. Runs for the life of this always-mounted pane.
     LaunchedEffect(Unit) {
         controller.observeFixes { fix ->
-            locationFlash = true
+            // The flash only while tracking, as in the original ("only OFF
+            // skips entirely", Map.svelte:1124). The fix stream also runs with
+            // tracking off — for capture, the external camera, or the compass
+            // alone (BindGeoToActivity) — and flashing then made an OFF
+            // button blink as though it were on.
+            if (session.locationTracking.value != LocationTracking.Off) flashFixes++
             state.updateFix(fix)
         }
     }
@@ -246,9 +271,12 @@ actual fun MapScreen(
             }
         }
     }
-    LaunchedEffect(locationFlash) {
-        if (locationFlash) { delay(100); locationFlash = false }
-    }
+    // The flag's clear used to live here, keyed on the flag itself:
+    //   LaunchedEffect(locationFlash) {
+    //       if (locationFlash) { delay(100); locationFlash = false }
+    //   }
+    // It stuck lit whenever a fix re-set the flag between the clear and the
+    // next frame. rememberFixFlash above keys on the fix count instead.
     // The location button is the stronger control: using it while the
     // prompt is up answers it.
     LaunchedEffect(locationTracking) {
@@ -292,6 +320,7 @@ actual fun MapScreen(
     markerOverlay.onDrawn = { markerPositions = it }
     val rangeOverlay = remember { RangeCircleOverlay() }
     val gpsOverlay = remember { GpsMarkerOverlay() }
+    val accuracyOverlay = remember { GpsAccuracyOverlay() }
     val arrowOverlay = remember { BearingArrowOverlay() }
     // Arrow drag: walking sets the bearing outright, car adjusts the mount
     // offset by the angle travelled. Neither happens on contact — the arrow
@@ -391,9 +420,16 @@ actual fun MapScreen(
                     view.applyProvider(tileProvider(mapSettings.tileProviderKey))
                     applied.providerKey = mapSettings.tileProviderKey
                 }
+                // Draw order = list order. The GPS dot goes AFTER the photo
+                // markers so it stays visible in a pile of them (user,
+                // 2026-09-19: "needs to draw over photo markers, not under");
+                // it takes no touches, so the markers' taps are unaffected.
+                // Its accuracy disc is the opposite: the very bottom, so it
+                // tints the tiles and not the markers or the range line.
+                if (accuracyOverlay !in view.overlays) view.overlays.add(accuracyOverlay)
                 if (rangeOverlay !in view.overlays) view.overlays.add(rangeOverlay)
-                if (gpsOverlay !in view.overlays) view.overlays.add(gpsOverlay)
                 if (markerOverlay !in view.overlays) view.overlays.add(markerOverlay)
+                if (gpsOverlay !in view.overlays) view.overlays.add(gpsOverlay)
                 // Late, so it draws on top — and so its touch handler gets
                 // refusal before the map pans.
                 if (arrowOverlay !in view.overlays) view.overlays.add(arrowOverlay)
@@ -408,38 +444,68 @@ actual fun MapScreen(
                 // never for drawing.
                 val centre = GeoPoint(spatial.latitude, spatial.longitude)
                 val density = view.context.resources.displayMetrics.density
-                val ringPx = 70f * density
+                // Whole pixels, so the radius drawn and the radius measured
+                // are one number: the circle is the cull threshold itself
+                // (user, 2026-10-10: "the exact threshold of the range"). It
+                // was a float drawn and its truncation measured.
+                val ringPx = kotlin.math.round(70f * density)
                 val rangeMeters = view.projection.let { p ->
                     val a = p.toPixels(centre, null)
+                    // Both ends read off the same pixel grid. Measuring from
+                    // `centre` itself added its rounding to the nearest pixel
+                    // to the radius — half a pixel either way, per pan.
+                    val c = p.fromPixels(a.x, a.y)
                     val b = p.fromPixels(a.x + ringPx.toInt(), a.y)
-                    centre.distanceToAsDouble(b)
+                    GeoPoint(c.latitude, c.longitude).distanceToAsDouble(b)
                 }.takeIf { it > 0 } ?: spatial.range
-                rangeOverlay.centre = centre
                 rangeOverlay.radiusPx = ringPx
                 // Read the circle's ground meaning back into the one state,
                 // so the viewer's ring culls against what the circle SHOWS.
                 // Only on real change: this block runs per recomposition.
-                if (kotlin.math.abs(rangeMeters - spatial.range) > spatial.range * 0.01) {
+                // A thousandth, not the hundredth it was: 1% of 70 dp is
+                // 0.7 dp of circle the cull could disagree with, a thousandth
+                // is under a pixel — and it still only fires on a zoom or a
+                // long north–south pan.
+                if (kotlin.math.abs(rangeMeters - spatial.range) > spatial.range * 0.001) {
                     state.updateRange(rangeMeters)
                 }
                 gpsOverlay.position = lastFix
                 // ACTIVE and BACKGROUND alike, as the original keeps it —
                 // "keep the pulsing GPS marker alive in BACKGROUND too".
                 gpsOverlay.visible = locationTracking != LocationTracking.Off
-                // Tip at 1.3x the ring, as in the original — just outside it.
-                arrowTipPx = ringPx * 1.3f
+                accuracyOverlay.position = lastFix
+                accuracyOverlay.accuracyM = lastFixState?.accuracyM
+                accuracyOverlay.visible = gpsOverlay.visible
                 arrowOverlay.bearingDeg = bearing.bearing
                 // Not Compose state: written from inside the update block,
                 // where a state write would recompose and re-enter it. The
                 // readout's own half-second tick is what reads it.
                 arrowStamp[0] = System.currentTimeMillis()
                 arrowStamp[1] = bearing.bearing.toRawBits()
-                arrowOverlay.tipRadiusPx = arrowTipPx
+                // The SAME ring the range overlay draws: the arrow grabs it,
+                // draws its hold just inside it and rests its head on it.
+                arrowOverlay.ringRadiusPx = ringPx
                 // The ring is grabbable in every mode; this decides only
                 // what a drag MEANS — car mode adjusts the mount offset by
                 // the angle travelled, everything else points the arrow.
                 arrowOverlay.mountOffsetDrag =
                     mapSettings.bearingMode == BearingMode.Car && trackingWanted
+                // The direction of travel that offset is set against, shown
+                // while it is being dragged (user, 2026-10-12; not in the
+                // original). DERIVED — the arrow with the offset taken back
+                // out — rather than the engine's course read on the side, so
+                // it comes from the one state, and the angle between the two
+                // arrows is the offset exactly, dead-band and all. Only once
+                // car mode has written a heading (phase Active): before that
+                // the arrow is whatever the compass last left it at, and
+                // taking an offset out of it gives a direction nobody
+                // travelled.
+                arrowOverlay.travelBearingDeg =
+                    if (arrowOverlay.mountOffsetDrag && trackingPhase == TrackingPhase.Active) {
+                        normalizeBearing(bearing.bearing - controller.mountOffsetDeg())
+                    } else {
+                        null
+                    }
                 // The hold in front of manual bearing is there to protect a
                 // heading that is about to be RECORDED (ArrowArming). In the
                 // viewer nothing is being recorded and turning the bearing IS
@@ -935,11 +1001,25 @@ private class MapSensorController(private val context: Context) {
     private var carHeading: ((Float, Int?, Double?, Double?) -> Unit)? = null
     private var wantLocation = false
     private var wantCar = false
+    private var attitudeJob: Job? = null
+    private var motionJob: Job? = null
     private var onFix: ((Double, Double) -> Unit)? = null
 
     /** @return false when the stream cannot be observed (reverts intent). */
     fun startBearing(
         mode: BearingMode,
+        /**
+         * Every compass sample, WHATEVER is elected — the attitude record.
+         * Separate from [onHeading] because the two answer different
+         * questions: that one is "which way is the user facing", this one is
+         * "how was the device being held", and in car mode, under a manual
+         * claim, or past the 1° dead-band the first has no reading to give
+         * while the second still does. See [DeviceAttitude].
+         *
+         * Declared BEFORE onHeading so the trailing lambda still reads as
+         * the heading at the call site, which is what it has always been.
+         */
+        onAttitude: (cz.hillview.plugin.OrientationSensorData) -> Unit = {},
         /** heading, accuracy, magnetic heading, pitch — one sample, not four reads. */
         onHeading: (Float, Int?, Double?, Double?) -> Unit,
     ): Boolean {
@@ -950,6 +1030,7 @@ private class MapSensorController(private val context: Context) {
                 compassJob = scope.launch {
                     engine.orientation.collect { data ->
                         data?.let {
+                            onAttitude(it)
                             onHeading(
                                 it.trueHeading,
                                 it.accuracyLevel,
@@ -973,6 +1054,15 @@ private class MapSensorController(private val context: Context) {
                     // neither, and null is what that means.
                     engine.carBearing.collect { onHeading(it.toFloat(), null, null, null) }
                 }
+                // The compass is not the bearing here, but it is still
+                // RUNNING (every activity's GeoConfig asks for the sensors),
+                // and what it measures is still the truth about how the
+                // phone is held. Collected so a photo taken in car mode
+                // carries its attitude too — without this, the one place
+                // that most needs a tilt record is the one with none.
+                attitudeJob = scope.launch {
+                    engine.orientation.collect { data -> data?.let(onAttitude) }
+                }
                 wantCar = true
                 syncLocation()
                 true
@@ -985,6 +1075,8 @@ private class MapSensorController(private val context: Context) {
         compassJob = null
         carJob?.cancel()
         carJob = null
+        attitudeJob?.cancel()
+        attitudeJob = null
         carHeading = null
         if (wantCar) {
             wantCar = false
@@ -1006,6 +1098,19 @@ private class MapSensorController(private val context: Context) {
      * clock, and handing the state a lat/lng pair would silently lose that.
      * Idempotent; ends with [release].
      */
+    /**
+     * The engine's gravity / linear-acceleration stream into the one state.
+     *
+     * Its own observer rather than a rider on the bearing subscription: it runs
+     * for the life of the pane whatever the bearing mode is, because a photo
+     * taken in car mode needs its motion as much as one taken walking, and the
+     * bearing subscription stops and starts with the mode.
+     */
+    fun observeMotion(onMotion: (cz.hillview.map.DeviceMotionSample?) -> Unit) {
+        if (motionJob != null) return
+        motionJob = scope.launch { engine.motion.collect(onMotion) }
+    }
+
     fun observeFixes(onRecord: (cz.hillview.map.FixState) -> Unit) {
         if (recordJob != null) return
         recordJob = scope.launch {
@@ -1023,6 +1128,18 @@ private class MapSensorController(private val context: Context) {
                         atMs = System.currentTimeMillis() -
                             (android.os.SystemClock.elapsedRealtimeNanos() - fix.elapsedRealtimeNanos) / 1_000_000,
                         elapsedRealtimeNanos = fix.elapsedRealtimeNanos,
+                        // has*() guarded, every one: Location returns 0.0 for
+                        // an unset field, and a zero error bar would read as a
+                        // perfect measurement.
+                        altitudeAccuracyM =
+                            fix.takeIf { it.hasVerticalAccuracy() }?.verticalAccuracyMeters,
+                        speedMps = fix.takeIf { it.hasSpeed() }?.speed,
+                        speedAccuracyMps =
+                            fix.takeIf { it.hasSpeedAccuracy() }?.speedAccuracyMetersPerSecond,
+                        courseDeg = fix.takeIf { it.hasBearing() }?.bearing,
+                        courseAccuracyDeg =
+                            fix.takeIf { it.hasBearingAccuracy() }?.bearingAccuracyDegrees,
+                        provider = fix.provider,
                     ),
                 )
             }
@@ -1055,6 +1172,9 @@ private class MapSensorController(private val context: Context) {
     fun adjustMountOffset(deltaDeg: Double) {
         geoTracking.setMountOffset(geoTracking.getMountOffset() + deltaDeg)
     }
+
+    /** The offset car mode composes into its heading — a setting, not a sample. */
+    fun mountOffsetDeg(): Double = geoTracking.getMountOffset()
 
     fun release() {
         stopBearing()

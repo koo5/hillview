@@ -32,26 +32,38 @@ function urlTag(path: string, lastmod?: string | null, img?: string | null): str
 	return `  <url><loc>${loc}</loc>${lastmodTag}${imgTag}</url>`;
 }
 
-export const GET: RequestHandler = async ({ fetch }) => {
-	// Newest public upload time → <lastmod> on /activity, so crawlers recrawl the
-	// "new stuff appears here" feed promptly. Mirrors what the feed shows, incl. the
-	// non-curated uploads the per-photo entries below deliberately omit.
-	let activityLastmod: string | null = null;
+// One backend call → one page's <lastmod>. null (and a logged error) on any
+// failure: an entry without lastmod is honest, a stale or fabricated one is not.
+async function fetchLastmod(fetch: typeof globalThis.fetch, path: string, pick: (json: any) => unknown): Promise<string | null> {
 	try {
-		const res = await fetch(`${backendInternalUrl}/activity/recent?limit=1`);
-		if (res.ok) {
-			const { photos } = await res.json();
-			activityLastmod = photos?.[0]?.uploaded_at ?? null;
-		} else {
-			console.error('sitemap: /activity/recent HTTP', res.status);
+		const res = await fetch(`${backendInternalUrl}${path}`);
+		if (!res.ok) {
+			console.error(`sitemap: ${path} HTTP`, res.status);
+			return null;
 		}
+		const v = pick(await res.json());
+		return typeof v === 'string' ? v : null;
 	} catch (e) {
-		console.error('sitemap: failed to fetch activity lastmod', e);
+		console.error(`sitemap: failed to fetch ${path}`, e);
+		return null;
 	}
+}
 
-	const entries: string[] = STATIC_PATHS.map((p) =>
-		p === '/activity' ? urlTag(p, activityLastmod) : urlTag(p)
-	);
+export const GET: RequestHandler = async ({ fetch }) => {
+	// The two listing pages whose content moves on its own get a <lastmod>; the
+	// rest of the static pages don't (none beats a made-up one).
+	//   /activity — newest upload time. Mirrors what the feed shows, incl. the
+	//     non-curated uploads the per-photo entries below deliberately omit.
+	//   /bestof — when page 1 of the ranking last looked different, by the
+	//     backend's fingerprint of it (see GET /api/bestof/lastmod for why it
+	//     is not derived from rating/annotation timestamps).
+	const [activityLastmod, bestofLastmod] = await Promise.all([
+		fetchLastmod(fetch, '/activity/recent?limit=1', (j) => j?.photos?.[0]?.uploaded_at),
+		fetchLastmod(fetch, '/bestof/lastmod', (j) => j?.lastmod),
+	]);
+	const lastmods: Record<string, string | null> = { '/activity': activityLastmod, '/bestof': bestofLastmod };
+
+	const entries: string[] = STATIC_PATHS.map((p) => urlTag(p, lastmods[p]));
 
 	try {
 		const res = await fetch(`${backendInternalUrl}/photos/sitemap-ids?limit=${MAX_URLS}`);

@@ -96,9 +96,8 @@ fun SettingsScreen(
         // The field edits RAW text (normalizing per keystroke would fight
         // the cursor); the persisted setting is normalized — trimmed, no
         // trailing slash (a stored slash doubles up in every "$url/path").
-        // A combobox: the two URLs anyone actually switches between sit
-        // under ▾ (serverPresets), and anything else — a LAN address, a
-        // staging host — is typed. Either way it is the FULL …/api URL,
+        // A combobox: predefined URLs sit under ▾ (serverPresets), and
+        // anything else is typed. Either way it is the FULL …/api URL,
         // never assembled from a host.
         var serverUrlText by rememberSaveable { mutableStateOf(settings.serverUrl) }
         var serverMenuOpen by remember { mutableStateOf(false) }
@@ -483,6 +482,29 @@ fun SettingsScreen(
                 checked = settings.writeExif,
                 onCheckedChange = { on -> repository.update { it.copy(writeExif = on) } },
                 modifier = Modifier.testTag("settings-write-exif"),
+            )
+        }
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Exact capture time", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Records when the photo was actually EXPOSED, not when the button " +
+                        "was pressed — they differ by a quarter of a second, and by " +
+                        "more than a second in Quality mode. Hillview saves the file " +
+                        "itself to get it, so it needs EXIF writing off and a folder " +
+                        "target rather than the media store; with either of those it " +
+                        "quietly uses the ordinary path instead.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Switch(
+                checked = settings.exactCaptureTime,
+                onCheckedChange = { on -> repository.update { it.copy(exactCaptureTime = on) } },
+                modifier = Modifier.testTag("settings-exact-capture-time"),
             )
         }
 

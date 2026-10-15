@@ -5,6 +5,17 @@ any use" for 3-D modelling. Short answer: the *skeleton* is right and worth revi
 *question it asks* is not the one 3-D work needs, and the richest thing it already
 computed is being thrown away at the database boundary.
 
+**Update 2026-10-01.** The service now lives in `backend/analyzer/` and has a work queue,
+`photo_analysis_queue` (migration 036): a row only while a photo is not done under the running
+`ANALYZER_VERSION`, carrying the version of the last claim on it and `next_retry`, a lease or
+backoff scoped to that version (`infinity` = given up). A version mismatch is an unconditional
+re-run; a bump re-queues everything on the next sync. `photos.analysis` is written only by a
+complete run and carries `schema_version` (its shape, for readers) and `analyzer_version`
+(what produced it); documents without them read as 0. Readers never see partial results. The
+paragraph below saying there is nothing to migrate predates this. Design reasoning:
+`PhotoAnalysisQueue` in `backend/common/models.py` and the module docstring of
+`backend/analyzer/analyzer.py`.
+
 ## What it is
 
 `scripts/analyzer/` — its own git repo, **not tracked by the hillview repo** and with the

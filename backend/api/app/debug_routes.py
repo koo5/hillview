@@ -66,7 +66,7 @@ async def clear_database():
 	from common.database import SessionLocal, engine
 	from common.models import User, Photo
 	from mapillary_routes import clear_mapillary_cache_tables
-	from photos import delete_photo_files_for_sizes
+	from photos import delete_photo_files_for_artifacts, photo_artifacts
 
 	# Serialize concurrent clear-database calls with an EXPLICIT session-level advisory
 	# lock. The old serialization was accidental — the sync file sweep blocked the event
@@ -97,11 +97,11 @@ async def clear_database():
 
 			# Orphaned photos (no owner): capture sizes, end the read txn, sweep, then delete.
 			async with SessionLocal() as db:
-				orphan_sizes = [p.sizes for p in (await db.execute(select(Photo))).scalars().all()]
+				orphan_sizes = [photo_artifacts(p) for p in (await db.execute(select(Photo))).scalars().all()]
 				await db.rollback()
 			orphaned_photos_deleted = 0
 			if orphan_sizes:
-				await delete_photo_files_for_sizes(orphan_sizes)
+				await delete_photo_files_for_artifacts(orphan_sizes)
 				async with SessionLocal() as db:
 					orphaned_result = await db.execute(text("DELETE FROM photos"))
 					await db.commit()

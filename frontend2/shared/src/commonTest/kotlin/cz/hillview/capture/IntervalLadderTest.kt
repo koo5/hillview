@@ -2,19 +2,25 @@ package cz.hillview.capture
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class IntervalLadderTest {
 
     @Test
-    fun theLadderRunsCancelThenFasterThanASecondThenTheSecondsThenVideo() {
-        assertSame(LadderRung.Cancel, INTERVAL_LADDER.first())
+    fun theLadderRunsFasterThanASecondThenTheSecondsThenVideo() {
+        // No cancel rung at the foot (user, 2026-09-18): the bottom band is
+        // the fastest interval, and the way out is the button's side.
+        assertEquals(LadderRung.Every(200), INTERVAL_LADDER.first())
         assertSame(LadderRung.Video, INTERVAL_LADDER.last())
 
+        // Above 3 s the rungs thin out (user, 2026-10-10: "video 30 20 10 8
+        // 6 4 3 (the lower rest would stay as it is)").
         val intervals = INTERVAL_LADDER.filterIsInstance<LadderRung.Every>()
         assertEquals(
-            listOf(200, 300, 500, 750) + (1..INTERVAL_MAX_SEC).map { it * 1000 },
+            listOf(200, 300, 500, 750) +
+                listOf(1, 2, 3, 4, 6, 8, 10, 20, 30).map { it * 1000 },
             intervals.map { it.ms },
         )
         // The whole point of the sub-second rungs: the run loop can be asked
@@ -70,6 +76,28 @@ class IntervalLadderTest {
         assertEquals(1f, ladderFractionAt(-9_999f, 0f, 1000f))
     }
 
+    /**
+     * Portrait: the pane ends at y = 1000 with the map beneath it and the
+     * button's left edge at x = 400. A thumb that slides down-left past the
+     * pane's foot meant the bottom rung, and is given it — leaving the pane
+     * used to be the cancel (user, 2026-10-10).
+     */
+    @Test
+    fun theBottomLeftOffThePaneIsTheFastestRunNotACancel() {
+        val belowThePane = 1_180f
+        assertTrue(overLadderAt(x = 120f, buttonLeft = 400f))
+        assertEquals(0, rungIndexAt(belowThePane, 200f, 1000f))
+        assertEquals(LadderRung.Every(200), INTERVAL_LADDER[0])
+    }
+
+    /** The button's side, the button included, is the way out — at any height. */
+    @Test
+    fun theButtonsSideIsTheWayOut() {
+        assertFalse(overLadderAt(x = 400f, buttonLeft = 400f))
+        assertFalse(overLadderAt(x = 700f, buttonLeft = 400f))
+        assertTrue(overLadderAt(x = 399f, buttonLeft = 400f))
+    }
+
     @Test
     fun theFractionIsMeasuredFromTheBottom() {
         assertEquals(0f, ladderFractionAt(1000f, 0f, 1000f))
@@ -96,11 +124,6 @@ class IntervalLadderTest {
         assertTrue(
             ladderBandColor(LadderRung.Video, selected = true, armed = true) !=
                 ladderBandColor(run, selected = true, armed = true),
-        )
-        // Releasing over "cancel" does nothing, so it never wears the green.
-        assertEquals(
-            ladderBandColor(LadderRung.Cancel, selected = true, armed = false),
-            ladderBandColor(LadderRung.Cancel, selected = true, armed = true),
         )
     }
 }

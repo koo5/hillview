@@ -17,18 +17,170 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
-private const val TAG = "hv-Geo"
+private val TAG = hvTag("Geo")
+
+/**
+ * What one `dumpAndClear` cost, for the readout that answers "can the dump keep up
+ * with what the sensors produce?".
+ */
+data class DumpStats(
+	val atMs: Long,
+	val rows: Int,
+	val durationMs: Long,
+	val ok: Boolean,
+)
+
+/**
+ * The external service's dump interval, repeated here ONLY for a log line that
+ * reports headroom. `ExternalCameraService.DUMP_INTERVAL_MS` owns the real
+ * schedule; this is not it.
+ */
+private const val DUMP_INTERVAL_HINT_MS = 5 * 60 * 1000L
+
+/**
+ * Rows per page when streaming the IMU CSV. ~350 KB of entities in flight, and a
+ * million-row table becomes 200 queries rather than 200 000.
+ */
+private const val IMU_CSV_PAGE_ROWS = 5_000
 
 
 data class OrientationSensorData(
 	val magneticHeading: Float,  // Compass bearing in degrees from magnetic north (0-360°)
 	val trueHeading: Float,       // Compass bearing corrected for magnetic declination
-	val accuracyLevel: Int,      // Android sensor accuracy constants: -1=unknown, 0=unreliable, 1=low, 2=medium, 3=high
+	// The MAGNETOMETER's calibration status, latched from onAccuracyChanged:
+	// -1=unknown, 0=unreliable, 1=low, 2=medium, 3=high. It rates the HEADING
+	// only — pitch and roll come from gravity and the gyro. Named for Android's
+	// word rather than for what it is, because it is also a database column.
+	val accuracyLevel: Int,
+	/**
+	 * What the sensor that actually produced THIS sample said about itself —
+	 * `SensorEvent.accuracy`, on the same 0..3 scale, -1 when unknown.
+	 *
+	 * [accuracyLevel] above is the bare magnetometer's status, which the
+	 * default fusion (TYPE_ROTATION_VECTOR) only indirectly depends on; this
+	 * is the fused sensor's own rating of the sample it just emitted. Both are
+	 * kept because they disagree, and which one was low tells you whether the
+	 * magnetic field or the fusion was the problem. It was read and discarded
+	 * (a commented-out log line) until 2026-09-22.
+	 *
+	 * -1 for the hand-rolled filters (Madgwick, complementary): they compose
+	 * several raw sensors and no single one rates the result.
+	 */
+	val fusedSensorAccuracy: Int = -1,
 	val pitch: Float,
 	val roll: Float,
 	val timestamp: Long,
+
+	/**
+	 * The same sample on `elapsedRealtimeNanos`, which is what can be compared to
+	 * anything else the device measured: the IMU samples' `t0_ns`, and a capture's
+	 * exposure instant.
+	 *
+	 * [timestamp] above stays the wall clock because it is a database column and the
+	 * CSVs correlate with external cameras on wall time. But the wall clock can STEP
+	 * mid-window under an NTP correction, which is exactly why the inertial payload
+	 * refuses to use it, so a lookup "what was the attitude at this instant" needs the
+	 * monotonic one. 0 when a producer did not set it.
+	 */
+	val elapsedRealtimeNanos: Long = 0L,
+
 	val source: String,     // Elect-able identity — "android" for the sensor stack
-	val detail: String? = null  // Which fusion mode produced it, within that source
+	val detail: String? = null,  // Which fusion mode produced it, within that source
+
+	/**
+	 * How the ANGLES ABOVE WERE ARRIVED AT, for the next time this device's fusion
+	 * misbehaves. All null outside [EnhancedSensorService.MODE_UPRIGHT_ROTATION_VECTOR],
+	 * because the hand-rolled filters compute no rotation matrix to describe.
+	 *
+	 * This exists because of what it cost not to have it. Two faults in this phone's
+	 * TYPE_ROTATION_VECTOR took a session each to pin down (a 180° attitude branch in
+	 * level landscape, a mirrored azimuth above the horizon) and both were measured
+	 * through a temporary log probe, because the stamp carried only the FINAL heading —
+	 * by which point our own corrections had already been applied and could no longer be
+	 * told apart from the HAL's output. These fields make a captured frame
+	 * self-describing: [rotationVector] is what the HAL said, the rest is what we did
+	 * with it, and the two are separable after the fact without a cable.
+	 *
+	 * See `cz.hillview.plugin.CameraPose` for the geometry and
+	 * docs/todo/roll-skews-the-bearing.md for the question they are next needed for.
+	 */
+	val rotationVector: List<Float>? = null,
+	/**
+	 * `det(R)` of the matrix `getRotationMatrixFromVector` produced. A rotation matrix
+	 * has determinant +1; anything else is not one, and the cheapest possible detector
+	 * for a HAL returning something that only looks like an attitude. Measured +1.0000
+	 * through both known faults — which is the point: it RULED OUT the malformed-matrix
+	 * explanation rather than confirming it, and a diagnostic that can do that is worth
+	 * four bytes.
+	 */
+	val matrixDeterminant: Float? = null,
+	/**
+	 * Which vector the azimuth came from: `camera`, `blended` or `top_edge`. With the
+	 * lens near vertical its azimuth is undefined, so the device's top edge takes over
+	 * through a blend — and a bearing that disagrees with expectations means something
+	 * different in each case. See `CameraPose.bearingReference`.
+	 */
+	val bearingReference: String? = null,
+	/**
+	 * How well-defined the azimuth was: the horizontal length of the lens vector, 1 with
+	 * the camera level and 0 with it pointing straight up or down. Near 0 the heading is
+	 * arbitrary however healthy the sensors are, and this is the number that says so.
+	 */
+	val bearingConditioning: Float? = null,
+	/** The azimuth of the LENS alone, before the top-edge fallback was blended in. */
+	val cameraBearingDeg: Float? = null,
+	/** The azimuth of the device's TOP EDGE — the fallback's own answer, for decomposing a blend. */
+	val deviceBearingDeg: Float? = null,
+	/**
+	 * Whether the 180° attitude-branch correction fired on this sample: the HAL handed
+	 * back the attitude whose roll sign disagrees with gravity, and we added 180° to the
+	 * azimuths and flipped the image roll. Recorded rather than re-derived, so a row
+	 * that was corrected stays distinguishable from one that never needed it.
+	 */
+	val branchCorrected: Boolean? = null,
+	/**
+	 * Whether the landscape-above-horizon azimuth mirror was undone on this sample.
+	 * Gated on the user's `landscape_armor22_workaround` pref, so false means either
+	 * "not affected" or "not enabled" — `landscape_azimuth_negation` in the upload says
+	 * which.
+	 */
+	val azimuthMirrored: Boolean? = null,
+	/**
+	 * The gravity-based ORIENTATION CLASS as degrees (0 / 90 / 180 / 270) — what
+	 * `device_rotation_deg` carries on a photo, here per sample.
+	 *
+	 * Recorded because it is the one input to the attitude path that NO sensor series can
+	 * reconstruct: `OrientationEventListener` quantizes to 45° buckets, has its own
+	 * hysteresis, and reports ORIENTATION_UNKNOWN near flat — which
+	 * [DeviceOrientation.fromDegrees] maps to FLAT_UP and [DeviceOrientation.toDegrees]
+	 * renders as 0, indistinguishable from PORTRAIT. A theory about this value flickering
+	 * during a rotation cost a session and could not be checked against any stored data,
+	 * because nothing stored it.
+	 */
+	val deviceRotationDeg: Int? = null,
+	/**
+	 * THE LOCAL FIELD, for judging whether the compass can be trusted HERE —
+	 * strength in µT and dip below horizontal in degrees. See `MagneticField.kt`;
+	 * both are properties of the location, so neither may change as the phone turns,
+	 * and the dip is a geometric invariant that cannot.
+	 *
+	 * Null outside the modes that register a magnetometer.
+	 */
+	val fieldMagnitudeUt: Float? = null,
+	val fieldDipDeg: Float? = null,
+	/**
+	 * WHAT THE FUSED MATRIX SAID about the two axes it no longer provides.
+	 *
+	 * [pitch] and [roll] come from gravity since 2026-10-10, which is what makes these
+	 * worth recording: the published value can no longer report the fused attitude's
+	 * misbehaviour, and that misbehaviour is what is under investigation. Two faults are
+	 * known — a 180° branch ambiguity, and a dynamic OVERSHOOT (a 0→90° sweep reported as
+	 * 0→100→90, consistent with the gyro over-reading by about a tenth and the reference
+	 * then pulling it back). Neither can reach the published axes now, so neither would be
+	 * visible without this.
+	 */
+	val matrixPitchDeg: Float? = null,
+	val matrixRollDeg: Float? = null,
 )
 
 
@@ -186,6 +338,82 @@ class GeoTrackingManager(private val context: Context) {
 		return newId
 	}
 
+	/**
+	 * A bearing the APP produced — a manual claim, a photo the user turned
+	 * to — with whatever the device itself was measuring at the time.
+	 *
+	 * The bearing twin of [storeLocationNamed], and it exists for the
+	 * nullability: [OrientationSensorData] demands a non-null pitch and roll
+	 * because a sensor sample always has them, so the only way to write a
+	 * non-sensor row through it was to invent values. frontend2 invented
+	 * `0f` for both, which is a phone held perfectly level and is a
+	 * measurement, not an absence — indistinguishable in the table from a
+	 * phone that really was level. Here they are nullable, as
+	 * [BearingEntity] has always allowed, and the caller passes the live
+	 * attitude when it has a fresh one (user, 2026-09-22: "we should still
+	 * record actual sensor pitch and roll, even when bearing is overriden").
+	 */
+	fun storeBearingNamed(
+		timestamp: Long,
+		trueHeading: Float,
+		source: String,
+		detail: String? = null,
+		magneticHeading: Float? = null,
+		accuracyLevel: Int? = null,
+		pitch: Float? = null,
+		roll: Float? = null,
+		fusedSensorAccuracy: Int? = null,
+	) {
+		CoroutineScope(Dispatchers.IO).launch {
+			try {
+				val sourceId = getOrCreateSourceId(source)
+				storeBearingEntity(
+					BearingEntity(
+						timestamp = timestamp,
+						trueHeading = trueHeading,
+						magneticHeading = magneticHeading,
+						accuracyLevel = accuracyLevel,
+						sourceId = sourceId,
+						detail = detail,
+						pitch = pitch,
+						roll = roll,
+						fusedSensorAccuracy = fusedSensorAccuracy,
+					)
+				)
+			} catch (e: Exception) {
+				Log.e(TAG, "Failed to store $source bearing: ${e.message}", e)
+			}
+		}
+	}
+
+	/**
+	 * The IMU window around one shutter — see [ImuSampleEntity].
+	 *
+	 * A batch insert, deliberately: a window is a hundred-odd rows and a
+	 * per-row coroutine launch would cost more than the write. Synchronous
+	 * inside one IO launch for the same reason.
+	 */
+	/**
+	 * Store a burst of samples and, optionally, the CLAIM that says which capture
+	 * they belong to.
+	 *
+	 * One call and one coroutine for both, in that order, on purpose: a reader
+	 * waits for the claim to EXIST and then reads the range it names, so it must
+	 * never be able to find a claim whose rows have not landed yet. Two separate
+	 * launches on Dispatchers.IO have no ordering between them.
+	 */
+	fun storeImuSamples(samples: List<ImuSampleEntity>, claim: ImuClaimEntity? = null) {
+		if (samples.isEmpty()) return
+		CoroutineScope(Dispatchers.IO).launch {
+			try {
+				database.imuDao().insertAll(samples)
+				claim?.let { database.imuClaimDao().insert(it) }
+			} catch (e: Exception) {
+				Log.e(TAG, "Failed to store ${samples.size} IMU samples: ${e.message}", e)
+			}
+		}
+	}
+
 	fun storeOrientationSensorData(data: OrientationSensorData) {
 		CoroutineScope(Dispatchers.IO).launch {
 			try {
@@ -199,7 +427,8 @@ class GeoTrackingManager(private val context: Context) {
 						sourceId = sourceId,
 						detail = data.detail,
 						pitch = data.pitch,
-						roll = data.roll
+						roll = data.roll,
+						fusedSensorAccuracy = data.fusedSensorAccuracy.takeIf { it >= 0 }
 					)
 				)
 			} catch (e: Exception) {
@@ -338,6 +567,34 @@ class GeoTrackingManager(private val context: Context) {
 	 * Clears old geo tracking data and optionally exports to CSV.
 	 * @param forceDump If true, always export to CSV. If false, check auto_export preference.
 	 */
+	/**
+	 * One dump at a time, because two of them corrupt each other.
+	 *
+	 * Found on a device, 2026-09-26: the external service's periodic dump and a
+	 * second dump 3.2 s later overlapped, and the first CLEARED the tables while
+	 * the second was still iterating `getAllSamples()` —
+	 * "Couldn't read row 5825, col 0 from CursorWindow". Five callers each launch
+	 * their own coroutine (app start, the export button, capture teardown, the
+	 * external service's crash-safety timer) and nothing coordinated them.
+	 *
+	 * It was latent for as long as this only dumped bearings and locations: a
+	 * couple of thousand rows finish in milliseconds and never overlap. Continuous
+	 * inertial logging made a dump 257 769 rows and seconds long, and the window
+	 * opened.
+	 */
+	private val dumpMutex = kotlinx.coroutines.sync.Mutex()
+
+	/**
+	 * What the last dump cost. Published so the UI can show it and so the
+	 * question "can the dump keep up?" has an answer on the device.
+	 *
+	 * It needs one because the clear is PART of the dump: a dump slower than the
+	 * interval that triggers it gets skipped by [dumpMutex], the clear is skipped
+	 * with it, and the table then grows without bound. That failure is silent
+	 * without a duration to look at.
+	 */
+	val lastDump = kotlinx.coroutines.flow.MutableStateFlow<DumpStats?>(null)
+
 	fun dumpAndClear(forceDump: Boolean = false) {
 		val now = System.currentTimeMillis()
 
@@ -347,44 +604,111 @@ class GeoTrackingManager(private val context: Context) {
 		val shouldDump = forceDump || autoExportEnabled
 
 		CoroutineScope(Dispatchers.IO).launch {
-			if (shouldDump) {
-				try {
-					val sourceIdToName = buildSourceIdToNameMap()
-
-					val bearings = database.bearingDao().getAllBearings()
-					val bearingsAt = writeExportCsv(
-						"hillview_orientations_${now}.csv",
-						bearingsToCsv(bearings, sourceIdToName),
-					)
-					Log.i(TAG, "🢄📡 Dumped ${bearings.size} bearings to $bearingsAt")
-
-					val locations = database.locationDao().getAllLocations()
-					val locationsAt = writeExportCsv(
-						"hillview_locations_${now}.csv",
-						locationsToCsv(locations, sourceIdToName),
-					)
-					Log.i(TAG, "🢄📡 Dumped ${locations.size} locations to $locationsAt")
-					EventLog.record(
-						"export",
-						"${bearings.size} bearings + ${locations.size} locations → $locationsAt",
-					)
-				} catch (e: Exception) {
-					Log.e(TAG, "🢄📡 Failed to dump geo tracking data: ${e.message}", e)
-					EventLog.record("export", "CSV dump FAILED: ${e.message}")
-				}
-			} else {
-				Log.d(TAG, "🢄📡 Skipping geo data dump (auto_export disabled)")
+			// A user pressing "Export CSVs now" WAITS — their action must not be
+			// silently dropped. An opportunistic dump SKIPS: queueing it behind the
+			// one already running would only produce a second export of the rows
+			// that one just cleared.
+			if (forceDump) {
+				dumpMutex.lock()
+			} else if (!dumpMutex.tryLock()) {
+				Log.i(TAG, "🢄📡 Skipping dump: another one is already running")
+				return@launch
 			}
-
-			// Always clear old data
-			val cutoff = now - 1000 * 60 * 5
-
 			try {
-				database.bearingDao().clearBearingsOlderThan(cutoff)
-				database.locationDao().clearLocationsOlderThan(cutoff)
-				Log.i(TAG, "🢄📡 Geo tracking tables cleared")
-			} catch (e: Exception) {
-				Log.e(TAG, "🢄📡 Failed to clear geo tracking tables: ${e.message}", e)
+				var dumpFailed = false
+				val startedAt = System.currentTimeMillis()
+				if (shouldDump) {
+					try {
+						val sourceIdToName = buildSourceIdToNameMap()
+
+						val bearings = database.bearingDao().getAllBearings()
+						val bearingsAt = writeExportCsv(
+							"hillview_orientations_${now}.csv",
+							bearingsToCsv(bearings, sourceIdToName),
+						)
+						Log.i(TAG, "🢄📡 Dumped ${bearings.size} bearings to $bearingsAt")
+
+						val locations = database.locationDao().getAllLocations()
+						val locationsAt = writeExportCsv(
+							"hillview_locations_${now}.csv",
+							locationsToCsv(locations, sourceIdToName),
+						)
+						Log.i(TAG, "🢄📡 Dumped ${locations.size} locations to $locationsAt")
+						// The IMU windows, when any capture recorded one. Skipped
+						// silently when empty: a session with no captures, or one
+						// where the IMU was never asked for, has nothing to say and
+						// an empty file would only look like a failure.
+						// COUNTED, not loaded: this is the table that ran the app out
+						// of memory, and asking how many rows there are must not be the
+						// thing that allocates them.
+						val imuCount = database.imuDao().count()
+						var imuWritten = 0
+						if (imuCount > 0) {
+							val imuAt = writeExportCsvStreaming("hillview_imu_${now}.csv") { out ->
+								imuWritten = writeImuSamplesCsv(out)
+							}
+							Log.i(TAG, "🢄📡 Dumped $imuWritten IMU samples to $imuAt")
+						}
+						// TIMED, because a dump that cannot keep up is a silent
+						// failure: the clear is part of the dump, so a dump slower
+						// than its own 5-minute interval would skip (see dumpMutex)
+						// and the table would grow without bound. The headroom is
+						// the thing to watch, not the row count.
+						val rows = bearings.size + locations.size + imuWritten
+						val ms = System.currentTimeMillis() - startedAt
+						lastDump.value = DumpStats(startedAt, rows, ms, ok = true)
+						Log.i(
+							TAG,
+							"🢄📡 Dump took ${ms}ms for $rows rows " +
+								"(${if (ms > 0) rows * 1000L / ms else 0} rows/s), " +
+								"${DUMP_INTERVAL_HINT_MS / 1000}s until the next one",
+						)
+						EventLog.record(
+							"export",
+							"${bearings.size} bearings + ${locations.size} locations" +
+								(if (imuWritten > 0) " + $imuWritten IMU samples" else "") +
+								" in ${ms}ms → $locationsAt",
+						)
+					} catch (e: Exception) {
+						Log.e(TAG, "🢄📡 Failed to dump geo tracking data: ${e.message}", e)
+						EventLog.record("export", "CSV dump FAILED: ${e.message}")
+						dumpFailed = true
+						lastDump.value = DumpStats(
+							atMs = startedAt, rows = 0,
+							durationMs = System.currentTimeMillis() - startedAt, ok = false,
+						)
+					}
+				} else {
+					Log.d(TAG, "🢄📡 Skipping geo data dump (auto_export disabled)")
+				}
+
+				// NOT "always" any more. Clearing after a FAILED dump deletes rows
+				// nothing wrote — the clear used to sit in its own try outside the
+				// dump's, so an export that threw still took the data with it. Five
+				// minutes of inertial samples is a quarter of a million rows now, and
+				// losing them silently because a cursor went bad is the wrong trade.
+				val cutoff = now - 1000 * 60 * 5
+
+				if (dumpFailed) {
+					Log.w(TAG, "🢄📡 NOT clearing: the dump failed, so the rows are not on disk")
+					return@launch
+				}
+
+				try {
+					database.bearingDao().clearBearingsOlderThan(cutoff)
+					database.locationDao().clearLocationsOlderThan(cutoff)
+					database.imuDao().clearOlderThan(cutoff)
+					// A claim on rows that have just been deleted describes nothing,
+					// and a stale one would let a late upload pass read an empty
+					// range and report a payload of zero samples as if that were a
+					// measurement.
+					database.imuClaimDao().clearOlderThan(cutoff)
+					Log.i(TAG, "🢄📡 Geo tracking tables cleared")
+				} catch (e: Exception) {
+					Log.e(TAG, "🢄📡 Failed to clear geo tracking tables: ${e.message}", e)
+				}
+			} finally {
+				dumpMutex.unlock()
 			}
 		}
 	}
@@ -408,7 +732,29 @@ class GeoTrackingManager(private val context: Context) {
 	 *
 	 * @return a human-readable locator of where the bytes actually went.
 	 */
-	private fun writeExportCsv(displayName: String, content: String): String {
+	/**
+	 * The String form, for the exports small enough to build in one piece.
+	 *
+	 * "Small enough" is a judgement, and it was wrong once: `imu_samples` at ~720 rows/s
+	 * reached a million rows after a few missed dumps, `joinToString` grew a
+	 * StringBuilder to 131 MB against a 268 MB heap, and the app died in
+	 * `imuSamplesToCsv` — which meant the CLEAR at the end of the dump never ran, so the
+	 * table grew and the next dump died harder. A self-reinforcing crash loop, and the
+	 * comment above `lastDump` had predicted exactly it ("a dump slower than its own
+	 * 5-minute interval would skip and the table would grow without bound").
+	 *
+	 * So the real implementation streams, and the big export pages its reads as well.
+	 */
+	private fun writeExportCsv(displayName: String, content: String): String =
+		writeExportCsvStreaming(displayName) { it.write(content) }
+
+	/**
+	 * Open the export target and hand a Writer to [body] — nothing is held whole.
+	 *
+	 * Both targets are the same two as before, in the same order and with the same
+	 * fallback rules: the user's chosen folder through SAF, else app-private storage.
+	 */
+	private fun writeExportCsvStreaming(displayName: String, body: (java.io.Writer) -> Unit): String {
 		val prefs = context.getSharedPreferences("hillview_tracking_prefs", Context.MODE_PRIVATE)
 		val treeUriString = prefs.getString(EXPORT_TREE_URI_PREF, null)
 		if (treeUriString != null) {
@@ -421,8 +767,8 @@ class GeoTrackingManager(private val context: Context) {
 				val fileUri = DocumentsContract.createDocument(
 					context.contentResolver, parent, "text/csv", displayName,
 				) ?: throw java.io.IOException("createDocument returned null")
-				context.contentResolver.openOutputStream(fileUri)?.use {
-					it.write(content.toByteArray(Charsets.UTF_8))
+				context.contentResolver.openOutputStream(fileUri)?.use { out ->
+					out.bufferedWriter(Charsets.UTF_8).use(body)
 				} ?: throw java.io.IOException("openOutputStream returned null")
 				return exportFolderDisplayName(treeUriString) + "/" + displayName
 			} catch (e: SecurityException) {
@@ -445,7 +791,7 @@ class GeoTrackingManager(private val context: Context) {
 		val dir = File(context.getExternalFilesDir(null), "GeoTrackingDumps")
 		if (!dir.exists()) dir.mkdirs()
 		val file = File(dir, displayName)
-		file.writeText(content)
+		file.bufferedWriter(Charsets.UTF_8).use(body)
 		return file.absolutePath
 	}
 
@@ -465,6 +811,59 @@ class GeoTrackingManager(private val context: Context) {
 		return idToName
 	}
 
+	/**
+	 * The IMU window as CSV. Appended columns only, like the others — `pics`
+	 * resolves every column by header name and reads a missing one as None.
+	 *
+	 * `elapsedNanos` is the column to JOIN an exposure on: it is the device's
+	 * monotonic clock, which cannot step, where `timestamp` is wall clock and
+	 * can. Both travel because only the wall clock relates a sample to a photo's
+	 * `captured_at`.
+	 */
+	/**
+	 * Every IMU sample to [out], a page at a time. Returns how many rows were written.
+	 *
+	 * Memory is O(page), not O(table). The page size is a round 5 000 rows — about
+	 * 350 KB of entities, far below anything that matters, and large enough that a
+	 * million rows is 200 queries rather than 200 000.
+	 *
+	 * The key for the next page comes from the last row of this one, so a sample
+	 * arriving mid-dump (the engine keeps writing) is simply picked up by a later page
+	 * or missed by this dump and caught by the next — never duplicated, because the
+	 * keyset is strictly greater than what was already written.
+	 */
+	private fun writeImuSamplesCsv(out: java.io.Writer): Int {
+		out.write("#timestamp,kind,sequence,x,y,z,elapsedNanos\n")
+		var afterTimestamp = Long.MIN_VALUE
+		var afterKind = ""
+		var afterSequence = Int.MIN_VALUE
+		var written = 0
+		while (true) {
+			val page = database.imuDao()
+				.samplesAfter(afterTimestamp, afterKind, afterSequence, IMU_CSV_PAGE_ROWS)
+			if (page.isEmpty()) break
+			for (s in page) {
+				out.write("${s.timestamp},${s.kind},${s.sequence},${s.x},${s.y},${s.z},${s.elapsedNanos}\n")
+			}
+			written += page.size
+			val last = page.last()
+			afterTimestamp = last.timestamp
+			afterKind = last.kind
+			afterSequence = last.sequence
+			if (page.size < IMU_CSV_PAGE_ROWS) break
+		}
+		return written
+	}
+
+	private fun imuSamplesToCsv(samples: List<ImuSampleEntity>): String {
+		val header = "#timestamp,kind,sequence,x,y,z,elapsedNanos\n"
+		val rows = samples.joinToString("\n") {
+			"${it.timestamp},${it.kind},${it.sequence},${it.x},${it.y},${it.z},${it.elapsedNanos}"
+		}
+		return header + rows + "\n"
+	}
+
+
 	private fun escapeCsv(value: String?): String {
 		val str = value ?: ""
 		return if (str.contains(",") || str.contains("\"") || str.contains("\n")) {
@@ -477,13 +876,17 @@ class GeoTrackingManager(private val context: Context) {
 	private fun bearingsToCsv(bearings: List<BearingEntity>, sourceIdToName: Map<Int, String>): String {
 		// `detail` is appended, not slotted next to `source`: readers key on the
 		// header name, so a column added at the end never shifts an existing one.
-		val header = "#timestamp,trueHeading,magneticHeading,accuracyLevel,source,pitch,roll,detail,elected\n"
+		// APPENDED columns only. pics resolves every column by header name and
+		// reads a missing one as None (gps_log.get_column_index), and it sniffs
+		// the file type from this line's PREFIX — so a new column on the end is
+		// safe for old readers and old files alike.
+		val header = "#timestamp,trueHeading,magneticHeading,accuracyLevel,source,pitch,roll,detail,elected,fusedSensorAccuracy\n"
 		val rows = bearings.joinToString("\n") { bearing ->
 			val sourceName = escapeCsv(sourceIdToName[bearing.sourceId] ?: "unknown")
 			// Blank when no election was recorded — a reader that finds it blank
 			// should fall back to source-blind behaviour for that row.
 			val elected = escapeCsv(bearing.electedSourceId?.let { sourceIdToName[it] })
-			"${bearing.timestamp},${bearing.trueHeading},${bearing.magneticHeading ?: ""},${bearing.accuracyLevel ?: ""},${sourceName},${bearing.pitch ?: ""},${bearing.roll ?: ""},${escapeCsv(bearing.detail)},${elected}"
+			"${bearing.timestamp},${bearing.trueHeading},${bearing.magneticHeading ?: ""},${bearing.accuracyLevel ?: ""},${sourceName},${bearing.pitch ?: ""},${bearing.roll ?: ""},${escapeCsv(bearing.detail)},${elected},${bearing.fusedSensorAccuracy ?: ""}"
 		}
 		return header + rows + "\n"
 	}

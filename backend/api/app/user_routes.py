@@ -22,7 +22,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import User, UserPublicKey, Photo, UserRole
 from common.utc import utcnow, format_utc, utc_from_timestamp, utc_plus_timedelta
-from photos import delete_all_user_photo_files
+from photos import delete_all_user_photo_files, delete_photo_files_for_artifacts, photo_artifacts
 from jwt_service import create_upload_authorization_token, create_ssr_read_token, REFRESH_TOKEN_EXPIRE_MINUTES
 from auth import (
 	authenticate_user, create_access_token, create_refresh_token, get_current_active_user,
@@ -1473,18 +1473,19 @@ async def delete_user_account(
 		photos_result = await db.execute(
 			select(Photo).where(Photo.owner_id == user_id)
 		)
-		all_sizes = [photo.sizes for photo in photos_result.scalars().all()]
+		# Artifact RECORDS, not bare `sizes` dicts — see photo_artifacts: a photo
+		# also references standalone artifact URLs (imu_samples_url).
+		all_artifacts = [photo_artifacts(photo) for photo in photos_result.scalars().all()]
 		await db.rollback()  # end the read snapshot before the (possibly long) sweep
 
-		if all_sizes:
-			from photos import delete_photo_files_for_sizes
-			deleted_count = await delete_photo_files_for_sizes(all_sizes)
-			if deleted_count != len(all_sizes):
+		if all_artifacts:
+			deleted_count = await delete_photo_files_for_artifacts(all_artifacts)
+			if deleted_count != len(all_artifacts):
 				# Some file deletions failed — abort, account stays intact so the user
 				# can retry. Never report success with files still on disk.
 				raise HTTPException(
 					status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-					detail=f"Failed to delete all photo files ({deleted_count}/{len(all_sizes)} succeeded). User deletion aborted."
+					detail=f"Failed to delete all photo files ({deleted_count}/{len(all_artifacts)} succeeded). User deletion aborted."
 				)
 			log.info(f"Successfully deleted {deleted_count} photo files for user {user_id}")
 

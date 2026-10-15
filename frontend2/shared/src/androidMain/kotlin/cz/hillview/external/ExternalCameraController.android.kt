@@ -16,8 +16,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
+import cz.hillview.plugin.hvTag
 
-private const val TAG = "hv-ExternalCamera"
+private val TAG = hvTag("ExternalCamera")
 
 private class AndroidExternalCameraController(
     private val context: Context,
@@ -58,9 +59,21 @@ private class AndroidExternalCameraController(
         }
     }
 
-    override suspend fun tableCounts(): Pair<Int, Int> = withContext(Dispatchers.IO) {
+    override suspend fun lastDump(): DumpInfo? =
+        cz.hillview.plugin.GeoTrackingManager.get(context).lastDump.value?.let {
+            DumpInfo(rows = it.rows, durationMs = it.durationMs, ok = it.ok)
+        }
+
+    override suspend fun tableCounts(): TrackingCounts = withContext(Dispatchers.IO) {
         val db = GeoTrackingDatabase.getDatabase(context)
-        db.bearingDao().countBearings() to db.locationDao().countLocations()
+        TrackingCounts(
+            bearings = db.bearingDao().countBearings(),
+            locations = db.locationDao().countLocations(),
+            // ImuDao.count() existed from the start and nothing called it, so the
+            // one mode built around continuous inertial logging showed no sign of
+            // whether any was happening.
+            imuSamples = db.imuDao().count(),
+        )
     }
 }
 

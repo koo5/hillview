@@ -31,6 +31,10 @@ test.describe('Sitemap', () => {
 		expect(body).toContain('/about');
 		expect(body).toContain('/contact');
 
+		// The two self-moving listing pages carry a <lastmod>. /bestof's comes from
+		// the backend's page-1 fingerprint, which exists even for an empty ranking.
+		expect(body).toMatch(/<loc>[^<]*\/bestof<\/loc><lastmod>\d{4}-\d{2}-\d{2}T[^<]*Z<\/lastmod>/);
+
 		// Must not contain unescaped & in URLs (& must always be &amp; inside XML)
 		const locMatches = body.matchAll(/<loc>(.*?)<\/loc>/g);
 		for (const match of locMatches) {

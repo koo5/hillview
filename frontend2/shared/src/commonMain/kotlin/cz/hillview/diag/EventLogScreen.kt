@@ -44,6 +44,11 @@ fun EventLogScreen(onBack: () -> Unit) {
     var events by remember { mutableStateOf<List<LoggedEvent>>(emptyList()) }
     var category by remember { mutableStateOf<String?>(null) }
     var crash by remember { mutableStateOf(lastCrashReport()) }
+    // LocalClipboardManager is deprecated for LocalClipboard, whose setClipEntry is
+    // suspend and takes a platform ClipEntry, so a commonMain copy button needs a
+    // scope here AND a text->ClipEntry path per platform (CMP 1.11.1 ships no common
+    // helper for it). Parked: two copy buttons, and the deprecated API still works.
+    @Suppress("DEPRECATION")
     val clipboard = LocalClipboardManager.current
 
     LaunchedEffect(Unit) {
@@ -116,9 +121,7 @@ fun EventLogScreen(onBack: () -> Unit) {
         crash?.let { report ->
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    "Previous run crashed: " +
-                        (report.lineSequence().firstOrNull { it.contains("Exception") || it.contains("Error") }
-                            ?.take(80) ?: "trace available"),
+                    "Previous run crashed: " + crashSummaryLine(report),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.weight(1f).testTag("event-log-crash"),
@@ -189,6 +192,26 @@ data class LoggedEvent(val atMs: Long, val category: String, val message: String
 expect suspend fun collectEventLog(): List<LoggedEvent>
 
 expect fun clearEventLog()
+
+/**
+ * The one line of a crash report worth showing before anyone taps "Copy crash".
+ *
+ * Extracted 2026-10-09 because the same `firstOrNull { contains("Exception") }` was
+ * written twice — here and in `HillviewApplication` — and the two had already drifted in
+ * what they did when nothing matched. A crash summary that says "trace available" in one
+ * place and "see Event log → Copy crash" in the other is a small thing, but it is the
+ * line a bug report gets pasted into.
+ *
+ * Walks for the first frame-like line rather than taking line 0, because the report's
+ * first three lines are the build, the time and the thread.
+ */
+fun crashSummaryLine(report: String, limit: Int = 120): String {
+    val interesting = report.lineSequence()
+        .map { it.trim() }
+        .firstOrNull { it.contains("Exception") || it.contains("Error") }
+        ?: return "trace available — tap Copy crash"
+    return if (interesting.length <= limit) interesting else interesting.take(limit) + "…"
+}
 
 /** The previous run's crash report (see CrashLog), or null. */
 expect fun lastCrashReport(): String?

@@ -71,6 +71,21 @@ import org.koin.compose.koinInject
  */
 private const val CLOCK_VIDEO_IN_MENU = false
 
+/**
+ * How far down a pane the floating controls reach.
+ *
+ * They float in the Main page's own Box, so a pane knows nothing about them
+ * and will happily draw underneath — which is what the capture pane's
+ * interval ladder did: its top rungs, VIDEO among them, came out behind the
+ * hamburger (emulator-caught, 2026-09-17). A pane that puts something in that
+ * corner insets by this.
+ *
+ * 4 dp of row padding, 4 dp of Surface padding and a TextButton's 40 dp
+ * minimum, top and bottom. Kept beside the Row it measures, because the two
+ * have to agree and nothing enforces it.
+ */
+internal val FLOATING_CONTROLS_HEIGHT = 56.dp
+
 @Composable
 fun MainScreen(
     onOpenSettings: () -> Unit,
@@ -81,6 +96,8 @@ fun MainScreen(
     onOpenUploadStatus: () -> Unit = {},
     onOpenEventLog: () -> Unit = {},
     onOpenLockSettings: () -> Unit = {},
+    /** The shutter's thumbnail opens the photo it just took. */
+    onOpenPhoto: (String) -> Unit = {},
     settingsRepo: MapSettingsRepository = koinInject(),
     session: MapSession = koinInject(),
     sessionManager: SessionManager = koinInject(),
@@ -117,8 +134,7 @@ fun MainScreen(
     val locationTracking by session.locationTracking.collectAsState()
     cz.hillview.geo.BindGeoToActivity(
         activity = activity,
-        mapWantsTracking = bearingWanted ||
-            locationTracking != cz.hillview.map.LocationTracking.Off,
+        mapNeeds = cz.hillview.geo.mapGeoNeed(locationTracking, bearingWanted, mapSettings.bearingMode),
         gpsIntervalMs = mapSettings.gpsIntervalMs,
     )
 
@@ -205,6 +221,11 @@ fun MainScreen(
         // `activity` is passed as a parameter, not captured: a remembered
         // lambda would otherwise keep the value it was created with.
         val currentOnOpenSettings by rememberUpdatedState(onOpenSettings)
+        // Same reason as the line above: the panels are movableContentOf and
+        // travel between the portrait Column and the landscape Row, so a
+        // captured lambda would be frozen at whichever orientation the app
+        // started in.
+        val currentOnOpenPhoto by rememberUpdatedState(onOpenPhoto)
         // Read through a State, not captured: both panels below are MOVABLE
         // — one instance each, travelling between the portrait Column and
         // the landscape Row — so a value captured when one was created would
@@ -213,7 +234,10 @@ fun MainScreen(
         val photoPanel = remember {
             movableContentOf { activity: String ->
                 when (activity) {
-                    "capture" -> CaptureScreen(onOpenSettings = { currentOnOpenSettings() })
+                    "capture" -> CaptureScreen(
+                        onOpenSettings = { currentOnOpenSettings() },
+                        onOpenPhoto = { photoId -> currentOnOpenPhoto(photoId) },
+                    )
                     // The external-camera mode: a peer of capture in the same
                     // panel slot (no camera stream; a foreground service keeps
                     // the record alive while the system camera owns the screen).
@@ -306,7 +330,9 @@ fun MainScreen(
         }
 
         // Floating controls along the top-left, as the original places them
-        // (hamburger at the edge, camera next to it).
+        // (hamburger at the edge, camera next to it). Anything a PANE draws
+        // in that corner has to keep clear of them — see
+        // [FLOATING_CONTROLS_HEIGHT], and keep it in step with this row.
         Row(Modifier.align(Alignment.TopStart).padding(4.dp)) {
             FloatingControl(
                 label = "☰",
@@ -489,6 +515,9 @@ fun MainScreen(
                     kotlinx.coroutines.delay(1_000)
                 }
             }
+            // Deprecated for LocalClipboard; see EventLogScreen for why that migration
+            // is parked rather than done.
+            @Suppress("DEPRECATION")
             val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { showStats = false },

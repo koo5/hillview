@@ -115,8 +115,9 @@ class ArrowArming(private val holdMs: Long = ARROW_ARM_HOLD_MS) {
 
 /**
  * Is this touch on the bearing ring? [dx]/[dy] are the offset from the map
- * centre, [tipRadiusPx] the ring's radius, [grabPx] how far either side of
- * it still counts.
+ * centre, [ringRadiusPx] the ring's radius — the range ring's, since the two
+ * circles became one (2026-10-10) — [grabPx] how far either side of it still
+ * counts.
  *
  * Distance only, and deliberately so: EVERY angle grabs (user, 2026-09-10:
  * "it has to be the whole circle, i cant chase the arrow around"). It used
@@ -124,8 +125,8 @@ class ArrowArming(private val holdMs: Long = ARROW_ARM_HOLD_MS) {
  * car mode, which meant finding a moving target before a heading could be
  * set at all.
  */
-fun bearingRingGrabbed(dx: Float, dy: Float, tipRadiusPx: Float, grabPx: Float): Boolean {
-    if (tipRadiusPx <= 0f) return false
+fun bearingRingGrabbed(dx: Float, dy: Float, ringRadiusPx: Float, grabPx: Float): Boolean {
+    if (ringRadiusPx <= 0f) return false
     val distance = kotlin.math.sqrt(dx * dx + dy * dy)
-    return kotlin.math.abs(distance - tipRadiusPx) <= grabPx
+    return kotlin.math.abs(distance - ringRadiusPx) <= grabPx
 }

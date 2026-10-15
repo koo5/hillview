@@ -37,10 +37,20 @@ Two separate absolutely-positioned clusters over the Leaflet map
 2. **Range circle** — only when `$app.activity != 'capture'`: centred on
    `$spatialState.center` with radius `$spatialState.range`, colour
    `#4AE092`, white fill, `weight 8.8`, `dashArray [5,15]`.
+   **frontend2 diverges** (user, 2026-10-10: "the circle should give users
+   the exact threshold of the range" / "the dashed band really had no
+   meaning"): no dashed band — one solid 2 dp line exactly on the range
+   (`RangeRing.kt`), with the white fill to the same radius.
 3. **Photo markers** (see the marker section).
 4. **`BearingStateArrow`** in an SVG overlay, hidden while
    `$app.activity === 'terrain'`. Gets `fullCircleHitArea` when
    `$bearingMode === 'car' && $gpsOrientationEnabled`.
+
+**frontend2 adds** a GPS accuracy disc (user, 2026-10-10: "gps accuracy
+circle with semi-opaque fill"): the last fix's horizontal accuracy in ground
+metres, translucent `#4285F4` with a thin rim, as the BOTTOM layer — under
+the range circle and the markers, which the GPS crosshair itself draws over.
+The original declares `accuracyCircle` (Map.svelte:123) and never draws it.
 
 ## Compass button (top-right, `CompassButton.svelte`)
 
@@ -440,7 +450,15 @@ merge; phone-in-hand review drove this pass.
   than taken on contact — see `ArrowArming`. Landing on the ring moves
   nothing and consumes nothing, so panning and marker taps across it are
   unchanged. What a drag MEANS is still the original's split: angle
-  travelled in car mode, jump-to-angle otherwise.
+  travelled in car mode, jump-to-angle otherwise. And since 2026-10-10 the
+  ring is the RANGE ring, as the original's car-mode ring is: frontend2
+  had drawn and grabbed a second, blue ring at the arrow's tip radius, and
+  the user asked for the two circles to be one. The arrowhead keeps the
+  original's PLACE — its base flush on the range circle, the head pointing
+  out (here `range × 1.3` with a marker anchored 27 px back lands the base
+  at 64 px, the inner edge of the dashed band) — measured in frontend2 from
+  the solid range line instead (`arrowHeadBaseRadiusPx`), with the hold arc
+  just inside the line so neither covers it (`bearingHoldRadiusPx`).
 
 frontend2 divergences (deliberate): osmdroid's fling is disabled — its
 glide is essentially unbounded where Leaflet's inertia is short and

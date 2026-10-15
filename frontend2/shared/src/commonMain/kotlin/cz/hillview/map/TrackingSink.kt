@@ -14,12 +14,22 @@ interface TrackingSink {
     fun electBearingSource(source: String)
     fun electLocationSource(source: String)
 
-    /** A bearing the app itself produced — see [engineOwnsSource]. */
+    /**
+     * A bearing the app itself produced — see [engineOwnsSource].
+     *
+     * [pitch] and [roll] are what the DEVICE was measuring as this bearing
+     * was set, not properties of the bearing: a hand-set heading has no
+     * tilt of its own. Null means the sensors had nothing fresh to say, and
+     * must stay null — writing `0f` for "don't know", as this did until
+     * 2026-09-22, files a level phone as a measurement. See [DeviceAttitude].
+     */
     fun writeBearingRow(
         bearing: Double,
         source: String,
         detail: String,
         accuracyLevel: Int?,
+        pitch: Double?,
+        roll: Double?,
         now: Long,
     )
 
@@ -40,6 +50,8 @@ interface TrackingSink {
             source: String,
             detail: String,
             accuracyLevel: Int?,
+            pitch: Double?,
+            roll: Double?,
             now: Long,
         ) {}
         override fun writeLocationRow(

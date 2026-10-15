@@ -96,6 +96,12 @@ class Photo(Base):
 	# trigger (migration 022); indexed for the capture-time timeline walk.
 	effective_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
 	record_created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+	# When the photo PAGE last changed — title/description/keywords/featured/
+	# licence/bearing/place edits and annotation events — maintained by triggers
+	# (migration 034), NULL until the first such change. The sitemap's <lastmod>
+	# is GREATEST(uploaded_at, content_updated_at). Rendition/processing writes
+	# do not count.
+	content_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 	title: Mapped[Optional[str]] = mapped_column(Text)  # concise headline (og:title, <title>, schema.org name)
 	description: Mapped[Optional[str]] = mapped_column(Text)  # longer body text
 	keywords: Mapped[Optional[list[str]]] = mapped_column(ARRAY(Text))  # alt names / search synonyms (schema.org keywords)
@@ -121,6 +127,14 @@ class Photo(Base):
 	exif_data: Mapped[Optional[dict]] = mapped_column(JSON)
 	detected_objects: Mapped[Optional[dict]] = mapped_column(JSON)
 	sizes: Mapped[Optional[dict]] = mapped_column(JSON)
+	# URL of the gzipped raw IMU window (accelerometer + gyroscope) captured
+	# around this photo's exposure, stored beside the renditions. A URL and not
+	# the payload: this row is read on every map bounds query, and the window is
+	# tens of kilobytes. THE DELETE PATH MUST SWEEP IT — see photo deletion,
+	# which resolves a storage pool per stored URL; a column it does not know
+	# about leaks one file per deleted photo, permanently.
+	# docs/recon-capture-metadata.md, Phase 5.
+	imu_samples_url: Mapped[Optional[str]] = mapped_column(Text)
 	analysis: Mapped[Optional[dict]] = mapped_column(JSONB)  # AI-generated photo analysis (indexed)
 	# Terrain overlay graduated from the enrichment workbench: fitted horizon
 	# line + visible peak labels, baked to vectors (no depth buffer). Tens of
@@ -152,6 +166,55 @@ class Photo(Base):
 	# Relationships
 	owner_id: Mapped[str] = mapped_column(String, ForeignKey("users.id", ondelete="CASCADE"))
 	owner: Mapped["User"] = relationship(back_populates="photos")
+
+
+class SiteState(Base):
+	"""One row per named piece of site-wide derived state (migration 035).
+
+	updated_at moves only when the value actually changes — writers upsert with
+	a WHERE on the old value — so it doubles as "when did this last change".
+	Keys so far: 'bestof_page1' (the sitemap's /bestof lastmod fingerprint).
+	"""
+	__tablename__ = "site_state"
+
+	key: Mapped[str] = mapped_column(Text, primary_key=True)
+	value: Mapped[dict] = mapped_column(JSONB, nullable=False)
+	updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class PhotoAnalysisQueue(Base):
+	"""Work queue of the LLM photo analyzer (backend/analyzer).
+
+	A row exists only while a photo is NOT done under the analyzer's running
+	ANALYZER_VERSION: never analysed, leased to an analyzer, backing off after
+	a failure, or given up on. The analyzer enqueues every completed photo whose
+	``photos.analysis`` document carries a different ``analyzer_version`` (no
+	key = 0), and a complete run writes the document and deletes the row. So
+	"produced by which version" lives in one place only — the document — and a
+	version bump re-queues everything on the analyzer's next sync.
+
+	Deliberately NOT columns on ``photos``. The analyzer claims work with
+	``SELECT ... FOR UPDATE SKIP LOCKED``; locking a row here instead of the
+	photo row keeps API writers and ``ALTER TABLE photos`` from ever queueing
+	behind the analyzer. And the claim is a *lease* (``next_retry`` pushed into
+	the future in a short transaction), not a lock held across the LLM call:
+	``database.py`` kills any session idle in a transaction for five minutes,
+	and docs/db-session-cancellation.md says why no transaction may span a
+	network call.
+
+	``last_attempted_version`` is the ANALYZER_VERSION of the last claim on the
+	photo (NULL = queued, never claimed); ``next_retry`` only means anything
+	under that version: a future time = a lease or a backoff, ``infinity`` =
+	given up. Eligible = the version differs, or ``next_retry`` has passed.
+	What happened and why is NOT here: the per-md5 JSON file in the analyzer's
+	datadir records every attempt, and this table must not become a second,
+	disagreeing account of it.
+	"""
+	__tablename__ = "photo_analysis_queue"
+
+	photo_id: Mapped[str] = mapped_column(String, ForeignKey("photos.id", ondelete="CASCADE"), primary_key=True)
+	last_attempted_version: Mapped[Optional[int]] = mapped_column(Integer)
+	next_retry: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("'epoch'"))
 
 
 class CachedRegion(Base):

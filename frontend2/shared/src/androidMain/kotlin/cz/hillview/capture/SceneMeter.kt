@@ -3,8 +3,9 @@ package cz.hillview.capture
 import android.util.Log
 import kotlin.math.abs
 import kotlin.math.pow
+import cz.hillview.plugin.hvTag
 
-private const val TAG = "hv-SceneMeter"
+private val TAG = hvTag("SceneMeter")
 
 /**
  * Continuous metering that never touches auto-exposure.

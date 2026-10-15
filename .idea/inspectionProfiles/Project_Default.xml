@@ -2,5 +2,29 @@
   <profile version="1.0">
     <option name="myName" value="Project Default" />
     <inspection_tool class="Eslint" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="PyPackageRequirementsInspection" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredPackages">
+        <list>
+          <option value="exifread" />
+          <option value="fastapi" />
+          <option value="fire" />
+          <option value="opencv-python-headless" />
+          <option value="openexr" />
+          <option value="pillow" />
+          <option value="psutil" />
+          <option value="python-multipart" />
+          <option value="pyvips" />
+          <option value="torch" />
+          <option value="torchvision" />
+          <option value="ultralytics" />
+          <option value="watchdog" />
+          <option value="aiohttp" />
+          <option value="pygeofilter" />
+          <option value="cryptography" />
+          <option value="pyjwt" />
+          <option value="pyoxigraph" />
+        </list>
+      </option>
+    </inspection_tool>
   </profile>
 </component>

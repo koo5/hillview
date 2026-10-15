@@ -47,6 +47,13 @@ kotlin {
     sourceSets {
         // Crypto + file IO shared by the two JVM-family targets (java.security
         // ECDSA, MessageDigest, java.io) without duplicating into each.
+        //
+        // These three dependsOn edges are why every build prints "Default Kotlin
+        // Hierarchy Template Not Applied Correctly": the template bows out once a
+        // source set is wired by hand, and it names androidMain/jvmMain/jvmShared.
+        // Deliberate, and the suggested silencer
+        // (kotlin.mpp.applyDefaultHierarchyTemplate=false) is the wrong trade — it
+        // would drop every default edge, not just report them honestly.
         val jvmShared by creating {
             dependsOn(commonMain.get())
         }

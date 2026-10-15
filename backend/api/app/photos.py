@@ -50,6 +50,25 @@ def _delete_local_tiles(tiles_url: str) -> bool:
 	return True
 
 
+def _delete_one_url(url: str, what: str) -> bool:
+	"""Delete a single stored file by URL, whichever pool kind it lives in.
+
+	`_delete_size` exists for the `sizes` dict shape (a url plus an optional DZI
+	pyramid); this is for a bare URL held in its own column — currently
+	`photos.imu_samples_url`. Every such column needs a line in
+	`_photo_artifact_urls` or it leaks one file per deleted photo, silently and
+	forever, which is the failure mode this helper is here to make cheap to avoid.
+	"""
+	pool = resolve_pool_for_url(url)
+	if pool is None:
+		logger.warning(f"No pool resolves {what} URL, cannot delete: {url}")
+		return False
+	if pool.get('type') == 'cdn':
+		from common.cdn_uploader import CDNUploader
+		return CDNUploader.from_pool(pool).delete_size({'url': url}, what)
+	return _delete_local_file(url)
+
+
 def _delete_size(size_info: Dict[str, Any]) -> bool:
 	"""Delete one size variant (and its DZI pyramid, if present), resolving the
 	pool of each file independently so sizes may span pools."""
@@ -80,11 +99,44 @@ def _delete_size(size_info: Dict[str, Any]) -> bool:
 	return success
 
 
+# Every column on `photos` that holds a URL to a file this service stored, other
+# than the `sizes` dict itself. ADD TO THIS LIST when a new artifact column
+# lands — the delete path is the one place a new column silently costs money
+# rather than silently doing nothing.
+_PHOTO_ARTIFACT_URL_COLUMNS = ('imu_samples_url',)
+
+
+def photo_artifacts(photo) -> Dict[str, Any]:
+	"""Capture everything one photo row references on disk.
+
+	Called while the ORM object is still attached, because every sweep below runs
+	AFTER its caller ends the read transaction (the idle-txn guardrail) and in a
+	worker thread that must not touch the session.
+
+	A record rather than a bare `sizes` dict so that adding an artifact column
+	changes ONE function instead of four call sites — and so the change is a type
+	error at each of them rather than a leak nobody notices.
+	"""
+	return {
+		'sizes': photo.sizes,
+		'urls': {c: getattr(photo, c, None) for c in _PHOTO_ARTIFACT_URL_COLUMNS},
+	}
+
+
+def _delete_photo_artifacts_sync(artifacts: Dict[str, Any]) -> bool:
+	"""Delete one photo's files: its size variants, and its standalone URLs."""
+	success = _delete_photo_sizes_sync(artifacts.get('sizes'))
+	for what, url in (artifacts.get('urls') or {}).items():
+		if url and not _delete_one_url(url, what):
+			success = False
+	return success
+
+
 def _delete_photo_sizes_sync(sizes) -> bool:
 	"""Delete every size variant (and its DZI pyramid) for one photo's `sizes` dict.
 
 	Pure and synchronous: no DB, no ORM, no event loop — safe to run in a worker
-	thread (see delete_photo_files / delete_photo_files_for_sizes). File deletion is
+	thread (see delete_photo_files / delete_photo_files_for_artifacts). File deletion is
 	blocking (os.remove, shutil.rmtree, and boto3 for cdn pools), so it must never run
 	on the event loop: on a large delete it would freeze every other request, and
 	inside an open transaction it would sit "idle in transaction" long enough for the
@@ -99,16 +151,22 @@ def _delete_photo_sizes_sync(sizes) -> bool:
 	return success
 
 
-async def delete_photo_files_for_sizes(all_sizes: List[Dict[str, Any]]) -> int:
-	"""Delete files for many photos from their captured `sizes` dicts, off the event
-	loop. Session-independent by design: the caller captures the dicts, ends its read
-	transaction, and only then calls this — so the (possibly long) sweep holds no
-	transaction. Returns how many photos had all their files deleted."""
+async def delete_photo_files_for_artifacts(all_artifacts: List[Dict[str, Any]]) -> int:
+	"""Delete files for many photos from their captured artifact records, off the
+	event loop. Session-independent by design: the caller captures the records with
+	`photo_artifacts`, ends its read transaction, and only then calls this — so the
+	(possibly long) sweep holds no transaction. Returns how many photos had all
+	their files deleted.
+
+	Takes artifact RECORDS, not bare `sizes` dicts. That was the earlier signature,
+	and it made a new artifact column (`imu_samples_url`) a silent per-photo leak:
+	nothing about passing `[p.sizes for p in photos]` looks wrong. Renamed
+	deliberately so the compiler-equivalent — a missing name — visits every caller."""
 	def _run() -> int:
 		deleted = 0
-		for sizes in all_sizes:
+		for artifacts in all_artifacts:
 			try:
-				if _delete_photo_sizes_sync(sizes):
+				if _delete_photo_artifacts_sync(artifacts):
 					deleted += 1
 				else:
 					logger.error("Failed to delete some files for a photo")
@@ -143,11 +201,12 @@ async def delete_photo_files(photo) -> bool:
 	Returns:
 		True if successful, False otherwise.
 	"""
-	# Capture sizes before the thread hop: after a caller ends its transaction the
-	# ORM object may be expired, and the worker thread must not touch the session.
-	sizes = photo.sizes
+	# Capture the artifact record before the thread hop: after a caller ends its
+	# transaction the ORM object may be expired, and the worker thread must not
+	# touch the session.
+	artifacts = photo_artifacts(photo)
 	try:
-		return await anyio.to_thread.run_sync(_delete_photo_sizes_sync, sizes)
+		return await anyio.to_thread.run_sync(_delete_photo_artifacts_sync, artifacts)
 	except Exception as e:
 		logger.warning(f"Error deleting files for photo {str(photo.id)}: {str(e)}")
 		return False
@@ -167,8 +226,8 @@ async def delete_all_user_photo_files(photos: List) -> int:
 	"""
 	# Capture sizes now, while the ORM objects are still attached, then delete off the
 	# event loop. Callers that must be guardrail-safe end their read transaction
-	# before the sweep; see delete_photo_files_for_sizes.
-	all_sizes = [photo.sizes for photo in photos]
-	deleted_count = await delete_photo_files_for_sizes(all_sizes)
+	# before the sweep; see delete_photo_files_for_artifacts.
+	all_artifacts = [photo_artifacts(photo) for photo in photos]
+	deleted_count = await delete_photo_files_for_artifacts(all_artifacts)
 	logger.info(f"Deleted files for {deleted_count}/{len(photos)} photos")
 	return deleted_count

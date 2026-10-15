@@ -27,6 +27,7 @@ import cz.hillview.nav.EventLogKey
 import cz.hillview.nav.CaptureKey
 import cz.hillview.nav.ClockVideoKey
 import cz.hillview.nav.DevicePhotosKey
+import cz.hillview.nav.PhotoDetailKey
 import cz.hillview.nav.HomeKey
 import cz.hillview.nav.LoginKey
 import cz.hillview.nav.MainKey
@@ -55,6 +56,10 @@ private val navSavedStateConfig = SavedStateConfiguration {
             subclass(DevicePhotosKey::class)
             subclass(MapKey::class)
             subclass(LockSettingsKey::class)
+            subclass(EventLogKey::class)
+            subclass(UploadStatusKey::class)
+            subclass(CaptureGuideKey::class)
+            subclass(PhotoDetailKey::class)
         }
     }
 }
@@ -95,6 +100,7 @@ fun App() {
                 onOpenUploadStatus = { backStack.add(UploadStatusKey) },
                 onOpenEventLog = { backStack.add(EventLogKey) },
                 onOpenLockSettings = { backStack.add(LockSettingsKey) },
+                onOpenPhoto = { photoId -> backStack.add(PhotoDetailKey(photoId)) },
             )
         }
         androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
@@ -118,6 +124,12 @@ fun App() {
                 }
                 entry<DevicePhotosKey> {
                     cz.hillview.devicephotos.DevicePhotosScreen(
+                        onBack = { pop() },
+                    )
+                }
+                entry<PhotoDetailKey> { key ->
+                    cz.hillview.devicephotos.PhotoDetailScreen(
+                        photoId = key.photoId,
                         onBack = { pop() },
                     )
                 }

@@ -19,7 +19,7 @@ class DeviceOrientationProvider(
     private val context: Context
 ) {
     companion object {
-        private const val TAG = "hv-DeviceOrientationProvider"
+        private val TAG = hvTag("DeviceOrientationProvider")
     }
 
     private var fusedOrientationProviderClient: FusedOrientationProviderClient? = null

@@ -737,6 +737,16 @@ class BrowserMetadata(BaseModel):
 	altitude: Optional[float] = None
 	bearing: Optional[float] = None
 	captured_at: Optional[str] = None  # ISO datetime
+	# HOW that timestamp was determined, and it is PRE-DECLARED: nothing sends it
+	# yet. docs/todo/captured-at-is-the-exposure.md plans to make captured_at the
+	# EXPOSURE rather than the button press (they differ by 546-1881 ms, measured),
+	# which needs a field saying which source answered -- the same reasoning as
+	# location_source and bearing_source. Declared as an untyped dict on purpose:
+	# a top-level key is the ONLY thing that requires a worker deploy (pydantic
+	# drops undeclared keys, PROVENANCE_KEYS copies top-level names), while keys
+	# NESTED inside one ride through untouched. So this one declaration now means
+	# that whole change ships without redeploying the worker again.
+	capture_timing: Optional[dict] = None
 	orientation_code: Optional[int] = None  # EXIF orientation (1, 3, 6, 8)
 	location_source: Optional[str] = None  # 'gps' or 'map'
 	bearing_source: Optional[str] = None
@@ -754,6 +764,120 @@ class BrowserMetadata(BaseModel):
 	location_age_ms: Optional[int] = None  # age of the stamped fix at the shutter
 	refined: Optional[bool] = None  # the stamp was interpolated after the fact
 	pitch: Optional[float] = None  # camera elevation, degrees, positive up
+	# What the DEVICE measured at the shutter, as opposed to what the photo is
+	# stamped as FACING (bearing/pitch above, which a hand-set arrow or a car
+	# course may own and which measure no tilt at all). Roll lives here and
+	# nowhere else: the Android sensor stack has always computed it, and until
+	# 2026-09-22 no field anywhere in the chain could carry it off the phone.
+	#
+	# Keys, each named for what it measures rather than for the API that
+	# produced it (see attitudeProvenanceJson in the app for the full notes):
+	#   heading_true_deg, heading_magnetic_deg - the same compass reading
+	#     corrected and raw; their difference is the declination applied.
+	#   pitch_deg, roll_deg - the optical axis's tilt and the camera's rotation
+	#     about it, continuous through every orientation. Before 2026-10-08 they
+	#     were read from a matrix ALREADY remapped for device_rotation_deg, which
+	#     made roll a residual within that quadrant; capture_timing.build is what
+	#     tells the two eras apart, and attitudeProvenanceJson in the app carries
+	#     the conversion for the old rows.
+	#   magnetometer_calibration - the bare magnetometer's latched status
+	#     (0..3). Rates the HEADING only; pitch and roll come from gravity and
+	#     the gyro. Not the GPS radius, which is location_accuracy_m.
+	#   fused_sensor_accuracy - what the sensor that produced the sample said
+	#     about itself, per-sample. Disagreement with the line above is
+	#     informative: magnetometer low + fusion high is a gyro carrying a
+	#     stale field; the reverse is a fusion that has not settled.
+	#   fusion - which filter produced it (rotation-vector, Madgwick,
+	#     complementary); they do not agree and bearing_source is too coarse.
+	#   age_ms - how stale the reading was at the shutter.
+	#   device_rotation_deg - the quantized pose. NOT recoverable from the EXIF
+	#     Orientation tag, which CameraX derives from this combined with the
+	#     camera's sensorOrientation and lens facing.
+	#   landscape_azimuth_negation - whether the Armor-22 toggle was ENABLED.
+	#     azimuth_mirrored below says whether it actually fired; for rows older
+	#     than 2026-10-10, roll_deg is what has to be used to guess at that.
+	#   matrix_pitch_deg, matrix_roll_deg - what the FUSED matrix said about the two
+	#     axes pitch_deg/roll_deg stopped coming from in metadata_version 3, where they
+	#     became gravity's. The pair's difference measures the fusion's error, which the
+	#     published values alone can no longer show.
+	#   rotation_vector, matrix_determinant, bearing_reference,
+	#     bearing_conditioning, camera_bearing_deg, device_bearing_deg,
+	#     branch_corrected, azimuth_mirrored - HOW the angles were arrived at:
+	#     the HAL's raw quaternion and the arithmetic applied to it, kept
+	#     separable because two faults in one device's fusion were each
+	#     unmeasurable from the final heading alone. Everything else in the
+	#     object is a function of rotation_vector, so a frame carrying it can be
+	#     re-derived against a later understanding of the geometry.
+	# An object rather than typed columns because nothing queries it - the SfM
+	# bench reads it - and the set will grow.
+	attitude: Optional[dict] = None
+	# What the RECEIVER said about its own fix: the error bars and the motion,
+	# never the position (already four fields above). Keys: altitude_accuracy_m
+	# (the VERTICAL bar, which nothing carried before -- a photo could be good
+	# to 4 m horizontally and say nothing about its height, and altitude is part
+	# of a camera centre), speed_mps / speed_accuracy_mps, course_deg /
+	# course_accuracy_deg (direction of TRAVEL, not a heading -- a phone pointed
+	# out of a car window has a course down the road and a heading across it),
+	# provider ("gps"/"network"/"fused"; usually "fused", but a "network" fix is
+	# useless for reconstruction and nothing else says so), elected (whether
+	# this fix is what the photo actually recorded).
+	fix: Optional[dict] = None
+	# What the CAMERA knew about itself -- the largest single win for
+	# reconstruction, and the app read NONE of it before 2026-09-26. Keys:
+	# focal_length_mm, aperture_f_stop, focus_distance_diopters (the platform's
+	# unit: 0.0 IS infinity) + focus_distance_calibration (a dioptre value from
+	# an uncalibrated lens is an ordering, not a distance),
+	# focus_infinity_requested (the app's toggle -- intent beside measurement),
+	# zoom_ratio (the app has had pinch-to-zoom all along and a frame shot at 2x
+	# read as 1x is simply wrong), preview_rolling_shutter_skew_ns, intrinsics /
+	# distortion (per FRAME, since the HAL varies them with focus and zoom),
+	# frame_values_source + frame_values_referenced_to + age_ms (the per-frame keys
+	# above come from a PREVIEW capture result -- CameraX does not expose the
+	# still's. referenced_to says whether they are the shutter's latch, which
+	# measured 6-7 preview frames = 399-470 ms out, or a ring lookup at the
+	# exposure; age_ms says how far that frame was. The skew keeps a qualified name
+	# because preview and still read different numbers of sensor lines, so it is a
+	# different value and not merely an older one),
+	# camera_intrinsics / camera_distortion (factory, per camera),
+	# sensor_physical_size_mm + sensor_pixel_array (the true pixel pitch),
+	# intrinsics_available (whether the DEVICE publishes a calibration at all --
+	# recorded because "this phone does not" and "this app did not look" are
+	# different claims and only one is the phone's fault).
+	lens: Optional[dict] = None
+	# How the phone was MOVING. Keys: gravity (x,y,z -- an unambiguous "down",
+	# where attitude.roll_deg is a residual within the quantized device pose),
+	# linear_acceleration (x,y,z, gravity removed) and its magnitude (the
+	# motion-blur signal), age_ms, and imu_window -- the SUMMARY of the raw
+	# accelerometer/gyroscope window around the exposure (sample_count,
+	# stored_from_ms + stored_to_ms -- the slice this photo OWNS, which is what
+	# lets a consumer find which artifact covers a given exposure without fetching
+	# candidates: a photo's own array holds its own exposure in 1 case out of 86,
+	# since the claims tile the session rather than centring on their photo,
+	# window_start_ms, window_end_ms, accel_peak_mps2 which includes gravity,
+	# accel_peak_deviation_mps2 which is the gravity-free shake signal,
+	# gyro_peak_rad_s and stored_count -- the last saying how much of the stream
+	# this photo OWNS, so a run can be concatenated without counting a sample
+	# twice; WHICH samples is device-side bookkeeping (imu_claims) and does not
+	# travel). The window's SAMPLES arrive separately,
+	# in imu_samples below, NOT in here: this object becomes provenance and ends
+	# up in exif_data, which is read wholesale on every detail request. A single
+	# RAW accelerometer sample is deliberately absent: it is gravity plus linear
+	# acceleration and one sample cannot separate them, which is the whole reason
+	# the window exists.
+	inertial: Optional[dict] = None
+	# The RAW inertial window, columnar and delta-encoded -- the one metadata
+	# object here that is a BULK ARTIFACT rather than a fact about the shutter.
+	#
+	#   {"accel": {"t0_ms":…, "t0_ns":…, "dt_us":[n-1 gaps],
+	#              "x":[…], "y":[…], "z":[…]},
+	#    "gyro":  {…}}
+	#
+	# Declared like every other object, and then DELIBERATELY LEFT OUT of
+	# PROVENANCE_KEYS: it must not enter the UserComment. It is gzipped and
+	# stored beside the photo's renditions instead, and the row keeps only a URL.
+	# See imu_samples_url on ProcessedPhotoData, _validate_imu_samples below, and
+	# docs/recon-capture-metadata.md, Phase 5.
+	imu_samples: Optional[dict] = None
 	exposure: Optional[dict] = None  # rule/plan/metering — see exposureProvenanceJson
 	encoding: Optional[str] = None  # EXR pixel encoding: 'srgb' or 'linear' (sourced from .exr.encoding sidecar at upload). Worker falls back to the embedded header tag when absent.
 	exif: Optional[dict] = None  # Structured multi-frame source EXIF from the pipeline. A whole nested object: EXR panos send a representative identity header (Make/Model/LensModel/…) + 'pano_frames' (array-of-arrays, one entry per pano position, each a stack of frames); fused-stack singles send just 'stack_frames' (flat list of the bracket's members). Merged into exif_data['data'] (the same place a single's embedded tags land, so camera fields read at exif_data.data.* uniformly); NOT split into typed columns. See pics/src/lib/stamp.derive_pano_exif / derive_stack_exif.
@@ -786,6 +910,12 @@ class ProcessedPhotoData(BaseModel):
 	processed_by_worker: Optional[str] = None  # Worker identity for audit trail
 	filename: Optional[str] = None  # Secure filename after processing
 	captured_at: Optional[str] = None  # ISO datetime when photo was taken (from EXIF DateTimeOriginal)
+	# URL of the gzipped raw IMU window stored beside this photo's renditions.
+	# A URL and not the payload: the photos row is read by the map on every
+	# bounds query and must stay lean, while the window is tens of kilobytes.
+	# docs/recon-capture-metadata.md, Phase 5 -- and note that DELETION must
+	# sweep it, or every deleted photo leaks one file.
+	imu_samples_url: Optional[str] = None
 
 # Authentication dependency for upload authorization
 async def get_upload_authorization(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
@@ -1301,6 +1431,7 @@ async def _upload_inner(file: Optional[UploadFile], client_signature: str, photo
 				processed_data.detected_objects = processing_result.get("detected_objects")
 				processed_data.filename = secure_filename
 				processed_data.captured_at = processing_result.get("captured_at")
+				processed_data.imu_samples_url = processing_result.get("imu_samples_url")
 
 			# Send to API server
 			worker_signature = sign_processing_result(processed_data.dict())

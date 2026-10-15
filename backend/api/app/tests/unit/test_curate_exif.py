@@ -18,7 +18,7 @@ api_app_dir = os.path.join(os.path.dirname(__file__), '..', '..')
 sys.path.insert(0, os.path.abspath(api_app_dir))
 sys.path.insert(1, os.path.abspath(os.path.join(api_app_dir, '..', '..')))
 
-from photo_routes import _curate_exif, _exif_number  # noqa: E402
+from photo_routes import _curate_exif, _exif_number, _location_accuracy_m  # noqa: E402
 
 
 @pytest.mark.parametrize('raw, expected', [
@@ -202,13 +202,107 @@ def test_phone_zero_35mm_is_dropped():
 
 
 def test_dslr_without_35mm_tag():
-	"""Canon EOS 5DS (5k prod rows): full frame, no FocalLengthIn35mmFormat; the
-	exiftool composite FocalLength35efl is sensor-math noise and is ignored."""
+	"""Canon EOS 5DS (5k prod rows): full frame, no FocalLengthIn35mmFormat.
+
+	The exiftool composite FocalLength35efl is sensor-math -- visibly so here,
+	68.46 for a 70 mm lens on a full-frame body, where the equivalent IS 70.
+	This test used to assert the composite was dropped entirely; since
+	2026-09-26 it is kept under its OWN name instead, so a consumer can see
+	both that the camera stated nothing and what exiftool computed. Labelling
+	beats both hiding it and passing it off as the camera's number.
+	"""
 	curated = _curate_exif({'data': {
 		'Make': 'Canon', 'Model': 'Canon EOS 5DS', 'LensModel': 'EF70-200mm f/4L IS USM',
 		'LensID': 'Canon EF 70-200mm f/4L IS USM', 'FocalLength': 70, 'FocalLength35efl': 68.4587777880589,
 		'FNumber': 8, 'ISO': 100, 'ExposureTime': 0.002, 'ExposureCompensation': 0,
 	}})
 	assert curated['focal_length'] == 70
+	# The camera stated none, so the camera's field is absent...
 	assert 'focal_length_35mm' not in curated
+	# ...and exiftool's computation travels as its own, labelled, value.
+	assert curated['focal_length_35mm_computed'] == pytest.approx(68.4587777880589)
 	assert curated['lens'] == 'EF70-200mm f/4L IS USM'
+
+
+def test_both_focal_length_35mm_fields_travel_when_both_exist():
+	"""A camera that states its own equivalent AND carries exiftool's
+	composite: both are kept, so a reader can see them disagree instead of
+	being handed whichever one an `or` happened to pick."""
+	curated = _curate_exif({'data': {
+		'FocalLength': 5.58, 'FocalLengthIn35mmFormat': 26, 'FocalLength35efl': 25.4,
+	}})
+	assert curated['focal_length_35mm'] == 26
+	assert curated['focal_length_35mm_computed'] == pytest.approx(25.4)
+
+
+def test_the_phone_case_that_motivated_the_old_fallback():
+	"""Every Ulefone Armor 22 upload: 0 in the camera's tag (its "unknown"),
+	the real equivalent only in exiftool's composite. A zero focal length is
+	never real, so the camera field stays absent rather than becoming 0."""
+	curated = _curate_exif({'data': {
+		'FocalLength': 5.58, 'FocalLengthIn35mmFormat': 0, 'FocalLength35efl': 5.58,
+	}})
+	assert 'focal_length_35mm' not in curated
+	assert curated['focal_length_35mm_computed'] == pytest.approx(5.58)
+
+
+# --- the accuracy radius, the one positional value the public response carries ---
+#
+# It rides in the capture app's UserComment provenance JSON rather than in a
+# column, so reading it back is a parse of untrusted text from an EXIF tag that
+# any camera may have written something else into.
+
+def _uc(payload):
+	return {'data': {'UserComment': payload}}
+
+
+def test_accuracy_is_read_from_the_provenance_json():
+	assert _location_accuracy_m(_uc('{"location_source":"gps","location_accuracy_m":4.2}')) == 4.2
+
+
+def test_accuracy_is_rounded_to_a_tenth_of_a_metre():
+	"""Android reports a float; seven significant figures of an error estimate
+	is noise dressed as precision."""
+	assert _location_accuracy_m(_uc('{"location_accuracy_m":12.386499}')) == 12.4
+
+
+def test_zero_is_the_unknown_sentinel_not_a_perfect_fix():
+	"""0.0 is what the capture table stores for "no accuracy known"; the upload
+	omits it, but a row that still carries one must not publish it as a radius of
+	nothing."""
+	assert _location_accuracy_m(_uc('{"location_accuracy_m":0}')) is None
+	assert _location_accuracy_m(_uc('{"location_accuracy_m":-3}')) is None
+
+
+def test_photos_from_before_the_field_existed_have_none():
+	assert _location_accuracy_m(_uc('{"location_source":"gps"}')) is None
+	assert _location_accuracy_m({'data': {'Make': 'Canon'}}) is None
+	assert _location_accuracy_m({}) is None
+	assert _location_accuracy_m(None) is None
+
+
+def test_someone_elses_user_comment_is_not_parsed_hopefully():
+	"""The tag is free text in the EXIF standard, so most of what turns up in it
+	is prose, not our JSON."""
+	assert _location_accuracy_m(_uc('Shot on a Canon')) is None
+	assert _location_accuracy_m(_uc('{ truncated')) is None
+	assert _location_accuracy_m(_uc('[1, 2, 3]')) is None
+	assert _location_accuracy_m(_uc(42)) is None
+
+
+def test_a_non_numeric_radius_is_absent_rather_than_an_error():
+	assert _location_accuracy_m(_uc('{"location_accuracy_m":"about 5 m"}')) is None
+	assert _location_accuracy_m(_uc('{"location_accuracy_m":null}')) is None
+	assert _location_accuracy_m(_uc('{"location_accuracy_m":"NaN"}')) is None
+
+
+def test_the_curated_camera_exif_still_carries_nothing_positional():
+	"""The rule that keeps location out of `exif` is unchanged by publishing the
+	radius at the top level."""
+	curated = _curate_exif({'data': {
+		'Make': 'Google', 'Model': 'Pixel 8', 'FocalLength': 6.9,
+		'GPSLatitude': 50.115044, 'GPSLongitude': 14.500907, 'GPSAltitude': 320.5,
+		'GPSImgDirection': 141.2, 'GPSHPositioningError': 4.2,
+		'UserComment': '{"location_accuracy_m":4.2}',
+	}})
+	assert set(curated) == {'make', 'model', 'focal_length'}

@@ -49,7 +49,10 @@ fun CaptureGuideScreen(onBack: () -> Unit) {
 
         Section("The shutter (blue circle)")
         Entry("Tap", "One photo.")
-        Entry("Hold, slide, release", "Hold ~half a second and the interval slider unfolds beside your thumb. Slide onto it to pick a repeat interval (bottom = off), release to START the repeating run — the button turns green with a Stop label and counts the run on its badge. Release back on the button to cancel. Tap to stop a running run.")
+        Entry("Hold, slide, release", "Hold a moment and the interval ladder unfolds over the pane, left of the button. Slide left onto it to pick a repeat interval — higher is slower, VIDEO at the top, the fastest at the bottom or anywhere below it — and release to START the repeating run: the button turns green with a Stop label and counts the run on its badge. Release on the button or anywhere right of it to cancel. Tap to stop a running run.")
+
+        Section("The ⏱ button (bottom left, beside 📷)")
+        Entry("Tap", "Opens the same interval ladder without holding the shutter. Touch a rung (slide if you like) and lift to start the run; lift on the right side, tap ⏱ again, or press the shutter to close it.")
 
         Section("The Leaf 🍃 (top right)")
         Entry("Tap", "Toggle power saving on/off.")

@@ -6,7 +6,7 @@ import androidx.compose.runtime.Composable
 @Composable
 actual fun BindGeoToActivity(
     activity: String,
-    mapWantsTracking: Boolean,
+    mapNeeds: MapGeoNeed,
     gpsIntervalMs: Long,
 ) {
 }

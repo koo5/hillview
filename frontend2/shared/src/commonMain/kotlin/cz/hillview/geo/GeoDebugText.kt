@@ -174,11 +174,12 @@ private fun shortestDelta(from: Double, to: Double): Double {
 }
 
 /**
- * The sensor stack's detail is a sentence ("TYPE_ROTATION_VECTOR (UPRIGHT
- * MODE) (EMA smoothed)"), which is right for a log row and wrong for a line
- * that has to fit next to four other facts. Keep the two parts that change
- * between devices and modes — the sensor and the fusion mode — and drop the
- * prose: "ROTATION_VECTOR·UPRIGHT".
+ * The sensor stack's detail is a sentence ("TYPE_ROTATION_VECTOR (camera-axis)
+ * (unsmoothed)"), which is right for a log row and wrong for a line that has to
+ * fit next to four other facts. Keep the two parts that change between devices
+ * and modes — the sensor and the fusion mode — and drop the prose:
+ * "ROTATION_VECTOR·camera-axis". Older rows say "(UPRIGHT MODE) (EMA smoothed)"
+ * and compress the same way.
  */
 internal fun compactDetail(detail: String): String {
     val sensor = detail.substringBefore(' ').removePrefix("TYPE_")

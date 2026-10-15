@@ -9,6 +9,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.GlobalContext
+import cz.hillview.plugin.hvTag
 
 // Known environment limit, verified 2026-08-05: on the API-31 emulator image,
 // CameraX 1.6's camera-pipe implementation loses still-capture callbacks (its
@@ -37,16 +38,21 @@ class HillviewApplication : Application() {
             dirty = BuildConfig.GIT_DIRTY
             dirtyHash = BuildConfig.GIT_DIRTY_HASH
         }
-        android.util.Log.i("hv-build", cz.hillview.BuildInfo.label())
+        android.util.Log.i(hvTag("build"), cz.hillview.BuildInfo.label())
         // A crash writes its trace to a file the Event log screen shows on
         // the next start — installed before anything of ours can throw.
         cz.hillview.diag.CrashLog.install(this)
         cz.hillview.diag.CrashLog.lastReport(this)?.let { report ->
             cz.hillview.plugin.EventLog.record(
                 "crash",
-                "previous run crashed: " + (report.lineSequence().firstOrNull { it.contains("Exception") || it.contains("Error") } ?: "see Event log → Copy crash"),
+                "previous run crashed: " + cz.hillview.diag.crashSummaryLine(report),
             )
         }
+        // What CrashLog CANNOT catch, from the system's own records: a native crash, an
+        // ANR, a low-memory kill, or a crash early enough that our handler never ran.
+        // Retrospective, so this reports deaths that already happened — which is the
+        // difference between "no crash" and "our handler never got the chance".
+        cz.hillview.diag.CrashLog.recordSystemExitReasons(this)
         // The UploadSettingsRepository (createdAtStart) materializes the
         // upload-settings prefs the shared-kt stack reads.
         initKoin {
@@ -76,7 +82,7 @@ class HillviewApplication : Application() {
             try {
                 cz.hillview.plugin.GeoTrackingManager.get(this@HillviewApplication).dumpAndClear()
             } catch (e: Exception) {
-                android.util.Log.w("hv-HillviewApp", "start-time geo dump failed", e)
+                android.util.Log.w(hvTag("HillviewApp"), "start-time geo dump failed", e)
             }
         }
 
