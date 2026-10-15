@@ -10,6 +10,9 @@
 #
 # Profiles are named <hostname>-<raw|local|ygg>; `set_host.py --for web|android`
 # picks one from `hostname`. See scripts/host_profiles.py for what each key is.
+#
+# frontend2's Android build also reads this: every `-raw` profile becomes an
+# API-URL preset in the app's Settings, labelled with the profile name.
 
 
 # ---- generated: three profiles per machine (-raw, -local, -ygg) -----------

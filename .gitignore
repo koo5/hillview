@@ -49,3 +49,12 @@ docker-compose.prod.yml
 
 # per-deployment host topology, see hosts.example.toml
 /hosts.toml
+
+# Generated JavaScript dependencies and SvelteKit output
+node_modules/
+.svelte-kit/
+.sveltekit/
+
+# Local enrich web editor and test state
+/enrich/web/.idea/workspace.xml
+/enrich/web/test-results/

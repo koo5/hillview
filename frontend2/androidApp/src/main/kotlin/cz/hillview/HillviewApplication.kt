@@ -29,6 +29,10 @@ class HillviewApplication : Application() {
         // Native Sign in with Google — empty keeps the button hidden.
         cz.hillview.auth.NativeAuthConfig.googleServerClientId =
             BuildConfig.HILLVIEW_GOOGLE_CLIENT_ID
+        // The deployment's LAN backends for the API-URL menu — from the build
+        // machine's hosts.toml, empty without one.
+        cz.hillview.settings.ServerPresetConfig.lan =
+            cz.hillview.settings.parseServerPresets(BuildConfig.HILLVIEW_LAN_BACKENDS)
         // Which build is running — Settings footer, and one logcat line so a
         // phone can be checked against the tree: `adb logcat | grep hv-build`.
         cz.hillview.BuildInfo.apply {
