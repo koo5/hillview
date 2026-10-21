@@ -144,3 +144,16 @@ def test_unreadable_descriptor_declines_offer_and_processes_normally(env, tmp_pa
     assert sizes_info['full']['width'] == width
     assert 'pyramid' not in sizes_info['full']
     assert 320 in sizes_info
+
+
+@pytest.fixture(scope='module', autouse=True)
+def auxiliary_worker_policy():
+    # The module-scoped pyramid fixture also needs auxiliary input enabled.
+    import image_formats
+    import blur
+    import photo_processor
+    import pyramid_source
+    with pytest.MonkeyPatch.context() as patch:
+        for module in (image_formats, blur, photo_processor, pyramid_source):
+            patch.setattr(module, 'HILLVIEW_AUX', True)
+        yield

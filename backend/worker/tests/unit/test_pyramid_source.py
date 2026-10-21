@@ -19,6 +19,7 @@ import sys
 import cv2
 import numpy as np
 import pytest
+from PIL import Image, UnidentifiedImageError
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
@@ -26,6 +27,30 @@ from pyramid_source import PyramidSource
 
 W, H = 3000, 2000
 TILE, OVERLAP = 256, 1
+
+
+def test_non_webp_content_cannot_select_another_decoder(tmp_path):
+    files = tmp_path / 'pano_files' / '0'
+    files.mkdir(parents=True)
+    Image.new('RGB', (1, 1)).save(files / '0_0.webp', format='PNG')
+    source = PyramidSource(str(tmp_path / 'pano.dzi'), {
+        'tile_size': 256, 'overlap': 1, 'format': 'webp', 'width': 1, 'height': 1,
+    })
+    with pytest.raises(UnidentifiedImageError):
+        source._tile(0, 0, 0)
+
+
+def test_oversized_tile_is_rejected_before_conversion(tmp_path, monkeypatch):
+    files = tmp_path / 'pano_files' / '0'
+    files.mkdir(parents=True)
+    Image.new('RGB', (259, 1)).save(files / '0_0.webp', format='WEBP')
+    source = PyramidSource(str(tmp_path / 'pano.dzi'), {
+        'tile_size': 256, 'overlap': 1, 'format': 'webp', 'width': 1, 'height': 1,
+    })
+    # Conversion would request pixel decoding; it must not be reached.
+    monkeypatch.setattr(Image.Image, 'convert', lambda *a, **k: pytest.fail('oversized tile decoded'))
+    with pytest.raises(ValueError, match='exceeds declared tile size'):
+        source._tile(0, 0, 0)
 
 
 def _test_image():
@@ -139,3 +164,16 @@ class TestStitching:
         via_raster = create_center_crop(image, 320, 240)
         assert via_pyramid.shape == via_raster.shape == (240, 320, 3)
         assert np.mean(np.abs(via_pyramid.astype(np.int16) - via_raster.astype(np.int16))) < 5.0
+
+
+@pytest.fixture(scope='module', autouse=True)
+def auxiliary_worker_policy():
+    # The module-scoped pyramid fixture also needs auxiliary input enabled.
+    import image_formats
+    import blur
+    import photo_processor
+    import pyramid_source
+    with pytest.MonkeyPatch.context() as patch:
+        for module in (image_formats, blur, photo_processor, pyramid_source):
+            patch.setattr(module, 'HILLVIEW_AUX', True)
+        yield

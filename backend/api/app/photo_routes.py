@@ -338,6 +338,9 @@ async def upload_processed_file(
 	- X-Client-Signature: ECDSA signature for verification
 	"""
 
+	# This endpoint stores worker-produced artifacts (including WebP); it does
+	# not decode source images. JPEG-only source admission belongs to the worker.
+	# Any future image parsing here needs a separate public-input security audit.
 	# Read metadata from headers
 	photo_id = request.headers.get("X-Photo-Id")
 	relative_path = request.headers.get("X-Relative-Path")

@@ -42,6 +42,8 @@ RUN bun run build
 
 FROM oven/bun:1-debian
 
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+
 # Create non-root user
 RUN groupadd -g 1001 nodejs && \
     useradd svelte -u 1001 -G nodejs

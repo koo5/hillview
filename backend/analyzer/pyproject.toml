@@ -22,3 +22,14 @@ py-modules = [
     "analyze_photo",
     "distill",
 ]
+
+[tool.uv]
+exclude-newer = "2026-10-07T00:00:00Z"
+# Security fix for compromised root certificates, uploaded 2026-10-20.
+exclude-newer-package = { certifi = "2026-10-21T00:00:00Z" }
+constraint-dependencies = [
+    "anyio>=4.14.2",
+    "certifi>=2026.10.19",
+    "idna>=3.15",
+    "python-dotenv>=1.2.2",
+]

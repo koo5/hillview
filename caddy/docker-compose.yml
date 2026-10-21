@@ -1,6 +1,7 @@
 services:
   caddy:
-    image: caddy:2-alpine
+    build: .
+    image: hillview-caddy:security
     container_name: hillview_caddy
     restart: unless-stopped
     network_mode: host
