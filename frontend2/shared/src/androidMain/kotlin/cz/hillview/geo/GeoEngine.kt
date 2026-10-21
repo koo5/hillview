@@ -439,6 +439,7 @@ class GeoEngine private constructor(private val context: Context) {
      * inseparably.
      */
     private val _motion = MutableStateFlow<cz.hillview.map.DeviceMotionSample?>(null)
+    /** Latest motion at 50 ms sensor-time intervals; [motionAt] uses full-rate history. */
     val motion: StateFlow<cz.hillview.map.DeviceMotionSample?> = _motion.asStateFlow()
 
     /** True while the fix stream is meant to be running (permission-gated). */
@@ -766,8 +767,8 @@ class GeoEngine private constructor(private val context: Context) {
      * Gravity and linear acceleration, registered and published as one sample.
      *
      * Both arrive on their own callbacks, so the latest of each is held and the
-     * pair is published whenever either moves — with the timestamp of the
-     * sample that triggered it, so staleness is measurable rather than assumed.
+     * pair is recorded on every callback. Publication for the press-time stamp is
+     * capped at 20 Hz; the exposure lookup always sees the full-rate history.
      */
     private val motionListener = object : android.hardware.SensorEventListener {
         // The vectors and the assembly live in MotionSampleAssembler, which exists
@@ -784,18 +785,12 @@ class GeoEngine private constructor(private val context: Context) {
                     pair.linear(event.values[0], event.values[1], event.values[2])
                 else -> return
             }
-            _motion.value = pair.sampleAt(
-                // BOTH clocks describe the EVENT, not the callback, and that matters
-                // because the two are ~300 ms apart here: these sensors batch, so
-                // System.currentTimeMillis() at delivery is a third of a second after
-                // the sample it is stamping. Mixing them is a bug this code had for one
-                // evening — the ring matched on the event time while `age_ms` was
-                // computed from the callback time, and 20 uploaded photos reported
-                // inertial ages of -311 ms for samples that were within 1 ms of the
-                // exposure. imuWallClockFor is the same mapping the IMU payload uses.
-                atMs = imuWallClockFor(event.timestamp),
-                elapsedNs = event.timestamp,
-            ).also { motionRing.add(it) }
+            // BOTH clocks describe the EVENT. Delivery may lag it by ~300 ms;
+            // imuWallClockFor uses the same mapping as the raw IMU payload.
+            val atMs = imuWallClockFor(event.timestamp)
+            pair.recordAt(motionRing, atMs, event.timestamp)
+            pair.sampleForPublication(atMs, event.timestamp)
+                ?.let { _motion.value = it }
         }
 
         override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) {}
@@ -860,9 +855,9 @@ class GeoEngine private constructor(private val context: Context) {
     private val attitudeRing = SampleRing<cz.hillview.map.DeviceAttitude>(
         AT_EXPOSURE_RING_WINDOW_NS, AT_EXPOSURE_RING_MAX_SAMPLES,
     ) { it.elapsedNs }
-    private val motionRing = SampleRing<cz.hillview.map.DeviceMotionSample>(
+    private val motionRing = MotionSampleRing(
         AT_EXPOSURE_RING_WINDOW_NS, AT_EXPOSURE_RING_MAX_SAMPLES,
-    ) { it.elapsedNs }
+    )
 
     /**
      * What the device's orientation was at [elapsedNs] (an `elapsedRealtimeNanos` value,
@@ -873,12 +868,20 @@ class GeoEngine private constructor(private val context: Context) {
      */
     fun attitudeAt(elapsedNs: Long): cz.hillview.map.DeviceAttitude? =
         attitudeRing.nearest(elapsedNs, AT_EXPOSURE_TOLERANCE_NS)
-            .also { if (it == null) explainMiss("attitude", attitudeRing, elapsedNs) }
+            .also {
+                if (it == null) explainMiss(
+                    "attitude", elapsedNs, attitudeRing.spanNs, attitudeRing.size, attitudeRing.capped,
+                )
+            }
 
     /** The gravity / linear-acceleration reading at [elapsedNs]. See [attitudeAt]. */
     fun motionAt(elapsedNs: Long): cz.hillview.map.DeviceMotionSample? =
         motionRing.nearest(elapsedNs, AT_EXPOSURE_TOLERANCE_NS)
-            .also { if (it == null) explainMiss("inertial", motionRing, elapsedNs) }
+            .also {
+                if (it == null) explainMiss(
+                    "inertial", elapsedNs, motionRing.spanNs, motionRing.size, motionRing.capped,
+                )
+            }
 
     /**
      * Say WHY a lookup declined, because the last time one did quietly it took a batch
@@ -890,13 +893,13 @@ class GeoEngine private constructor(private val context: Context) {
      * a long span with the exposure inside it means the stream itself had a gap. Rare
      * by construction — this only runs when a capture has already missed.
      */
-    private fun <T> explainMiss(which: String, ring: SampleRing<T>, elapsedNs: Long) {
+    private fun explainMiss(which: String, elapsedNs: Long, spanNs: Long, size: Int, capped: Boolean) {
         val behindMs = (android.os.SystemClock.elapsedRealtimeNanos() - elapsedNs) / 1_000_000
         Log.w(
             TAG,
             "$which lookup declined: exposure was ${behindMs}ms ago, ring holds " +
-                "${ring.spanNs / 1_000_000}ms in ${ring.size} samples" +
-                (if (ring.capped) " (CAPPED — raise AT_EXPOSURE_RING_MAX_SAMPLES)" else ""),
+                "${spanNs / 1_000_000}ms in $size samples" +
+                (if (capped) " (CAPPED — raise AT_EXPOSURE_RING_MAX_SAMPLES)" else ""),
         )
     }
 

@@ -18,17 +18,21 @@ import cz.hillview.plugin.accuracyMOrNull
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.BufferedInputStream
 import java.io.IOException
 import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import java.util.UUID
+import android.util.AtomicFile
 import cz.hillview.plugin.hvTag
 
 /**
@@ -60,31 +64,19 @@ object PhotoTableDump {
 
     private val TAG = hvTag("PhotoTableDump")
     private const val PREFS = "hillview_photo_dump"
-    private const val PREF_HASHES = "last_shard_hashes"
     private const val PREF_SHARDS = "last_shard_count"
-    private const val PREF_FINGERPRINT = "last_table_fingerprint"
     private const val PREF_AT = "last_dump_at"
     private const val PREF_WHERE = "last_dump_where"
     private const val PREF_COUNT = "last_dump_count"
+    private const val PREF_DELTA_FORMAT = "delta_format"
+    private const val PREF_ACTIVE_SHARD = "active_shard"
+    private const val PREF_ACTIVE_ROWS = "active_rows"
+    private const val PREF_CHANGE_CHECKPOINT = "change_checkpoint"
+    private const val PREF_LEGACY_SHARDS = "legacy_shard_count"
 
     /**
-     * The media rows this app wrote, one per shard.
-     *
-     * Remembered by URI rather than looked up by name each time, because the
-     * lookup can come back empty for a file that is plainly there: the media
-     * database hides a non-media row from every app but its owner, and an
-     * uninstall ORPHANS ownership. Asking by name then found nothing, so the
-     * dump inserted — and MediaProvider, which never overwrites, handed back
-     * "photos (1).csv". Then "(2)", and so on to "(31)", at which point it
-     * gave up entirely ("Failed to build unique file") and the index fell
-     * back to app-private storage, which is the one place it is useless.
-     * Emulator-caught 2026-09-17, on a device carrying exactly that history.
-     *
-     * Keeping the URI turns MediaProvider's own de-duplication into a CLAIM:
-     * whatever name it gives us the first time is the name we keep writing,
-     * so there is one file per install and the previous install's index —
-     * which describes photos that are still on the phone — is left alone
-     * rather than overwritten by a fresh install's empty table.
+     * The active MediaStore row for each segment, replaced only after staging
+     * completes so a failed write leaves the previous complete CSV available.
      */
     private const val PREF_URIS = "last_shard_uris"
 
@@ -93,6 +85,7 @@ object PhotoTableDump {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val writing = Mutex()
+    private val captureDumpRequests = Channel<Unit>(capacity = Channel.CONFLATED)
 
     /**
      * Wire the triggers. Called once from the Application.
@@ -102,11 +95,10 @@ object PhotoTableDump {
      * after a crash or a swipe-away that skipped that; and the capture pulse
      * bounds the loss inside a shoot that does neither.
      *
-     * Only the capture pulse is SPACED. Leaving the app and starting it are
-     * rare and important, and both are already gated by the table
-     * fingerprint, so they cost a single aggregate query when nothing has
-     * happened. Captures arrive by the thousand, so they are the trigger that
-     * has to yield as the table grows.
+     * Only the capture pulse is SPACED. App start and backgrounding check the
+     * coalesced SQLite change queue and return without reading photo rows when
+     * nothing changed. Captures arrive by the thousand, so their trigger yields
+     * as the table grows.
      */
     fun install(context: Context, captureEvents: cz.hillview.capture.CaptureEvents) {
         val app = context.applicationContext
@@ -117,26 +109,28 @@ object PhotoTableDump {
             },
         )
         scope.launch {
-            captureEvents.captured.collect { requestDump(app, "capture", spaced = true) }
+            captureEvents.captured.collect { captureDumpRequests.trySend(Unit) }
+        }
+        scope.launch {
+            for (ignored in captureDumpRequests) {
+                runDumpRequest(app, "capture", spaced = true, force = false)
+            }
         }
     }
 
     /**
-     * Write the table out, unless nothing has changed since last time.
+     * Write the changed photo states since the previous successful dump.
      *
-     * Two gates, cheap one first. The FINGERPRINT is a single aggregate row
-     * (SimplePhotoDao.getPhotoTableFingerprint) that answers "did anything
-     * happen" without materializing a row — the difference between a
-     * millisecond and a full table read every time the app is backgrounded.
-     * The CONTENT HASH, per shard, then decides what is actually written; it
-     * is on the bytes rather than on a dirty flag, so nothing has to remember
-     * to announce itself.
+     * SQLite triggers coalesce edits by photo ID, including physical deletes.
+     * Each output row carries a monotonically increasing change ID and an
+     * upsert/delete action. Readers apply rows in order and keep the latest
+     * state for each ID. A segment is capped at [PHOTO_DUMP_SHARD_ROWS] rows;
+     * later dumps replace only the active segment.
      *
      * [spaced] adds the size-scaled interval on top (see
-     * [photoDumpIntervalMs]) — the capture pulse's answer to a table with
-     * tens of thousands of rows in it. [force] is the manual button, which
-     * must write even when nothing changed, because the reason to press it is
-     * usually that the file is not there.
+     * [photoDumpIntervalMs]) — the capture pulse's freshness/IO tradeoff.
+     * [force] is the manual button, which queues a current state for every
+     * photo even when nothing changed, because the file may be missing.
      */
     fun requestDump(
         context: Context,
@@ -146,126 +140,306 @@ object PhotoTableDump {
     ) {
         val app = context.applicationContext
         scope.launch {
-            writing.withLock {
-                try {
-                    dumpNow(app, reason, spaced, force)
-                } catch (e: Exception) {
-                    Log.w(TAG, "dump ($reason) failed", e)
-                    EventLog.record("export", "photo table dump FAILED: ${e.message}")
-                }
+            runDumpRequest(app, reason, spaced, force)
+        }
+    }
+
+    private suspend fun runDumpRequest(
+        app: Context,
+        reason: String,
+        spaced: Boolean,
+        force: Boolean,
+    ) {
+        writing.withLock {
+            try {
+                dumpNow(app, reason, spaced, force)
+            } catch (e: Exception) {
+                Log.w(TAG, "dump ($reason) failed", e)
+                EventLog.record("export", "photo table dump FAILED: ${e.message}")
             }
         }
     }
 
-    private fun dumpNow(app: Context, reason: String, spaced: Boolean, force: Boolean) {
+    internal fun dumpNow(app: Context, reason: String, spaced: Boolean, force: Boolean) {
         val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
-        val dao = PhotoDatabase.getDatabase(app).photoDao()
-
-        val fingerprint = dao.getPhotoTableFingerprint()
-        if (!force && fingerprint == prefs.getString(PREF_FINGERPRINT, null)) return
+        val database = PhotoDatabase.getDatabase(app)
+        val dao = database.photoDao()
         val total = dao.getTotalPhotoCount()
         if (!force && spaced && now - prefs.getLong(PREF_AT, 0L) < photoDumpIntervalMs(total)) return
 
-        val previousHashes = prefs.getString(PREF_HASHES, "").orEmpty()
-            .split(",").filter { it.isNotEmpty() }
-        val previousUris = prefs.getString(PREF_URIS, "").orEmpty().split(",")
-        val previousShards = prefs.getInt(PREF_SHARDS, 0)
-        val shards = shardCount(total)
-        val hashes = mutableListOf<String>()
-        val uris = mutableListOf<String>()
-        var written = 0
-        var where: String? = prefs.getString(PREF_WHERE, null)
-        var durable = prefs.getBoolean(PREF_DURABLE, false)
+        val db = database.openHelper.writableDatabase
+        if (force) queueAllPhotosForExport(db)
 
-        for (shard in 0 until shards) {
-            // One shard in memory at a time. The whole table would be the
-            // same total work but a far worse peak, and the peak is what
-            // shows up as a stutter on a phone with the camera running.
-            val rows = dao.getPhotosOldestFirst(
-                limit = PHOTO_DUMP_SHARD_ROWS,
-                offset = shard * PHOTO_DUMP_SHARD_ROWS,
-            )
-            // TWO STREAMING PASSES over rows already in memory, and no shard text
-            // anywhere. The first only hashes, because the decision below needs the
-            // hash BEFORE anything is written; the second writes. Both hold one row at
-            // a time, which is what the OutOfMemoryError this replaced was about.
-            val hash = ConcatHash()
-                .append(photoTableHeader())
-                .also { h -> rows.forEach { h.append(photoTableRowText(it)) } }
-                .value().toString()
-            hashes += hash
-            // A closed shard's bytes do not change when a photo is taken, so
-            // the usual dump writes exactly one file however large the table
-            // is. Deleting an OLD photo shifts everything after it, and those
-            // shards get rewritten — correct, and rare.
-            if (force || previousHashes.getOrNull(shard) != hash) {
-                val result = writeCsv(
-                    app,
-                    photoDumpFileName(shard),
-                    { stream ->
-                        // Buffered, and a row at a time: writing straight to a
-                        // MediaStore stream per row would be ten thousand syscalls.
-                        stream.bufferedWriter(Charsets.UTF_8).use { writer ->
-                            writer.write(photoTableHeader())
-                            val line = StringBuilder(1_200)
-                            for (row in rows) {
-                                line.setLength(0)
-                                appendPhotoTableRow(line, row)
-                                writer.append(line)
-                            }
+        val oldUris = prefs.getString(PREF_URIS, "").orEmpty().split(",")
+        val outputUris = oldUris.toMutableList()
+        val wasDeltaFormat = prefs.getBoolean(PREF_DELTA_FORMAT, false)
+        if (!wasDeltaFormat && total > 0 && pendingPhotoChanges(db, 1).isEmpty()) {
+            // Recovery for an install whose preferences or ledger predate the
+            // incremental format: establish a baseline once, then stay delta-only.
+            queueAllPhotosForExport(db)
+        }
+        val oldShardCount = prefs.getInt(PREF_SHARDS, 0)
+        val legacyShardCount = if (wasDeltaFormat) {
+            prefs.getInt(PREF_LEGACY_SHARDS, 0)
+        } else {
+            oldShardCount
+        }
+        var shard = prefs.getInt(PREF_ACTIVE_SHARD, 0)
+        var activeRows = prefs.getInt(PREF_ACTIVE_ROWS, 0)
+        var checkpoint = prefs.getLong(PREF_CHANGE_CHECKPOINT, 0L)
+        var shards = if (wasDeltaFormat) oldShardCount else 0
+        val previousWhere = prefs.getString(PREF_WHERE, null)
+        var where = previousWhere
+        var durable = prefs.getBoolean(PREF_DURABLE, false)
+        var writtenRows = 0
+
+        if (wasDeltaFormat) {
+            val activeUri = resolveSegmentUri(app, shard, outputUris)
+            readDeltaMetadata(app, activeUri, previousWhere, photoDumpFileName(shard))?.let { metadata ->
+                checkpoint = maxOf(checkpoint, metadata.checkpoint)
+                activeRows = metadata.rows
+                if (activeRows >= PHOTO_DUMP_SHARD_ROWS) {
+                    shard++
+                    activeRows = 0
+                }
+                prefs.edit().putLong(PREF_CHANGE_CHECKPOINT, checkpoint)
+                    .putInt(PREF_ACTIVE_SHARD, shard).putInt(PREF_ACTIVE_ROWS, activeRows).commit()
+            }
+            // If the process died after publishing a complete staged file but
+            // before clearing its queue, its on-file checkpoint makes this safe.
+            acknowledgePhotoChanges(db, checkpoint)
+        }
+
+        // The old snapshot's files become the first log segments. On an upgraded
+        // install, the migration queued every existing row; the first write
+        // replaces each old segment through a staged, complete replacement.
+        if (!wasDeltaFormat && total == 0) {
+            val firstUri = resolveSegmentUri(app, 0, outputUris)
+            val result = writeCsvAtomic(app, photoDumpFileName(0), firstUri) { out ->
+                val writer = out.bufferedWriter(Charsets.UTF_8)
+                writer.write(deltaFilePrefix(0L, 0))
+                writer.write(photoTableDeltaHeader())
+                writer.flush()
+            }
+            where = result.where
+            durable = result.durable
+            while (outputUris.isEmpty()) outputUris += ""
+            outputUris[0] = result.uri.orEmpty()
+            prefs.edit().putBoolean(PREF_DELTA_FORMAT, true)
+                .putInt(PREF_ACTIVE_SHARD, 0).putInt(PREF_ACTIVE_ROWS, 0)
+                .putLong(PREF_CHANGE_CHECKPOINT, 0L).putInt(PREF_SHARDS, 1)
+                .putInt(PREF_LEGACY_SHARDS, legacyShardCount)
+                .putString(PREF_URIS, outputUris.joinToString(","))
+                .putString(PREF_WHERE, where).putBoolean(PREF_DURABLE, durable)
+                .putLong(PREF_AT, now).putInt(PREF_COUNT, total).commit()
+            shards = 1
+        }
+
+        while (true) {
+            val roomInSegment = PHOTO_DUMP_SHARD_ROWS - activeRows
+            if (roomInSegment <= 0) {
+                shard++
+                activeRows = 0
+                continue
+            }
+            val changes = pendingPhotoChanges(db, roomInSegment)
+            if (changes.isEmpty()) break
+
+            val fileName = photoDumpFileName(shard)
+            val previousUri = resolveSegmentUri(app, shard, outputUris)
+            val isExistingDeltaSegment = wasDeltaFormat || writtenRows > 0 || shard > 0
+            val nextRows = activeRows + changes.size
+            val nextCheckpoint = maxOf(checkpoint, changes.last().changeId)
+            val result = writeCsvAtomic(app, fileName, previousUri) { output ->
+                val writer = output.bufferedWriter(Charsets.UTF_8)
+                writer.write(deltaFilePrefix(nextCheckpoint, nextRows))
+                if (isExistingDeltaSegment && activeRows > 0) {
+                    writer.flush()
+                    if (!copyAfterFirstLine(app, previousUri, previousWhere, fileName, output)) {
+                        throw IOException("could not read the current photo-index segment")
+                    }
+                } else {
+                    writer.write(photoTableDeltaHeader())
+                }
+                val rowText = StringBuilder(1_200)
+                for (batch in changes.chunked(32)) {
+                    val photosById = database.photoDao()
+                        .getPhotosByIds(batch.map { it.photoId })
+                        .associateBy { it.id }
+                    for (change in batch) {
+                        rowText.setLength(0)
+                        val photo = photosById[change.photoId]
+                        if (photo == null) {
+                            appendPhotoTableTombstone(rowText, change.photoId, change.changeId)
+                        } else {
+                            appendPhotoTableDeltaRow(rowText, photo, change.changeId)
                         }
-                    },
-                    previousUris.getOrNull(shard)?.takeIf { it.isNotEmpty() },
-                )
-                where = result.where
-                durable = result.durable
-                uris += result.uri.orEmpty()
-                written++
-            } else {
-                // Carry the claim forward: a shard we did not rewrite still
-                // has the row we wrote it to, and forgetting it here would
-                // make the next write to it start claiming all over again.
-                uris += previousUris.getOrNull(shard).orEmpty()
+                        writer.append(rowText)
+                    }
+                }
+                writer.flush()
+            }
+
+            // The staged file is complete before it replaces the active segment.
+            // Persist its checkpoint first; a restart can then safely clear any
+            // matching ledger rows left by a crash between these two operations.
+            checkpoint = nextCheckpoint
+            activeRows = nextRows
+            where = result.where
+            durable = result.durable
+            while (outputUris.size <= shard) outputUris += ""
+            outputUris[shard] = result.uri.orEmpty()
+            shards = maxOf(shards, shard + 1)
+            val saved = prefs.edit().putBoolean(PREF_DELTA_FORMAT, true)
+                .putLong(PREF_CHANGE_CHECKPOINT, checkpoint)
+                .putInt(PREF_ACTIVE_SHARD, shard).putInt(PREF_ACTIVE_ROWS, activeRows)
+                .putInt(PREF_SHARDS, shards).putString(PREF_URIS, outputUris.joinToString(","))
+                .putInt(PREF_LEGACY_SHARDS, legacyShardCount)
+                .putBoolean(PREF_DURABLE, durable).putString(PREF_WHERE, where)
+                .putLong(PREF_AT, now).putInt(PREF_COUNT, total).commit()
+            if (!saved) throw IOException("could not save photo-index checkpoint")
+            acknowledgePhotoChanges(db, checkpoint)
+            writtenRows += changes.size
+            if (activeRows == PHOTO_DUMP_SHARD_ROWS) {
+                shard++
+                activeRows = 0
+                prefs.edit().putInt(PREF_ACTIVE_SHARD, shard).putInt(PREF_ACTIVE_ROWS, 0).commit()
             }
         }
-        // The table shrank past a boundary: the tail files now hold rows that
-        // are also in the files before them. Only ones this app recorded
-        // writing are removed.
-        for (shard in shards until previousShards) {
-            deleteCsv(app, photoDumpFileName(shard))
-        }
 
-        val previousWhere = prefs.getString(PREF_WHERE, null)
-        prefs.edit()
-            .putString(PREF_FINGERPRINT, fingerprint)
-            .putString(PREF_HASHES, hashes.joinToString(","))
-            .putString(PREF_URIS, uris.joinToString(","))
-            .putBoolean(PREF_DURABLE, durable)
-            .putInt(PREF_SHARDS, shards)
-            .putLong(PREF_AT, now)
-            .putString(PREF_WHERE, where)
-            .putInt(PREF_COUNT, total)
-            .apply()
-        Log.i(TAG, "dumped $total photos in $shards file(s), $written written ($reason) -> $where")
-        // Only when the ANSWER changes. A routine dump every few minutes of a
-        // shoot would bury the event log in lines that say the same thing; a
-        // dump that suddenly lands somewhere else — the public folder
-        // refused, so it went app-private — is exactly what the log is for.
+        // Once the migration's one-time seed has drained, remove obsolete tail
+        // snapshot files that no longer have a corresponding delta segment.
+        if (legacyShardCount > shards) {
+            for (oldShard in shards until legacyShardCount) {
+                deleteCsv(app, photoDumpFileName(oldShard))
+            }
+            prefs.edit().putInt(PREF_LEGACY_SHARDS, shards).commit()
+        }
+        prefs.edit().putLong(PREF_AT, now).putInt(PREF_COUNT, total).commit()
+        Log.i(TAG, "exported $writtenRows changed photo rows to $shards file(s) ($reason) -> $where")
         if (where != null && where != previousWhere) {
-            // Landing app-private is not a detail: it is the one destination
-            // that does NOT outlive the app, which is the whole reason this
-            // file exists. Say so rather than reporting a path and letting
-            // the reader work out what it means.
             EventLog.record(
                 "export",
-                if (durable) {
-                    "photo index → $where"
-                } else {
-                    "photo index → $where — app-private, will NOT survive an uninstall"
-                },
+                if (durable) "photo index → $where"
+                else "photo index → $where — app-private, will NOT survive an uninstall",
             )
         }
+    }
+
+    private data class PendingChange(val photoId: String, val changeId: Long)
+    private data class DeltaMetadata(val checkpoint: Long, val rows: Int)
+
+    private fun pendingPhotoChanges(
+        db: androidx.sqlite.db.SupportSQLiteDatabase,
+        limit: Int,
+    ): List<PendingChange> {
+        val cursor = db.query(
+            "SELECT photoId, changeId FROM photo_export_changes " +
+                "ORDER BY changeId, photoId LIMIT ?",
+            arrayOf(limit),
+        )
+        return cursor.use {
+            buildList {
+                while (it.moveToNext()) add(PendingChange(it.getString(0), it.getLong(1)))
+            }
+        }
+    }
+
+    private fun acknowledgePhotoChanges(
+        db: androidx.sqlite.db.SupportSQLiteDatabase,
+        checkpoint: Long,
+    ) {
+        db.execSQL("DELETE FROM photo_export_changes WHERE changeId <= ?", arrayOf(checkpoint))
+    }
+
+    /** A forced manual export queues the current state of every row once. */
+    private fun queueAllPhotosForExport(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+        db.beginTransaction()
+        try {
+            // The AFTER UPDATE trigger assigns a fresh sequence to each row and
+            // coalesces it with any already-pending change for that photo.
+            db.execSQL("UPDATE photos SET id = id")
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    private fun copyAfterFirstLine(
+        app: Context,
+        uri: String?,
+        path: String?,
+        fileName: String,
+        output: OutputStream,
+    ): Boolean {
+        val input = uri?.let { app.contentResolver.openInputStream(Uri.parse(it)) }
+            ?: path?.let(::File)?.let { reported ->
+                val directory = if (reported.isDirectory) reported else reported.parentFile
+                directory?.let { File(it, fileName) }?.takeIf { it.isFile }?.inputStream()
+            }
+            ?: return false
+        BufferedInputStream(input).use { source ->
+            // The first line is the per-replacement checkpoint. The CSV header
+            // and records after it can be copied byte-for-byte, including JSON
+            // cells that contain quoted newlines.
+            var byte: Int
+            do {
+                byte = source.read()
+            } while (byte >= 0 && byte != '\n'.code)
+            if (byte < 0) return false
+            val buffer = ByteArray(16 * 1024)
+            while (true) {
+                val read = source.read(buffer)
+                if (read < 0) break
+                output.write(buffer, 0, read)
+            }
+        }
+        return true
+    }
+
+    private fun readDeltaMetadata(
+        app: Context,
+        uri: String?,
+        path: String?,
+        fileName: String,
+    ): DeltaMetadata? {
+        val input = uri?.let { app.contentResolver.openInputStream(Uri.parse(it)) }
+            ?: path?.let(::File)?.let { reported ->
+                val directory = if (reported.isDirectory) reported else reported.parentFile
+                directory?.let { File(it, fileName) }?.takeIf { it.isFile }?.inputStream()
+            }
+            ?: return null
+        return BufferedInputStream(input).use { source ->
+            val line = buildString {
+                while (length < 256) {
+                    val byte = source.read()
+                    if (byte < 0 || byte == '\n'.code) break
+                    append(byte.toChar())
+                }
+            }
+            val match = Regex("^#hillview_photo_delta=1,checkpoint=(\\d+),rows=(\\d+)$")
+                .matchEntire(line) ?: return@use null
+            DeltaMetadata(match.groupValues[1].toLong(), match.groupValues[2].toInt())
+        }
+    }
+
+    private fun resolveSegmentUri(app: Context, shard: Int, uris: MutableList<String>): String? {
+        val remembered = uris.getOrNull(shard)?.takeIf { it.isNotEmpty() }
+        if (remembered != null && canReadUri(app, remembered)) return remembered
+        val relativePath = "${Environment.DIRECTORY_DOCUMENTS}/${PhotoStorage.folderBase}/"
+        val found = findInMediaStore(app, relativePath, photoDumpFileName(shard))?.toString()
+        if (found != null) {
+            while (uris.size <= shard) uris += ""
+            uris[shard] = found
+        }
+        return found
+    }
+
+    private fun canReadUri(app: Context, uri: String): Boolean = try {
+        app.contentResolver.openInputStream(Uri.parse(uri))?.use { true } ?: false
+    } catch (_: Exception) {
+        false
     }
 
     /**
@@ -333,13 +507,13 @@ object PhotoTableDump {
      * Where a shard landed, and whether that place outlives the app.
      * [uri] is the media row to write to next time — see [PREF_URIS].
      */
-    private data class WriteResult(
+    internal data class WriteResult(
         val where: String,
         val uri: String?,
         val durable: Boolean,
     )
 
-    private fun writeCsv(
+    private fun writeCsvAtomic(
         app: Context,
         fileName: String,
         /**
@@ -348,14 +522,14 @@ object PhotoTableDump {
          * OutOfMemoryError this replaced — and it may be called more than once, since
          * the MediaStore paths below try up to three ways to reach the row.
          */
-        write: (OutputStream) -> Unit,
         remembered: String?,
+        write: (OutputStream) -> Unit,
     ): WriteResult {
         val folder = PhotoStorage.folderBase
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
-                return writeViaMediaStore(app, folder, fileName, write, remembered)
+                return writeViaMediaStoreAtomic(app, folder, fileName, write, remembered)
             } catch (e: Exception) {
                 Log.w(TAG, "MediaStore write failed, trying the file API", e)
             }
@@ -367,7 +541,7 @@ object PhotoTableDump {
             )
             if (!dir.exists()) dir.mkdirs()
             val file = File(dir, fileName)
-            file.outputStream().use(write)
+            writeAtomicFile(file, write)
             return WriteResult(file.absolutePath, uri = null, durable = true)
         } catch (e: Exception) {
             Log.w(TAG, "public file write failed, falling back to app-private", e)
@@ -375,11 +549,24 @@ object PhotoTableDump {
         val dir = File(app.getExternalFilesDir(null), "PhotoTableDumps")
         if (!dir.exists()) dir.mkdirs()
         val file = File(dir, fileName)
-        file.outputStream().use(write)
+        writeAtomicFile(file, write)
         return WriteResult(file.absolutePath, uri = null, durable = false)
     }
 
-    private fun writeViaMediaStore(
+    internal fun writeAtomicFile(file: File, write: (OutputStream) -> Unit) {
+        val atomic = AtomicFile(file)
+        val stream = atomic.startWrite()
+        try {
+            write(stream)
+            stream.flush()
+            atomic.finishWrite(stream)
+        } catch (e: Throwable) {
+            atomic.failWrite(stream)
+            throw e
+        }
+    }
+
+    internal fun writeViaMediaStoreAtomic(
         app: Context,
         folder: String,
         fileName: String,
@@ -389,59 +576,72 @@ object PhotoTableDump {
         val resolver = app.contentResolver
         val collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         val relativePath = "${Environment.DIRECTORY_DOCUMENTS}/$folder/"
-
-        // Three ways to reach the row, in order of certainty. The remembered
-        // URI is the only one that is reliable: a name lookup cannot see a
-        // non-media row this app does not own, and an insert never overwrites.
-        val claimed = remembered?.let { saved ->
-            try {
-                val uri = Uri.parse(saved)
-                writeTo(resolver, uri, write)
-                uri
-            } catch (e: Exception) {
-                Log.w(TAG, "the remembered index row is gone — claiming another", e)
-                null
-            }
-        }
-        if (claimed != null) {
-            return WriteResult(locator(app, claimed, relativePath, fileName), claimed.toString(), true)
-        }
-
-        val found = findInMediaStore(app, relativePath, fileName)
-        if (found != null) {
-            writeTo(resolver, found, write)
-            return WriteResult(locator(app, found, relativePath, fileName), found.toString(), true)
-        }
-
-        // Nothing of ours is there. Insert, and take whatever name comes
-        // back: if the preferred one is occupied by a file this app can no
-        // longer see (the previous install's index, which describes photos
-        // that are still on the phone), MediaProvider hands over a numbered
-        // sibling instead of clobbering it. That is the right outcome and
-        // this remembers it, so the numbering happens ONCE.
+        val old = remembered?.let { Uri.parse(it) }
+            ?: findInMediaStore(app, relativePath, fileName)
+        val stageName = ".$fileName.${UUID.randomUUID()}.pending"
         val inserted = resolver.insert(
             collection,
             ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.DISPLAY_NAME, stageName)
                 put(MediaStore.MediaColumns.MIME_TYPE, "text/csv")
                 put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
             },
         ) ?: throw IOException("MediaStore insert returned null")
-        writeTo(resolver, inserted, write)
-        return WriteResult(locator(app, inserted, relativePath, fileName), inserted.toString(), true)
-    }
+        var publishedComplete = false
+        try {
+            resolver.openOutputStream(inserted, "wt")?.use(write)
+                ?: throw IOException("openOutputStream returned null for staged CSV")
 
-    /**
-     * "wt" truncates: without it a shorter table would leave the tail of the
-     * previous dump behind, and a CSV with a stale tail is worse than none.
-     */
-    private fun writeTo(
-        resolver: android.content.ContentResolver,
-        uri: Uri,
-        write: (OutputStream) -> Unit,
-    ) {
-        resolver.openOutputStream(uri, "wt")?.use(write)
-            ?: throw IOException("openOutputStream returned null")
+            // Keep the previous complete file until staging has closed cleanly.
+            // The pending row is invisible to other apps while it is written.
+            val backupName = "$fileName.previous-${UUID.randomUUID()}"
+            if (old != null) {
+                val moved = resolver.update(
+                    old,
+                    ContentValues().apply { put(MediaStore.MediaColumns.DISPLAY_NAME, backupName) },
+                    null,
+                    null,
+                )
+                if (moved == 0) throw IOException("could not stage previous CSV for replacement")
+            }
+            try {
+                val published = resolver.update(
+                    inserted,
+                    ContentValues().apply {
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                        put(MediaStore.MediaColumns.IS_PENDING, 0)
+                    },
+                    null,
+                    null,
+                )
+                if (published == 0) throw IOException("could not publish staged CSV")
+                publishedComplete = true
+            } catch (e: Exception) {
+                if (old != null) {
+                    resolver.update(
+                        old,
+                        ContentValues().apply { put(MediaStore.MediaColumns.DISPLAY_NAME, fileName) },
+                        null,
+                        null,
+                    )
+                }
+                throw e
+            }
+            if (old != null) {
+                try {
+                    resolver.delete(old, null, null)
+                } catch (e: Exception) {
+                    Log.w(TAG, "could not remove the replaced CSV backup", e)
+                }
+            }
+            return WriteResult(locator(app, inserted, relativePath, fileName), inserted.toString(), true)
+        } catch (e: Exception) {
+            // A process death can leave only an IS_PENDING row; the last
+            // published CSV remains complete throughout the write.
+            if (!publishedComplete) resolver.delete(inserted, null, null)
+            throw e
+        }
     }
 
     /** What to tell the user, using the name the file REALLY has. */
@@ -505,15 +705,12 @@ object PhotoTableDump {
 }
 
 /**
- * How many rows go in one file, and therefore how much work the usual dump
- * does however big the table gets (user-raised: "switch to a new file after
- * 10k rows perhaps?").
+ * Maximum number of change records in one segment (user-raised: "switch to a
+ * new file after 10k rows perhaps?").
  *
- * Sharding is what keeps the file count PROPORTIONAL — one more file per ten
- * thousand photos — rather than a per-day pile that grows forever whether or
- * not anything was shot. And because the rows are ordered oldest-first, a new
- * capture only ever touches the last shard, so the write stays the same size
- * at ten thousand photos as at a hundred thousand.
+ * A full segment is sealed. Later edits, including edits to rows in sealed
+ * segments, become newer records in the active segment. Readers apply files
+ * in numeric order and keep the latest state for each photo ID.
  */
 internal const val PHOTO_DUMP_SHARD_ROWS = 10_000
 
@@ -534,13 +731,9 @@ internal fun photoDumpFileName(shard: Int): String =
  * How long the capture pulse waits, by table size (user-raised: "space the
  * dumps more once it's in thousands of rows").
  *
- * The dump costs a table read and a shard write, and both scale with the
- * table — so the frequency has to come down as the size goes up, or a long
- * shoot on a well-used phone spends its battery re-describing photos taken
- * years ago. What is traded away is how much of a shoot could be lost if the
- * phone dies mid-run without ever being backgrounded; at the sizes where the
- * interval grows, an hour of captures is a small fraction of what the file
- * already holds.
+ * Capture pulses are spaced more widely for a large archive. A dump reads
+ * only pending photo IDs and their current rows; app start and background
+ * events still drain the queue immediately.
  */
 internal fun photoDumpIntervalMs(photoCount: Int): Long = when {
     photoCount < 1_000 -> 2 * 60_000L
@@ -589,6 +782,12 @@ internal fun photoTableRowText(row: PhotoEntity): String =
 /** The `#`-prefixed header line, newline included. */
 internal fun photoTableHeader(): String =
     "#" + PHOTO_DUMP_COLUMNS.joinToString(",") + "\n"
+
+private fun photoTableDeltaHeader(): String =
+    photoTableHeader().removeSuffix("\n") + ",changeId,changeAction\n"
+
+private fun deltaFilePrefix(checkpoint: Long, rowCount: Int): String =
+    "#hillview_photo_delta=1,checkpoint=$checkpoint,rows=$rowCount\n"
 
 /**
  * ONE ROW, appended — the unit the dump streams.
@@ -650,17 +849,37 @@ internal fun appendPhotoTableRow(out: StringBuilder, row: PhotoEntity) {
     }
 }
 
+private fun appendPhotoTableDeltaRow(out: StringBuilder, row: PhotoEntity, changeId: Long) {
+    appendPhotoTableRow(out, row)
+    out.setLength(out.length - 1) // Replace the row's final newline with two cells.
+    out.cell(changeId.toString())
+    out.cell("upsert", last = true)
+}
+
+private fun appendPhotoTableTombstone(out: StringBuilder, photoId: String, changeId: Long) {
+    val row = PhotoEntity(
+        id = photoId,
+        filename = "",
+        path = "",
+        latitude = null,
+        longitude = null,
+        capturedAt = 0L,
+        accuracy = 0.0,
+        width = 0,
+        height = 0,
+        fileSize = 0L,
+        createdAt = 0L,
+        deleted = true,
+    )
+    appendPhotoTableRow(out, row)
+    out.setLength(out.length - 1)
+    out.cell(changeId.toString())
+    out.cell("delete", last = true)
+}
+
 /**
- * `String.hashCode()` OF A CONCATENATION, without concatenating.
- *
- * The dump decides whether a shard changed by comparing hashes, and it streams now, so
- * the whole text is never in one String to call `hashCode()` on. This reproduces it
- * exactly: for `A + B`, `hash = hash(A) * 31^|B| + hash(B)`, all in wrapping Int
- * arithmetic, which is what `String.hashCode` is defined in.
- *
- * Exactly, and not approximately, on purpose — a different hash function would have
- * invalidated every stored shard hash and rewritten the whole table once, on every
- * phone, for no reason. A test pins the identity against the real `hashCode`.
+ * Legacy concatenation hash helper retained for its focused host tests. The
+ * export now uses SQLite's coalesced change ledger and does not hash table rows.
  */
 internal class ConcatHash {
     private var value = 0
