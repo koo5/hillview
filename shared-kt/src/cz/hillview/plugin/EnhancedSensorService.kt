@@ -874,41 +874,12 @@ class EnhancedSensorService(
                 //Log.v(TAG, "🔍📡 Received TYPE_ROTATION_VECTOR data")
                 handleRotationVector(event, "TYPE_ROTATION_VECTOR")
             }
-            /*Sensor.TYPE_GAME_ROTATION_VECTOR -> {
-                Log.v(TAG, "🔍🎮 Received TYPE_GAME_ROTATION_VECTOR data")
-                handleRotationVector(event, "TYPE_GAME_ROTATION_VECTOR")
-            }
-            Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR -> {
-                Log.v(TAG, "🔍🧭 Received TYPE_GEOMAGNETIC_ROTATION_VECTOR data")
-                handleRotationVector(event, "TYPE_GEOMAGNETIC_ROTATION_VECTOR")
-            }
-            Sensor.TYPE_ACCELEROMETER -> {
-                accelerometerData = event.values.clone()
-                hasAccelerometer = true
-                if (currentMode == MODE_MADGWICK_AHRS) {
-                    updateMadgwick()
-                } else if (currentMode == MODE_COMPLEMENTARY_FILTER) {
-                    updateComplementaryFilter()
-                }
-            }
-            Sensor.TYPE_GYROSCOPE -> {
-                gyroscopeData = event.values.clone()
-                hasGyroscope = true
-                if (currentMode == MODE_MADGWICK_AHRS) {
-                    updateMadgwick()
-                } else if (currentMode == MODE_COMPLEMENTARY_FILTER) {
-                    updateComplementaryFilter()
-                }
-            }
-            Sensor.TYPE_MAGNETIC_FIELD -> {
-                magnetometerData = event.values.clone()
-                hasMagnetometer = true
-                if (currentMode == MODE_MADGWICK_AHRS) {
-                    updateMadgwick()
-                } else if (currentMode == MODE_COMPLEMENTARY_FILTER) {
-                    updateComplementaryFilter()
-                }
-            }*/
+            // The parked arms for GAME_ROTATION_VECTOR, GEOMAGNETIC_ROTATION_VECTOR,
+            // ACCELEROMETER, GYROSCOPE and MAGNETIC_FIELD used to sit here, commented
+            // out INSIDE this `when` — which is how four live, delivering sensors came
+            // to have no dispatcher arm at all, and how two separate edits of mine
+            // landed in the dead copy, because a text match finds it before the live
+            // one. Preserved verbatim below the function; see PARKED SENSOR ARMS.
 
             // THE ONLY LIVE ARM OF THIS `when` WAS TYPE_ROTATION_VECTOR.
             //
@@ -963,6 +934,63 @@ class EnhancedSensorService(
             }
         }
     }
+
+    // PARKED SENSOR ARMS — kept, not deleted, and deliberately OUT of the `when`.
+    //
+    // These are the arms exactly as they were commented out inside onSensorChanged's
+    // `when (event.sensor.type)`. Four of the sensors they handle are registered and
+    // delivering, so while they sat in the `when` the dispatcher silently dropped
+    // every accelerometer, gravity, gyroscope and magnetometer sample — see the note
+    // at the live arms for what that disabled and how it was finally caught.
+    //
+    // Moved out on 2026-10-15 rather than deleted. The hazard was never that the code
+    // is commented out; it was that a `Sensor.TYPE_X ->` arm appeared TWICE inside one
+    // `when`, with the dead copy first. Two edits of mine went into the dead one in a
+    // single sitting, because a text match finds it first and the opening `/*` is
+    // fused to the code (`/*Sensor.TYPE_GAME…`), so at a glance it reads as a branch
+    // rather than as the start of a thirty-five-line comment.
+    //
+    // Out here it is the same lines in the same order, readable and restorable, and
+    // unable to be mistaken for the dispatcher. The header is LINE comments because
+    // the block below is itself a `/* … */`: my first attempt wrapped it in another
+    // one and swallowed the rest of the class, onAccuracyChanged included.
+    //
+    // SensorDispatchTest fails the build if a registered sensor type loses its arm.
+            /*Sensor.TYPE_GAME_ROTATION_VECTOR -> {
+                Log.v(TAG, "🔍🎮 Received TYPE_GAME_ROTATION_VECTOR data")
+                handleRotationVector(event, "TYPE_GAME_ROTATION_VECTOR")
+            }
+            Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR -> {
+                Log.v(TAG, "🔍🧭 Received TYPE_GEOMAGNETIC_ROTATION_VECTOR data")
+                handleRotationVector(event, "TYPE_GEOMAGNETIC_ROTATION_VECTOR")
+            }
+            Sensor.TYPE_ACCELEROMETER -> {
+                accelerometerData = event.values.clone()
+                hasAccelerometer = true
+                if (currentMode == MODE_MADGWICK_AHRS) {
+                    updateMadgwick()
+                } else if (currentMode == MODE_COMPLEMENTARY_FILTER) {
+                    updateComplementaryFilter()
+                }
+            }
+            Sensor.TYPE_GYROSCOPE -> {
+                gyroscopeData = event.values.clone()
+                hasGyroscope = true
+                if (currentMode == MODE_MADGWICK_AHRS) {
+                    updateMadgwick()
+                } else if (currentMode == MODE_COMPLEMENTARY_FILTER) {
+                    updateComplementaryFilter()
+                }
+            }
+            Sensor.TYPE_MAGNETIC_FIELD -> {
+                magnetometerData = event.values.clone()
+                hasMagnetometer = true
+                if (currentMode == MODE_MADGWICK_AHRS) {
+                    updateMadgwick()
+                } else if (currentMode == MODE_COMPLEMENTARY_FILTER) {
+                    updateComplementaryFilter()
+                }
+            }*/
 
     override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {
         val accuracyStr = accuracyToString(accuracy)

@@ -68,6 +68,32 @@ android {
             "HILLVIEW_GOOGLE_CLIENT_ID",
             "\"${System.getenv("HILLVIEW_GOOGLE_CLIENT_ID") ?: ""}\"",
         )
+        // The API-URL menu's LAN presets (ServerPresetConfig): one per `-raw`
+        // profile in this machine's hosts.toml, as the JSON
+        // scripts/host_profiles.py prints. Asked, not parsed here — the vm
+        // template expands in that one place — and carried through as an
+        // opaque string. Like the git calls below, providers.exec makes the
+        // answer a configuration input, so an edited hosts.toml re-configures.
+        // No hosts.toml → "[]", so a build made anywhere else carries no
+        // one's LAN address. A broken hosts.toml fails the build rather than
+        // quietly dropping the presets.
+        val lanBackends = providers.exec {
+            commandLine(
+                "python3",
+                rootDir.resolve("../scripts/host_profiles.py").normalize().path,
+                "android-backends",
+            )
+            isIgnoreExitValue = true
+        }
+        if (lanBackends.result.get().exitValue != 0) {
+            throw GradleException(lanBackends.standardError.asText.get().trim())
+        }
+        val lanBackendsJson = lanBackends.standardOutput.asText.get().trim()
+        buildConfigField(
+            "String",
+            "HILLVIEW_LAN_BACKENDS",
+            "\"${lanBackendsJson.replace("\\", "\\\\").replace("\"", "\\\"")}\"",
+        )
         // Build identity (cz.hillview.BuildInfo: Settings footer + `hv-build`
         // logcat line). Derived from git CONTENT — commit, and for a dirty tree
         // the hash of `git status` + `git diff HEAD` — never from the clock:

@@ -138,15 +138,10 @@ internal const val AT_EXPOSURE_TOLERANCE_NS = 250L * 1_000_000
  *
  * Note what this does NOT depend on: the sample rate. That was the bug.
  *
- * WHAT IT COSTS, stated rather than left to be discovered the way the last number was.
- * The motion ring is the expensive one: ~1 kHz x 8 s = ~8 000 `DeviceMotionSample`,
- * each holding two three-element `List<Float>` of BOXED floats, so roughly 2.3 MB
- * retained; the attitude ring adds a few hundred kB. That is retention, not extra
- * allocation — the samples are built per event either way — and the peak only occurs
- * while the IMU window is running, which is the same condition under which the history
- * is wanted. The `imuRing` beside it already holds 16 000 samples. If this ever needs
- * to come down, unboxing those two lists buys most of it back without shortening the
- * window, which is the axis that must not be traded.
+ * The attitude ring uses object snapshots. Motion uses [MotionSampleRing]'s fixed
+ * primitive arrays: about 0.5 MB for 12,000 slots, with no per-event object allocation.
+ * Its earlier object history retained roughly 2.3 MB at ~1 kHz and kept vector lists
+ * and boxed floats alive. Both rings retain this same eight-second window.
  */
 internal const val AT_EXPOSURE_RING_WINDOW_NS = 8L * 1_000_000_000
 

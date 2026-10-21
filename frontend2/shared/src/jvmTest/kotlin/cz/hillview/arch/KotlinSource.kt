@@ -66,3 +66,28 @@ fun kotlinCodeOnly(text: String): String {
     }
     return out.toString()
 }
+
+/**
+ * Both Kotlin trees this project compiles: the shared module's `src/`, and
+ * `shared-kt/src/`, which both apps compile as source.
+ *
+ * Found by walking up from the working directory — a test must not depend on where
+ * Gradle happened to start it. Lives here rather than in one test because two now need
+ * it, and a locator held by copies is the shape of mistake this file exists to catch.
+ */
+fun kotlinSourceRoots(): List<java.io.File> {
+    // canonicalFile, not absoluteFile: the latter keeps the "." component, which shifts
+    // every parentFile step by one and made this look for shared-kt inside frontend2/.
+    var dir: java.io.File? = java.io.File(".").canonicalFile
+    while (dir != null) {
+        if (java.io.File(dir, "src/commonMain").isDirectory) {
+            val module = java.io.File(dir, "src")
+            // <repo>/frontend2/shared -> <repo>
+            val repo = dir.parentFile?.parentFile
+            val sharedKt = repo?.let { java.io.File(it, "shared-kt/src") }
+            return listOfNotNull(module, sharedKt?.takeIf { it.isDirectory })
+        }
+        dir = dir.parentFile
+    }
+    error("could not locate the shared module's src/ from ${java.io.File(".").absolutePath}")
+}

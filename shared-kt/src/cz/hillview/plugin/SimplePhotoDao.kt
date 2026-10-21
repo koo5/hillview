@@ -78,6 +78,10 @@ interface SimplePhotoDao {
     @Query("SELECT * FROM photos WHERE id = :photoId")
     fun getPhotoById(photoId: String): PhotoEntity?
 
+    /** Bounded lookup batches for the incremental public table dump. */
+    @Query("SELECT * FROM photos WHERE id IN (:photoIds)")
+    fun getPhotosByIds(photoIds: List<String>): List<PhotoEntity>
+
     @Query("SELECT * FROM photos WHERE path = :path")
     fun getPhotoByPath(path: String): PhotoEntity?
 

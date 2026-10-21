@@ -2,6 +2,8 @@ package cz.hillview.geo
 
 import cz.hillview.map.DeviceMotionSample
 
+private const val MOTION_PUBLICATION_INTERVAL_NS = 50_000_000L
+
 /**
  * Latches gravity and linear acceleration — which arrive on SEPARATE sensor callbacks —
  * and assembles the pair into one sample.
@@ -26,18 +28,43 @@ import cz.hillview.map.DeviceMotionSample
  * [GeoEngine] where the platform constants belong.
  */
 internal class MotionSampleAssembler {
-    @Volatile
-    private var gravity: List<Float>? = null
+    // Mutable primitives stay behind this object's monitor. Sensor callbacks only
+    // copy them into the primitive ring; lists are built when a snapshot is needed.
+    private var hasGravity = false
+    private var gravityX = 0f
+    private var gravityY = 0f
+    private var gravityZ = 0f
+    private var hasLinear = false
+    private var linearX = 0f
+    private var linearY = 0f
+    private var linearZ = 0f
+    private var published = false
+    private var lastPublicationNs = 0L
 
-    @Volatile
-    private var linear: List<Float>? = null
-
+    @Synchronized
     fun gravity(x: Float, y: Float, z: Float) {
-        gravity = listOf(x, y, z)
+        gravityX = x
+        gravityY = y
+        gravityZ = z
+        hasGravity = true
     }
 
+    @Synchronized
     fun linear(x: Float, y: Float, z: Float) {
-        linear = listOf(x, y, z)
+        linearX = x
+        linearY = y
+        linearZ = z
+        hasLinear = true
+    }
+
+    /** Copy the latched pair at raw sensor rate without creating a snapshot. */
+    @Synchronized
+    fun recordAt(ring: MotionSampleRing, atMs: Long, elapsedNs: Long) {
+        ring.add(
+            atMs, elapsedNs,
+            hasGravity, gravityX, gravityY, gravityZ,
+            hasLinear, linearX, linearY, linearZ,
+        )
     }
 
     /**
@@ -50,16 +77,33 @@ internal class MotionSampleAssembler {
      * vector. That is honest and the serializer handles it; what must never happen is
      * BOTH being null while a timestamp claims a reading exists.
      */
+    @Synchronized
     fun sampleAt(atMs: Long, elapsedNs: Long) = DeviceMotionSample(
-        gravity = gravity,
-        linearAcceleration = linear,
+        gravity = if (hasGravity) listOf(gravityX, gravityY, gravityZ) else null,
+        linearAcceleration = if (hasLinear) listOf(linearX, linearY, linearZ) else null,
         atMs = atMs,
         elapsedNs = elapsedNs,
     )
 
+    /**
+     * Latest-value stream for the press-time stamp, sampled at 50 ms sensor-time
+     * intervals. Gate on event time so batched delivery cannot leave this stream
+     * stuck on the first event of a batch. Both snapshot clocks describe the event.
+     */
+    @Synchronized
+    fun sampleForPublication(atMs: Long, elapsedNs: Long): DeviceMotionSample? {
+        if (published && elapsedNs - lastPublicationNs < MOTION_PUBLICATION_INTERVAL_NS) return null
+        published = true
+        lastPublicationNs = elapsedNs
+        return sampleAt(atMs, elapsedNs)
+    }
+
     /** Nothing is being sensed any more, so stop reporting what was. */
+    @Synchronized
     fun reset() {
-        gravity = null
-        linear = null
+        hasGravity = false
+        hasLinear = false
+        published = false
+        lastPublicationNs = 0L
     }
 }

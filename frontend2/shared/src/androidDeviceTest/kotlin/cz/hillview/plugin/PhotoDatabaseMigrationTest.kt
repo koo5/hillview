@@ -133,6 +133,33 @@ class PhotoDatabaseMigrationTest {
         helper.runMigrationsAndValidate(DB, PHOTO_DB_VERSION, true, *PhotoDatabase.MIGRATIONS)
     }
 
+    @Test
+    fun version29SeedsExistingPhotosBeforeAnyLaterExportChanges() {
+        helper.createDatabase(DB, 29).use { db ->
+            for (id in listOf("p1", "p2")) {
+                db.execSQL("""
+                    INSERT INTO photos (
+                        id, filename, path, bearing, capturedAt, accuracy, width, height, fileSize,
+                        createdAt, uploadStatus, uploadedAt, retryCount, lastUploadAttempt,
+                        uploadError, fileHash, deleted, version, uploadHoldUntil, uploadHoldReasons
+                    ) VALUES (?, 'photo.jpg', '/tmp/photo.jpg', 0, 1, 0, 4, 4, 16, 1,
+                              'pending', 0, 0, 0, '', '', 0, 1, 0, 0)
+                """.trimIndent(), arrayOf(id))
+            }
+        }
+        val db = helper.runMigrationsAndValidate(DB, PHOTO_DB_VERSION, true, *PhotoDatabase.MIGRATIONS)
+        val seed = db.query("SELECT photoId, changeId FROM photo_export_changes").use { c ->
+            buildMap { while (c.moveToNext()) put(c.getString(0), c.getLong(1)) }
+        }
+        assertEquals(setOf("p1", "p2"), seed.keys)
+        assertEquals(2, seed.values.toSet().size)
+        db.execSQL("UPDATE photos SET license = 'CC0' WHERE id = 'p1'")
+        db.query("SELECT changeId FROM photo_export_changes WHERE photoId = 'p1'").use { c ->
+            assertTrue(c.moveToFirst())
+            assertTrue(c.getLong(0) > seed.values.max())
+        }
+    }
+
     /**
      * v23 adds photo_outbox beside a populated photos table.
      *

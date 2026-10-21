@@ -1,6 +1,8 @@
 package cz.hillview.settings
 
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
 /**
  * Upload settings. On Android these ARE the shared-kt stack's config: the
@@ -25,19 +27,38 @@ const val HILLVIEW_WEB_URL = "https://hillview.cz"
 const val HILLVIEW_API_URL = "https://api.hillview.cz/api"
 
 /** One predefined choice of the API-URL combobox: a name and the FULL …/api URL. */
+@Serializable
 data class ServerPreset(val label: String, val apiUrl: String)
+
+/**
+ * The deployment's own dev backends, for a device on the LAN: one per
+ * `-raw` profile in the BUILD machine's hosts.toml, labelled with the
+ * profile name (`jj-raw`). Set by the platform entry point before Settings
+ * can open (the PhotoStorage.folderBase pattern) — on Android from
+ * BuildConfig, see androidApp/build.gradle.kts. The desktop shell sets none;
+ * it reaches another box through HILLVIEW_BACKEND.
+ *
+ * Empty unless the build machine has a hosts.toml, so a build made anywhere
+ * else carries no one's LAN address — the addresses are deployment
+ * configuration, and hosts.toml is where the deployment declares them.
+ */
+object ServerPresetConfig {
+    var lan: List<ServerPreset> = emptyList()
+}
+
+/** What `scripts/host_profiles.py android-backends` prints: `[{"label": …, "apiUrl": …}]`. */
+fun parseServerPresets(json: String): List<ServerPreset> = Json.decodeFromString(json)
 
 /**
  * The combobox's predefined choices; anything else is typed. The dev entry
  * is the platform default (on Android the emulator's route to the host
- * machine; on the desktop shell HILLVIEW_BACKEND or localhost). The LAN
- * entry provides the dev backend address for devices on the local network.
+ * machine; on the desktop shell HILLVIEW_BACKEND or localhost), then the
+ * deployment's LAN backends (ServerPresetConfig).
  */
 fun serverPresets(): List<ServerPreset> = listOf(
     ServerPreset("Production", HILLVIEW_API_URL),
     ServerPreset("Local dev backend", cz.hillview.core.net.defaultBackendConfig().apiUrl),
-    ServerPreset("LAN dev backend", "http://10.0.0.24:8055/api"),
-)
+) + ServerPresetConfig.lan
 
 data class UploadSettings(
     /** The FULL API URL (…/api) — see BackendConfig; never assembled from a host. */

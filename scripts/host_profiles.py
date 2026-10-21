@@ -44,6 +44,7 @@ An explicit env var beats the generated block, so that needs no support here.
 A Caddy profile is different only because its origin IS the profile — the vhost
 catch-all fronts :3000, so there is nothing left to choose.
 """
+import json
 import os
 import sys
 import tomllib
@@ -251,3 +252,31 @@ def unset_keys(profile):
 			if value == UNSET:
 				missing.append(f"{section}.{key}")
 	return missing
+
+
+def android_backends():
+	"""The API of every `-raw` profile, as presets for the Android app's API-URL menu.
+
+	All of them, not just this machine's: the box that builds the APK is not
+	necessarily the one the phone uploads to, and the menu is where the phone
+	picks. A profile whose VITE_BACKEND is still UNSET is left out, as set_host
+	would refuse it.
+
+	frontend2's Gradle build reads this as JSON (run this file as a script)
+	rather than parsing hosts.toml itself, so the vm template expands here and
+	nowhere else.
+	"""
+	backends = []
+	for name, profile in PROFILES.items():
+		if not name.endswith("-raw"):
+			continue
+		url = profile["frontend_env"].get("VITE_BACKEND")
+		if url and url != UNSET:
+			backends.append({"label": name, "apiUrl": url})
+	return backends
+
+
+if __name__ == "__main__":
+	if sys.argv[1:] != ["android-backends"]:
+		sys.exit("usage: host_profiles.py android-backends")
+	print(json.dumps(android_backends()))

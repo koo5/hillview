@@ -1861,7 +1861,13 @@ instances closed here.
   `HILLVIEW_API_URL` = https://api.hillview.cz/api, Local dev = the
   platform default) under ▾ on the field; anything else is typed. Still
   the FULL …/api URL either way — the production API has its own host,
-  which is why it is never derived from the web root.
+  which is why it is never derived from the web root. 2026-10-15: the LAN
+  entries come from the build machine's hosts.toml, one per `-raw` profile
+  (`ServerPresetConfig`; Gradle asks `scripts/host_profiles.py
+  android-backends` for JSON, never parsing the TOML itself). A hardcoded
+  10.0.0.24 had shipped in every build; now no hosts.toml means no LAN
+  presets. Android only, by decision: the desktop shell reaches another box
+  through HILLVIEW_BACKEND.
 - **Hiding photos — what current Android actually does** (AOSP
   MediaProvider `FileUtils.isDirectoryHidden`, checked 2026-09-03): a
   directory is hidden from the media collections when its name starts

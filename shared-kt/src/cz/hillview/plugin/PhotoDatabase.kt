@@ -10,7 +10,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     // The sensor tables (bearings/locations/sources) moved OUT to
     // GeoTrackingDatabase in v18 — see that file for why. What is left here is
     // durable and low-rate: a capture and the edits that belong to it.
-    entities = [PhotoEntity::class, EditEntity::class, PhotoOutboxEntity::class],
+    entities = [
+        PhotoEntity::class, EditEntity::class, PhotoOutboxEntity::class,
+        PhotoExportChangeEntity::class, PhotoExportSequenceEntity::class,
+    ],
     version = PHOTO_DB_VERSION,
     // Schemas are exported per app (they compile these entities with different
     // Room versions) into shared-kt/schemas/{frontend2,tauri}/ — see
@@ -623,6 +626,12 @@ abstract class PhotoDatabase : RoomDatabase() {
 			}
 		}
 
+		private val MIGRATION_29_30 = object : Migration(29, 30) {
+			override fun migrate(db: SupportSQLiteDatabase) {
+				PhotoExportChangeTracking.create(db, seedExistingPhotos = true)
+			}
+		}
+
 		/**
 		 * Every migration, in one list, so the runtime builder and
 		 * PhotoDatabaseMigrationTest cannot disagree about which ones exist.
@@ -634,7 +643,7 @@ abstract class PhotoDatabase : RoomDatabase() {
 			MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
 			MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25,
 			MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28,
-			MIGRATION_28_29,
+			MIGRATION_28_29, MIGRATION_29_30,
 		)
 
         fun getDatabase(context: Context): PhotoDatabase {
@@ -645,6 +654,7 @@ abstract class PhotoDatabase : RoomDatabase() {
                     "hillview_photos_database"
                 )
                     .addMigrations(*MIGRATIONS)
+                    .addCallback(PhotoExportChangeTracking.callback)
                     .build()
                 INSTANCE = instance
                 instance
@@ -661,6 +671,6 @@ abstract class PhotoDatabase : RoomDatabase() {
  * the inertial rename) were never once validated against the entities. A hardcoded
  * target in a test whose job is to catch drift is the one place drift hides.
  */
-const val PHOTO_DB_VERSION = 29
+const val PHOTO_DB_VERSION = 30
 
 
