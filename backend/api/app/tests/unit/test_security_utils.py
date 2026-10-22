@@ -11,6 +11,7 @@ from common.security_utils import (
     validate_user_id,
     validate_photo_id,
     validate_filesystem_safe_id,
+    is_photo_artifact_relative_path,
     SecurityValidationError
 )
 
@@ -143,6 +144,37 @@ class TestFilesystemSafeIDValidation:
 
         with pytest.raises(SecurityValidationError, match="Invalid test_field"):
             validate_filesystem_safe_id("invalid/id", "test_field")
+
+
+class TestPhotoArtifactRelativePath:
+    OWNER = "123e4567-e89b-12d3-a456-426614174000"
+    PHOTO = "987e6543-e21b-32d3-a456-426614174111"
+
+    @pytest.mark.parametrize("relative_path", [
+        f"opt/full/{OWNER}/{PHOTO}.webp",
+        f"opt/320_crop/{OWNER}/{PHOTO}.webp",
+        f"opt/640_llm/{OWNER}/{PHOTO}.webp",
+        f"opt/imu/{OWNER}/{PHOTO}.json.gz",
+        f"opt/dzi/{OWNER}/{PHOTO}.dzi",
+        f"opt/dzi/{OWNER}/{PHOTO}_files/0/0_0.webp",
+    ])
+    def test_accepts_worker_artifact_layouts(self, relative_path):
+        assert is_photo_artifact_relative_path(relative_path, self.OWNER, self.PHOTO)
+
+    @pytest.mark.parametrize("relative_path", [
+        f"opt/full/another-owner/{PHOTO}.webp",
+        f"opt/full/{OWNER}/another-photo.webp",
+        f"opt/private/{OWNER}/{PHOTO}.webp",
+        f"opt/full/{OWNER}/{PHOTO}.jpg",
+        f"opt/imu/{OWNER}/another-photo.json.gz",
+        f"opt/dzi/{OWNER}/{PHOTO}_files/0/0_0.jpg",
+        f"opt/dzi/{OWNER}/{PHOTO}_files/../other-photo/0_0.webp",
+        f"opt/full/{OWNER}/{PHOTO}.webp/extra",
+        f"/opt/full/{OWNER}/{PHOTO}.webp",
+        f"opt\\full\\{OWNER}\\{PHOTO}.webp",
+    ])
+    def test_rejects_cross_photo_or_noncanonical_paths(self, relative_path):
+        assert not is_photo_artifact_relative_path(relative_path, self.OWNER, self.PHOTO)
 
 
 if __name__ == "__main__":

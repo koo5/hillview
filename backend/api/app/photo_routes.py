@@ -68,7 +68,7 @@ from hillview_routes import ALLOWED_LICENSES, legal_rights_to_license
 from common.file_utils import (
 	get_file_size_from_upload
 )
-from common.security_utils import verify_ecdsa_signature
+from common.security_utils import verify_ecdsa_signature, is_photo_artifact_relative_path
 from rate_limiter import rate_limit_photo_operations, get_client_ip
 from photos import delete_photo_files
 
@@ -445,6 +445,17 @@ async def upload_processed_file(
 			raise HTTPException(
 				status_code=status.HTTP_400_BAD_REQUEST,
 				detail="Path must be within pics directory"
+			)
+
+		# Containment alone would let an authorized upload overwrite another
+		# photo's artifact. Bind the destination to the DB photo and owner before
+		# creating directories or opening the file.
+		if not is_photo_artifact_relative_path(
+			relative_path, str(photo.owner_id), str(photo.id)
+		):
+			raise HTTPException(
+				status_code=status.HTTP_400_BAD_REQUEST,
+				detail="Path is not an artifact of this photo"
 			)
 
 		# Ensure parent directory exists
