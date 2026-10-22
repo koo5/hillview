@@ -18,18 +18,23 @@ from datetime import datetime, timezone, timedelta
 import cv2
 import numpy as np
 from PIL import Image
+from image_formats import HILLVIEW_AUX, require_supported_image
 import httpx
 from blur import read_image, apply_blackout, normalize_to_srgb
 from detections import should_blur
 from throttle import Throttle
 from pydantic import BaseModel
-from common.security_utils import sanitize_filename, validate_file_path, check_file_content, validate_image_dimensions, SecurityValidationError, validate_user_id, IMAGE_TOOL_TIMEOUT
+from common.security_utils import sanitize_filename, validate_file_path, check_file_content, validate_image_dimensions, SecurityValidationError, validate_user_id, IMAGE_TOOL_TIMEOUT, MAX_IMAGE_PIXELS
 import processing_state
 from common.cdn_uploader import cdn_uploader
 from common.config import get_pics_url
 
 
 logger = logging.getLogger(__name__)
+
+# JPEG probing must honor the same configured pixel limit as validation,
+# rather than Pillow's lower default. Auxiliary probes retain ImageMagick policy.
+Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
 os.environ["OPENCV_IMGCODECS_WEBP_MAX_FILE_SIZE"] = "209715200"  # 200MB
 
@@ -523,6 +528,7 @@ class PhotoProcessor:
 
 	def extract_exif_data(self, filepath: str) -> Dict[str, Any]:
 		"""Extract EXIF data including GPS and bearing information using known-good implementation."""
+		require_supported_image(filepath)
 		logger.info(f"Processing EXIF data from {filepath}")
 
 		result = {
@@ -736,7 +742,7 @@ class PhotoProcessor:
 
 	def get_image_dimensions(self, filepath: str, orientation: int
 							 ) -> Tuple[int, int]:
-		"""Get image dimensions from the file header, without decoding pixels."""
+		"""Probe dimensions using JPEG-only public or established auxiliary paths."""
 		try:
 			# Validate filepath before passing to external tool
 			validated_filepath = _validate_input_path(filepath)
@@ -744,13 +750,15 @@ class PhotoProcessor:
 			logger.debug(f"Path validation failed for identify: {e}")
 			return 0, 0
 
+		require_supported_image(validated_filepath)
 		if validated_filepath.lower().endswith('.exr'):
-			# ImageMagick decodes the full EXR raster even for -format '%w %h'
-			# (observed: 8.5 min on a 35 GB pano). Read the header directly via
+			# The old ImageMagick command without -ping decoded a full EXR
+			# (8.5 min on a 35 GB pano). Preserve the direct header probe via
 			# OpenEXR instead — blur._exr_encoding already parses the same
 			# header on the same files, so this adds no new parser to the
 			# untrusted-input surface (and runs in the crash-isolated pool
 			# subprocess like everything else here).
+			# AUX only: native EXR header parsing also needs security auditing.
 			import OpenEXR
 			exr = OpenEXR.InputFile(validated_filepath)
 			try:
@@ -758,12 +766,17 @@ class PhotoProcessor:
 				dimensions = [dw.max.x - dw.min.x + 1, dw.max.y - dw.min.y + 1]
 			finally:
 				exr.close()
-		else:
-			# -ping: header-only inspection — identify must not decode a whole
-			# gigapixel raster to answer width×height.
+		elif HILLVIEW_AUX:
+			# Preserve the established auxiliary probe and its ImageMagick resource
+			# policy. These additional parsers may need further security audits.
 			cmd = ['identify', '-ping', '-format', '%w %h', validated_filepath]
 			output = subprocess.check_output(cmd, timeout=IMAGE_TOOL_TIMEOUT).decode('utf-8')
 			dimensions = [int(x) for x in output.split()]
+		else:
+			# Public input is JPEG only. Restrict Pillow's parser selection too;
+			# opening a JPEG reads dimensions without materializing its pixels.
+			with Image.open(validated_filepath, formats=['JPEG']) as image:
+				dimensions = list(image.size)
 		if orientation in [5, 6, 7, 8]:
 			dimensions = [dimensions[1], dimensions[0]]
 		logger.debug(f'Image dimensions: {dimensions}')
@@ -1150,6 +1163,10 @@ class PhotoProcessor:
 		match the processed image: that is not policy but a wrong pyramid for
 		this file (a pipeline association bug worth surfacing, not hiding).
 		"""
+		# Auxiliary XML descriptors and WebP tiles need further security audit.
+		# Public workers render their own pyramid from the validated JPEG.
+		if not HILLVIEW_AUX:
+			return None
 		# defusedxml: same ElementTree API, with entity expansion (billion
 		# laughs) and external-entity resolution refused — the descriptor is
 		# client-named input even though it lives on an operator archive.
@@ -1667,6 +1684,9 @@ class PhotoProcessor:
 			logger.error(f"Filename sanitization failed for {filename}: {e}")
 			raise ValueError(f"Invalid filename: {e}")
 
+		# Enforce the worker policy before dcraw, metadata tools or any decoder.
+		require_supported_image(file_path)
+
 		# Canon RAW (CR2): convert to TIFF so downstream PIL/cv2/exiftool see
 		# a standard image. Output is 8-bit sRGB (dcraw -T), which is what
 		# we want heading into WebP — 16-bit would be quantized away anyway.
@@ -1680,6 +1700,7 @@ class PhotoProcessor:
 		# work dir), NOT next to the source: the caller reclaims the work dir
 		# by rmtree'ing it, and in no-upload mode the source sits on a
 		# read-only mount where a sibling write would fail with EROFS.
+		# AUX only (gated above): dcraw and RAW metadata need further security audit.
 		if os.path.splitext(file_path)[1].lower() == '.cr2':
 			tiff_stem = sanitize_filename(os.path.splitext(os.path.basename(file_path))[0])
 			tiff_path = os.path.join(output_base or self.upload_dir, tiff_stem + '.tiff')
