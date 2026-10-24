@@ -2,7 +2,7 @@
 # the $zoomview alias (svelte.config.js) imports ../shared/zoomview, which is
 # COPYied to /shared/zoomview so the same relative path resolves from /app.
 # Context stays small via the allowlist in Dockerfile.dockerignore.
-FROM oven/bun:1-debian AS builder
+FROM oven/bun:1.4.4-debian@sha256:93d5032fe06d163427822dc1598f420363759bb18155c9cc90eb1be05a64a19e AS builder
 
 WORKDIR /app
 
@@ -40,7 +40,7 @@ ENV ADAPTER=node
 RUN bun run build
 
 
-FROM oven/bun:1-debian
+FROM oven/bun:1.4.4-debian@sha256:93d5032fe06d163427822dc1598f420363759bb18155c9cc90eb1be05a64a19e
 
 RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 
