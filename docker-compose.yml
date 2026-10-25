@@ -181,8 +181,9 @@ services:
 
 
   umami:
-    # umami 3.3.0 (pinned by digest; 3.x tags are plain "3.3.0" / "latest"). Bumped from
-    # 3.1.0 on 2026-08-25 for GHSA-3xx8-742v-m4mq (cache token reusable as share token).
+    # umami 3.4.1 (pinned by digest; 3.x tags are plain "3.3.0" / "latest"). Bumped from
+    # 3.1.0 on 2026-08-25 for GHSA-3xx8-742v-m4mq (cache token reusable as share token),
+    # from 3.3.0 on 2026-10-25 for CVE-2026-111497 (Node brotli decoder) -- see docker/umami/Dockerfile.
     build: ./docker/umami
     image: hillview-umami:security
 #    image: ghcr.io/umami-software/umami:postgresql-latest
