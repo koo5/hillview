@@ -22,6 +22,7 @@ How each toolchain enforces the cooloff, and why this script exists:
 
 Usage:
     scripts/deps.py audit                          # osv-scanner over every lockfile present
+    scripts/deps.py audit --all-vulns              # ... ignoring osv-scanner.toml (the dated accept-list)
     scripts/deps.py cooloff                        # show the configured window vs. today
     scripts/deps.py backend pillow==12.3.0 h2      # advance exclude-newer, uv lock --upgrade-package each
     scripts/deps.py backend --all                  # advance exclude-newer, uv lock --upgrade
@@ -113,6 +114,10 @@ def cmd_cooloff(args):
 def cmd_audit(args):
 	present = [p for p in LOCKFILES if (REPO / p).exists()]
 	cmd = ["osv-scanner", "scan", "source"]
+	# Accepted/deferred findings, each with an ignoreUntil date so they
+	# resurface by themselves (see the file's header). --all-vulns shows them.
+	if (REPO / "osv-scanner.toml").exists() and not args.all_vulns:
+		cmd += ["--config", "osv-scanner.toml"]
 	for p in present:
 		cmd += ["-L", p]
 	if args.json:
@@ -233,6 +238,7 @@ def main():
 
 	p = sub.add_parser("audit", help="osv-scanner over every lockfile present")
 	p.add_argument("--json", action="store_true")
+	p.add_argument("--all-vulns", action="store_true", help="skip osv-scanner.toml, show the accepted/deferred findings too")
 	p.set_defaults(fn=cmd_audit)
 
 	p = sub.add_parser("images", help="osv-scanner over docker images (default: every image running on this host)")
