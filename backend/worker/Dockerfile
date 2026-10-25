@@ -29,6 +29,12 @@ RUN mkdir -p /tmp && chmod 1777 /tmp \
     procps \
     && rm -rf /var/lib/apt/lists/*
 
+# Debian's ExifTool 13.25 still has the GM PrintConv construction addressed
+# upstream in 13.54. Backport only that escaping fix; see security/README.md.
+# This covers metadata reading/copying without changing any image decoder.
+COPY worker/security/patch_exiftool.py /tmp/patch_exiftool.py
+RUN python /tmp/patch_exiftool.py && rm /tmp/patch_exiftool.py
+
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:0.11.5 /uv /bin/uv
 
