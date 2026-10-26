@@ -64,8 +64,8 @@ const CUSTOM_PROVIDERS: Record<string, TileProviderConfig> = {
 		maxNativeZoom: 20,
 	},
 	// DEV-only: internal Ortofoto ČR (ČÚZK) WMTS proxy. Open data under CC BY 4.0.
-	'oi.jj.internal': {
-		url: 'http://oi.jj.internal:8080/wmts/oi/webmercator/{z}/{x}/{y}.png',
+	'ortofoto.jj.internal': {
+		url: 'http://ortofoto.jj.internal:8080/wmts/oi/webmercator/{z}/{x}/{y}.png',
 		attribution: 'Ortofoto ČR &copy; <a href="https://www.cuzk.cz">ČÚZK</a>, <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>',
 		maxZoom: 23,
 		maxNativeZoom: 20,
@@ -89,14 +89,14 @@ export const AVAILABLE_PROVIDERS = {
     /*'TracesTrack.TopoContrast': 'TracesTrack Topo (High Contrast)',*/
 
     // DEV-only providers (hidden from the picker unless VITE_DEV_MODE === 'true')
-    'oi.jj.internal': 'Ortofoto ČR (DEV)',
+    'ortofoto.jj.internal': 'Ortofoto ČR (DEV)',
 
 } as const;
 
 export type ProviderName = keyof typeof AVAILABLE_PROVIDERS;
 
 // Providers only offered in the picker when running in dev mode
-const DEV_ONLY_PROVIDERS: ReadonlySet<ProviderName> = new Set(['oi.jj.internal']);
+const DEV_ONLY_PROVIDERS: ReadonlySet<ProviderName> = new Set(['ortofoto.jj.internal']);
 
 // Default tile provider
 export const DEFAULT_TILE_PROVIDER: ProviderName = 'tiles4.ueueeu.eu';
