@@ -20,7 +20,7 @@ sys.path.insert(1, os.path.abspath(os.path.join(api_app_dir, '..', '..')))
 
 from common.detections import BLUR_CONFIDENCE, blurred_only, is_blurred  # noqa: E402
 from common.models import UserRole  # noqa: E402
-from photo_routes import get_photo_detections  # noqa: E402
+from photo_routes import ProcessedPhotoData, get_photo_detections  # noqa: E402
 
 OWNER_ID = 'owner-1'
 
@@ -36,6 +36,26 @@ ALL_OBJECTS = [LEGACY, CONF_HIGH, CONF_LOW, FLAGGED_ON, FLAGGED_OFF, MANUAL]
 BLURRED_OBJECTS = [LEGACY, CONF_HIGH, FLAGGED_ON, MANUAL]
 
 DETECTED = {'objects': ALL_OBJECTS, 'model_name': 'yolo11x.pt'}
+
+
+class TestWorkerDetectionsWriteBoundary:
+	def test_old_worker_payload_gets_explicit_flags_without_mutating_input(self):
+		out = ProcessedPhotoData(photo_id='p1', detected_objects=DETECTED).detected_objects
+		assert [o['blurred'] for o in out['objects']] == [True, True, False, True, False, True]
+		assert out['objects'][0]['blurred_from'] == 'legacy-no-confidence'
+		assert out['objects'][2]['blurred_from'] == 'legacy-confidence-0.4'
+		assert 'blurred' not in LEGACY
+		assert out['model_name'] == DETECTED['model_name']
+		assert out['objects'][3:] == ALL_OBJECTS[3:]
+
+	@pytest.mark.parametrize('detected', [None, {}, {'objects': []}, {'objects': [], 'manual': True}])
+	def test_no_objects_are_invented(self, detected):
+		assert ProcessedPhotoData(photo_id='p1', detected_objects=detected).detected_objects == detected
+
+	@pytest.mark.parametrize('obj', [{'blurred': 'false'}, {'confidence': 'bad'}, None])
+	def test_invalid_objects_are_rejected_before_storage(self, obj):
+		with pytest.raises(ValueError):
+			ProcessedPhotoData(photo_id='p1', detected_objects={'objects': [obj]})
 
 
 class TestIsBlurred:

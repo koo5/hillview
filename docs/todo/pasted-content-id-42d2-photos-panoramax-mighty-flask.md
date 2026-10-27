@@ -46,11 +46,11 @@ The prototype client is frontend2. The web frontend follows once this settles (o
 
 ## Phase 0: prerequisite, `docs/todo/detections-format-migration.md`
 
-Execute that parked plan as written:
-1. inventory in prod
-2. pixel pre-screen and eyeballing of the format-#1 tail
+Follow that plan and its 2026-10-27 git/inventory findings:
+1. inventory the production dump for rehearsal, then refresh the inventory in live prod
+2. establish writer behavior from history; use pixel checks for unresolved questions
 3. idempotent batch migration with backup and `--dry-run`
-4. verify that `blurred_only(old) == blurred_only(new)`
+4. verify unchanged blur verdicts, selected objects and geometry, allowing only added flag/provenance fields
 5. delete the legacy rule from consumers.
 
 Afterwards, every object carries an explicit `blurred`, so a raw-SQL consumer (the panoramax
@@ -59,8 +59,8 @@ service imports nothing from `common`) can test doodles without re-deriving `sho
 The plan has its own verification and is its own PR. Reconsider then whether a stored
 column is still worth having. The default answer is no.
 
-One doc fix to make along the way: the todo says `detected_objects` is JSONB, but the DB
-column is `json` (`001_initial_schema.py:115`, confirmed in the dev DB's information_schema).
+The DB column is `json` (`001_initial_schema.py:115`, confirmed in the local
+production-dump inventory); the migration plan now reflects this.
 
 ## Phase 1: backend
 

@@ -23,7 +23,8 @@ import httpx
 from blur import read_image, apply_blackout, normalize_to_srgb
 from detections import should_blur
 from throttle import Throttle
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+from common.detections import normalize_detections
 from common.security_utils import sanitize_filename, validate_file_path, check_file_content, validate_image_dimensions, SecurityValidationError, validate_user_id, IMAGE_TOOL_TIMEOUT, MAX_IMAGE_PIXELS
 import processing_state
 from common.cdn_uploader import cdn_uploader
@@ -289,12 +290,17 @@ class AnonymizationOverride(BaseModel):
 	  apply_dev_ratings.py). The objects whose ``blurred`` flag (or the
 	  ``should_blur`` fallback for legacy entries) says so are blurred with
 	  their real class_ids (stick figures preserved), and the dict is
-	  persisted to ``detected_objects`` VERBATIM — class names, confidences,
-	  model_name and sub-threshold near-misses all survive for future
-	  re-anonymization / threshold tuning.
+	  persisted with missing legacy flags/provenance added. Existing fields —
+	  class names, confidences, model_name and sub-threshold near-misses — all
+	  survive for future re-anonymization / threshold tuning.
 	"""
 	rectangles: List[Dict[str, int]] = []  # Each dict: {x, y, width, height}
-	detections: Optional[Dict[str, Any]] = None  # verbatim detected_objects dict
+	detections: Optional[Dict[str, Any]] = None
+
+	@field_validator('detections')
+	@classmethod
+	def normalize_precomputed_detections(cls, value):
+		return normalize_detections(value)
 
 	@classmethod
 	def from_json_string(cls, json_str: Optional[str]) -> Optional["AnonymizationOverride"]:
@@ -875,10 +881,11 @@ class PhotoProcessor:
 				if anonymization_override.detections is not None:
 					# Precomputed detections: reuse another run's rects on the
 					# same bytes instead of re-running the detector, and
-					# persist the dict verbatim (provenance survives — see
+					# persist normalized flags (provenance survives — see
 					# AnonymizationOverride). Blur decision per object follows
-					# the shared consumer convention (detections.py).
-					detections = anonymization_override.detections
+					# the shared consumer convention (detections.py). Normalize
+					# here too in case the model was modified after validation.
+					detections = normalize_detections(anonymization_override.detections)
 					objects = detections.get("objects") or []
 					to_blur = [o for o in objects if o.get("blurred", should_blur(o))]
 					logger.info(f"Applying precomputed detections for {unique_id}: "
@@ -1666,7 +1673,7 @@ class PhotoProcessor:
 			- "[]": skip anonymization entirely
 			- "[{...}]": use specific rectangles (future feature)
 			- '{"objects": [...], ...}': precomputed detected_objects — blur
-			  per the stored blurred flags and persist verbatim (see
+			  per the stored blurred flags and add missing legacy flags (see
 			  AnonymizationOverride)
 		fast: Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding, reduced size set.
 		output_base: This job's output root (its per-job work dir). Defaults to

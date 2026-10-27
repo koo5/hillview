@@ -231,6 +231,24 @@ class TestAnonymizationOverride:
         assert override.detections == {"objects": [], "model_name": "yolo-test"}
         assert override.skip_anonymization is False
 
+    def test_legacy_precomputed_detections_get_flags_and_provenance(self):
+        payload = {'model_name': 'old', 'objects': [
+            {'class_id': None, 'blur': 500, 'bbox': {'x1': 0, 'y1': 0, 'x2': 10, 'y2': 10}},
+            {'class_id': 0, 'confidence': 0.3, 'bbox': {'x1': 1, 'y1': 1, 'x2': 9, 'y2': 9}},
+        ]}
+        override = AnonymizationOverride(detections=payload)
+        assert override.skip_anonymization is False
+        assert [o['blurred'] for o in override.detections['objects']] == [True, False]
+        assert override.detections['objects'][0]['blurred_from'] == 'legacy-no-confidence'
+        assert override.detections['objects'][1]['blurred_from'] == 'legacy-confidence-0.4'
+        assert 'blurred' not in payload['objects'][0]
+        parsed = AnonymizationOverride.from_json_string(json.dumps(payload))
+        assert parsed.detections == override.detections
+
+    def test_malformed_precomputed_flags_are_rejected(self):
+        with pytest.raises(ValueError):
+            AnonymizationOverride.from_json_string('{"objects":[{"blurred":"false"}]}')
+
     def test_invalid_json_means_auto(self):
         assert AnonymizationOverride.from_json_string("{nope") is None
 

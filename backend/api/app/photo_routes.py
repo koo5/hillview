@@ -48,7 +48,7 @@ from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 
 import aiofiles
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -61,7 +61,7 @@ from common.database import get_db
 from common.models import Photo, User, PhotoRating, UserPublicKey, PhotoAnnotation, PhotoLicenseHistory, PhotoModerationAudit, UserRole
 from common.config import get_write_pool
 from common.utc import format_utc
-from common.detections import blurred_only
+from common.detections import blurred_only, normalize_detections
 from auth import get_current_active_user, get_current_user_optional_with_query, get_current_user_optional_ssr
 from hidden_content_filters import apply_hidden_content_filters
 from hillview_routes import ALLOWED_LICENSES, legal_rights_to_license
@@ -156,6 +156,13 @@ class ProcessedPhotoData(BaseModel):
 	# docs/recon-capture-metadata.md, Phase 5 -- and note that DELETION must
 	# sweep it, or every deleted photo leaks one file.
 	imu_samples_url: Optional[str] = None
+
+	@field_validator('detected_objects')
+	@classmethod
+	def normalize_worker_detections(cls, value):
+		# Older deployed workers can still submit legacy payloads. Keep the DB
+		# invariant at the final storage boundary as well as in new workers.
+		return normalize_detections(value)
 
 class WorkerProcessedPhotoRequest(BaseModel):
 	"""Request model for processed photo data from worker with signature."""
