@@ -65,7 +65,7 @@ const CUSTOM_PROVIDERS: Record<string, TileProviderConfig> = {
 	},
 	// DEV-only: internal Ortofoto ČR (ČÚZK) WMTS proxy. Open data under CC BY 4.0.
 	'ortofoto.jj.internal': {
-		url: 'http://ortofoto.jj.internal:8080/wmts/oi/webmercator/{z}/{x}/{y}.png',
+		url: 'https://ortofoto.jj.internal/wmts/oi/webmercator/{z}/{x}/{y}.png',
 		attribution: 'Ortofoto ČR &copy; <a href="https://www.cuzk.cz">ČÚZK</a>, <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>',
 		maxZoom: 23,
 		maxNativeZoom: 20,
