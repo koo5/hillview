@@ -249,6 +249,22 @@ class TestAnonymizationOverride:
         with pytest.raises(ValueError):
             AnonymizationOverride.from_json_string('{"objects":[{"blurred":"false"}]}')
 
+    @pytest.mark.parametrize('flag, confidence', [(True, 0.1), (False, 0.9)])
+    def test_pyramid_blur_guard_uses_the_explicit_decision(self, flag, confidence):
+        from photo_processor import _override_blur_free
+        override = AnonymizationOverride(detections={
+            'objects': [{'blurred': flag, 'confidence': confidence}]})
+        assert _override_blur_free(override) is (not flag)
+
+    @pytest.mark.parametrize('confidence, blur_free', [(0.1, True), (0.9, False)])
+    def test_pyramid_blur_guard_normalizes_payload_changed_after_validation(self, confidence, blur_free):
+        from photo_processor import _override_blur_free
+        override = AnonymizationOverride(detections={'objects': []})
+        payload = {'objects': [{'confidence': confidence}]}
+        override.detections = payload
+        assert _override_blur_free(override) is blur_free
+        assert 'blurred' not in payload['objects'][0]
+
     def test_invalid_json_means_auto(self):
         assert AnonymizationOverride.from_json_string("{nope") is None
 

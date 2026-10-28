@@ -20,9 +20,8 @@ export interface DetectedObject {
 	confidence?: number;
 	/** Pyramid scale the detection came from (1.0 = full resolution); absent on older photos */
 	scale?: number;
-	/** Whether this box was actually painted over. Absent on photos processed
-	 *  before the flag existed, where the server re-derives it from confidence. */
-	blurred?: boolean;
+	/** Stored decision: whether this box was actually painted over. */
+	blurred: boolean;
 	blur?: number;
 	bbox: DetectedObjectBBox;
 }

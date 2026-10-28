@@ -12,8 +12,9 @@ all 10,517 backed-up rows match their targets and behavior/geometry invariants,
 and a full migration dry run proposes zero changes**. The 381 size repairs also
 still match their backups. Pre-apply inventories below remain historical evidence.
 Worker precomputed payloads and API worker-result requests normalize missing
-flags in the prepared code. Deployment confirmation and consumer fallback removal
-remain.
+flags in the prepared code. Consumer fallback removal is now implemented in this
+checkout and the sibling recon checkout; deployment remains. The operator reports
+recent API/worker deployments, but their exact revisions were not checked here.
 Standalone apply/verify/restore SQL is generated as
 `oneoff/detections-format*.sql`; see the
 [SQL rollout instructions](../detections-format-sql.md).
@@ -22,13 +23,15 @@ some eyeballing.
 
 ## What is established
 
-The read-side compatibility rule lives in `backend/common/detections.py`,
-extracted from the worker by `df422d72` (2026-09-20). A persisted `blurred`
+The pre-backfill read-side compatibility rule was extracted from the worker by
+`df422d72` (2026-09-20). A persisted `blurred`
 flag wins; otherwise confidence is compared with `BLUR_CONFIDENCE = 0.4`,
-and absent/null confidence means true. `should_blur()` itself computes the
-write-side decision; `is_blurred()` prefers the persisted flag.
+and absent/null confidence means true. This historical rule is retained in
+`backend/common/legacy_detections.py` for inventories and backup verification.
+The current `common.detections.is_blurred()` requires an explicit boolean flag;
+`should_blur()` computes new write-side decisions only.
 
-The migration should persist the existing reader's decision, with provenance
+The migration persists the historical reader's decision, with provenance
 for derived flags. This does **not** establish that the stored rectangle
 matches the pixels. Keep representation migration and pixel/geometry repairs
 separate: never invent confidence, change boxes, or rerun a detector as part
@@ -52,7 +55,7 @@ of this migration.
 The history supports four useful reader cases, not four disjoint chronological
 eras: manual objects also existed without flags. The June 12 confidence-only
 writer paints every recorded detection, but its floor is already 0.4; the
-current fallback therefore agrees for those stored confidences. No change
+historical fallback therefore agrees for those stored confidences. No change
 to `BLUR_CONFIDENCE` after its introduction was found in this history. The
 old module comment's suggestion that it may have moved several times was
 unsupported.
@@ -75,7 +78,9 @@ git log -p -S BLUR_CONFIDENCE -- backend/worker/detections.py backend/common/det
   endpoint was not supported by the cited commit. `df422d72` only updates comments
   on its two local threshold copies; both still derive decisions from mirrored
   data immediately before removal in the repo split. The separate workbench
-  repository's current behavior needs its own check.
+  repository was checked on 2026-10-28: its current workbench API uses Hillview's
+  public endpoint. The remaining raw-column helper is used by an offline IMU
+  manifest script; the other old threshold copy is in archived `scraps/` code.
 - `blurred_only(old) == blurred_only(new)` cannot hold literally for migrated
   dictionaries: adding flags/provenance changes the returned objects. Compare
   selected objects after removing **only the keys added by the migration**, and
@@ -188,8 +193,8 @@ Evidence:
 - [Post-backfill idempotence](../reports/detections-migration-post-backfill-dry-run-2026-10-28.json).
 
 The reviewed HTML is retained as pre-apply old/new evidence. This verification
-did not modify the dump. Writer deployment still needs confirmation before
-removing consumer compatibility behavior.
+did not modify the dump. The flag-only readers and normalized write boundaries
+are prepared together; they have not been deployed by this investigation.
 
 Run the inventory again with an explicitly supplied database URL environment
 variable (no implicit dotenv or default database target):
@@ -338,16 +343,44 @@ Remaining steps:
 1. Retain the production backup table and before/after evidence. Post-backfill
    inventory, target checks and idempotence are complete on the refreshed dump.
    New legacy writes after that snapshot would not be covered by this check.
-2. Confirm deployment of the normalized API/worker write boundaries, including
-   older workers sending legacy payloads, precomputed inputs and direct-SQL
-   importers. The prepared source implements normalization; production deployment
-   has not been established by this investigation.
-3. Remove consumer fallbacks only after those checks pass. Update `is_blurred()`
-   and the worker's precomputed/pyramid/blackout consumers. Retain confidence
-   threshold logic for new model decisions. Check the separate workbench
-   repository for its old copies as well. The operator identified its checkout
-   as `/home/koom/repos/koo5/hillview/0/recon`; inspect/refactor code there without
-   standing up that service locally.
+2. Deploy the API with both normalized write boundaries and flag-only reads;
+   this protects against legacy payloads from older workers in the same release.
+   Deploy the worker's normalized precomputed inputs and flag-only consumers too.
+   Any direct-SQL importers must preserve explicit flags. Exact deployed revisions
+   have not been established by this investigation.
+3. Deploy the recon helper change when convenient. Refresh any older mirror before
+   using the offline IMU manifest script; its reader now rejects missing flags.
+   The current workbench API already uses Hillview's public filtered response.
+
+### Consumer cleanup prepared, 2026-10-28
+
+`common.detections.is_blurred()` now reads only an explicit boolean flag and
+raises on missing/non-boolean flags. The worker's precomputed, pyramid-eligibility
+and LLM-blackout consumers use that reader. Incoming precomputed values still
+normalize before these reads, including classification after model mutation.
+The frontend detection type now requires `blurred`. Confidence thresholds remain
+in the writer and input normalization; they cannot reinterpret stored flags.
+
+Inventories and migration verification import a separate historical reader.
+Its 0.4 threshold is pinned independently of future writer changes, preserving
+the ability to verify or restore retained production backups and old dumps.
+
+In `/home/koom/repos/koo5/hillview/0/recon`, the workbench API already requests
+anonymous Hillview detections and does not silently fall back to mirror boxes.
+`recon_frames._anon_boxes`, still used by `scripts/enrich/hillview_imu_manifest.py`,
+now reads explicit booleans and tells callers to refresh an unmigrated mirror.
+The old copy in `scripts/enrich/scraps/mirror_selection.py` is archived and was
+left as historical code. Recon commit: `66f978f7`. No recon service was started.
+
+Verification passed on all **102,448 photos / 185,765 objects** in a read-only
+snapshot: strict reads succeed, normalization is a no-op, historical decisions
+are unchanged, and recon boxes match the public selection exactly (**162,844
+blurred / 22,921 visible**). See the
+[consumer verification report](../reports/detections-consumers-verified-2026-10-28.json).
+Focused validation passed: 39 API tests, 80 worker tests, 95 migration/audit/SQL
+tests and six recon tests, plus the frontend type check. Worker/API tests used
+their supported unit-test runners. Database tests used disposable databases;
+the restored production dump was not modified.
 
 ### Completed migration design and review requirements
 
@@ -368,7 +401,7 @@ the operator subsequently used the generated SQL for production application.
    (the model has no general-purpose `updated_at` column); define concurrent
    writer handling explicitly, using a row lock or comparison with the backed-up
    column before update. Invalid shapes need explicit reporting, not coercion.
-   Existing boolean flags are untouched. For absent flags, persist `is_blurred()`:
+   Existing boolean flags are untouched. For absent flags, persist the historical decision:
    confidence-only gets the 0.4 decision, no-confidence gets true, and legacy
    manual rectangles also get true. Record that **both** kinds of backfill are
    derived (e.g. `blurred_from: legacy-no-confidence` / `legacy-confidence-0.4`),
@@ -380,22 +413,23 @@ the operator subsequently used the generated SQL for production application.
    procedure that refuses to overwrite a subsequent edit. This column is not
    reconstructible. A report of counts is not a backup.
 4. **Verify every changed row during rehearsal and application.** Compare
-   `is_blurred()` per object, compare the `blurred_only()` projection after
+   the historical reader's decision per object, compare the filtered projection after
    stripping only fields added by this migration, and assert that all preexisting
    keys/values and the container are preserved. The 499 confidence-only visible
    objects must stay outside the public response. Re-running must propose zero
    changes. Re-inventory afterwards and retain the before/after evidence.
-5. **Deploy the normalized write boundaries before reader cleanup.** The API
+5. **Deploy normalized write boundaries with the reader cleanup.** The API
    covers older workers as well as new worker precomputed payloads. Account for
    direct-SQL importers and confirm the deployed API version. The local rehearsal
    is complete, production backfill is applied, and a fresh production redump
-   verifies zero legacy objects. Deployment confirmation is still needed before
-   consumer cleanup.
-6. **Remove consumer fallbacks only after rollout is complete.** Update
+   verifies zero legacy objects. Writer normalization must be in the API release
+   that first uses flag-only reads.
+6. **Deploy consumer cleanup after verifying the backfill.** Update
    `is_blurred()` and the worker's precomputed/pyramid/blackout consumers. Retain
    confidence threshold logic for **new model decisions** in the writer. Check
    the separate workbench repository for its two old copies; removal from this
-   checkout did not prove their removal from the deployed service.
+   checkout did not prove their removal from the deployed service. These source
+   changes are prepared as described above; deployment is outstanding.
 
 The public endpoint's scope remains important throughout: recorded-but-visible
 boxes stay available to owners/moderators and stay out of anonymous responses.

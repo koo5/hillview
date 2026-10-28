@@ -22,10 +22,9 @@ from PIL import Image
 from image_formats import HILLVIEW_AUX, require_supported_image
 import httpx
 from blur import read_image, apply_blackout, normalize_to_srgb
-from detections import should_blur
 from throttle import Throttle
 from pydantic import BaseModel, field_validator
-from common.detections import normalize_detections
+from common.detections import is_blurred, normalize_detections
 from common.security_utils import sanitize_filename, validate_file_path, check_file_content, validate_image_dimensions, SecurityValidationError, validate_user_id, IMAGE_TOOL_TIMEOUT, MAX_IMAGE_PIXELS
 import processing_state
 from common.cdn_uploader import cdn_uploader
@@ -189,7 +188,10 @@ def _override_blur_free(override: Optional["AnonymizationOverride"]) -> Optional
 	if override is None:
 		return None
 	if override.detections is not None:
-		return not any(o.get('blurred', should_blur(o)) for o in (override.detections.get('objects') or []))
+		# This classifies incoming precomputed data, so normalize it before
+		# reading flags even if a caller changed the model after validation.
+		detections = normalize_detections(override.detections)
+		return not any(is_blurred(o) for o in (detections.get('objects') or []))
 	if override.skip_anonymization:
 		return True
 	return not any(None not in (r.get('x'), r.get('y'), r.get('width'), r.get('height')) for r in override.rectangles)
@@ -288,10 +290,10 @@ class AnonymizationOverride(BaseModel):
 	- Dict with an "objects" key: PRECOMPUTED detections — the
 	  detected_objects value from a previous processing of the same image
 	  bytes (e.g. copied from a dev server by the pics pipeline's
-	  apply_dev_ratings.py). The objects whose ``blurred`` flag (or the
-	  ``should_blur`` fallback for legacy entries) says so are blurred with
-	  their real class_ids (stick figures preserved), and the dict is
-	  persisted with missing legacy flags/provenance added. Existing fields —
+	  apply_dev_ratings.py). Missing legacy flags/provenance are added when
+	  accepting the input. Objects whose explicit ``blurred`` flag is true
+	  are blurred with their real class_ids (stick figures preserved), and
+	  the normalized dict is persisted. Existing fields —
 	  class names, confidences, model_name and sub-threshold near-misses — all
 	  survive for future re-anonymization / threshold tuning.
 	"""
@@ -912,7 +914,7 @@ class PhotoProcessor:
 					# here too in case the model was modified after validation.
 					detections = normalize_detections(anonymization_override.detections)
 					objects = detections.get("objects") or []
-					to_blur = [o for o in objects if o.get("blurred", should_blur(o))]
+					to_blur = [o for o in objects if is_blurred(o)]
 					logger.info(f"Applying precomputed detections for {unique_id}: "
 								f"blurring {len(to_blur)}/{len(objects)} objects")
 					if pyr is None:
@@ -973,7 +975,7 @@ class PhotoProcessor:
 			# after the variants. Neither becomes the variant source here: the
 			# raster exists on every path through this block and wins below.
 			if offer_pending:
-				blur_applied = any(o.get('blurred', should_blur(o)) for o in (detections or {}).get('objects', []))
+				blur_applied = any(is_blurred(o) for o in (detections or {}).get('objects', []))
 				ext_pyramid = self._external_pyramid(local_pyramid_path, width, height, blur_applied,
 				                                     keep_pics_in_worker, quality, unique_id)
 				# The source was decoded on this path (the detector needed it),
@@ -1099,11 +1101,11 @@ class PhotoProcessor:
 			llm_image = src.fresh_for_width(LLM_VARIANT_SIZE)
 			# Black out only the objects that were actually blurred — sub-threshold
 			# detections are recorded but stay visible (same policy as apply_blur).
-			# Prefer the persisted "blurred" flag; fall back to should_blur for legacy
-			# format-#1 records that predate it (see detections.py). Bboxes are
-			# full-image coords; a pyramid level needs them scaled to its size.
+			# Use the explicit decision; incoming precomputed data was normalized
+			# before this point. Bboxes are full-image coords; a pyramid level
+			# needs them scaled to its size.
 			apply_blackout(llm_image, scale_bboxes(
-				[o for o in detections.get("objects", []) if o.get("blurred", should_blur(o))],
+				[o for o in detections.get("objects", []) if is_blurred(o)],
 				llm_image.shape[1] / width))
 			llm_h, llm_w = llm_image.shape[:2]
 

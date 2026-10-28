@@ -15,7 +15,7 @@ SCRIPT = Path(__file__).resolve().parents[1] / 'migrate_detections.py'
 spec = importlib.util.spec_from_file_location('sql_migration', SCRIPT)
 migration = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(migration)
-from common.detections import verify_detection_migration  # noqa: E402
+from common.legacy_detections import verify_detection_migration  # noqa: E402
 from detections_sql import write_export  # noqa: E402
 
 

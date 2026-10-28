@@ -75,8 +75,8 @@ backend/.venv/bin/python scripts/migrate_detections.py migrate \
 `--review-html` can be supplied too, generating HTML and SQL from the same
 snapshot. The source connection is local for generation; the resulting SQL
 checks production values when applied. Newly inserted legacy rows outside the
-exported ID set are not implicitly added to this reviewed migration. Keep the
-reader fallbacks until the production inventory confirms the rollout is complete.
+exported ID set are not implicitly added to this reviewed migration. Verify a
+fresh inventory before deploying flag-only readers.
 
 Generation counts are saved in
 [the export report](reports/detections-migration-sql-export-2026-10-28.json).
@@ -92,5 +92,6 @@ and restoration reproduced the exact original JSON and other columns. The
 source dump stayed read-only. See the
 [full SQL rehearsal report](reports/detections-migration-sql-rehearsal-2026-10-28.json).
 The operator subsequently confirmed production application on 2026-10-28.
-The fresh inventory is complete; keep reader fallbacks until normalized writer
-deployment is confirmed and consumer cleanup is implemented.
+The fresh inventory is complete. Flag-only readers and normalized write
+boundaries are now prepared in the same branch; deploy them together. Historical
+read rules remain in `common.legacy_detections` for backup verification.

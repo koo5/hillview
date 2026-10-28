@@ -19,7 +19,8 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend'))
-from common.detections import BLUR_CONFIDENCE, is_blurred  # noqa: E402
+from common.detections import BLUR_CONFIDENCE  # noqa: E402
+from common.legacy_detections import legacy_is_blurred  # noqa: E402
 
 
 PHOTO_SQL = """
@@ -177,7 +178,7 @@ class Inventory:
 			for name in bbox_issues(obj, row.get('width'), row.get('height')):
 				issue(name, index)
 			try:
-				blurred = is_blurred(obj)
+				blurred = legacy_is_blurred(obj)
 			except (TypeError, ValueError):
 				issue('consumer-read-error', index)
 			else:

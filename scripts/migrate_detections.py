@@ -25,9 +25,8 @@ import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common.detections import (  # noqa: E402
-	BLUR_CONFIDENCE, normalize_detections, verify_detection_migration,
-)
+from common.detections import BLUR_CONFIDENCE, normalize_detections  # noqa: E402
+from common.legacy_detections import verify_detection_migration  # noqa: E402
 
 VERSION = 1
 SELECT_BATCH = """

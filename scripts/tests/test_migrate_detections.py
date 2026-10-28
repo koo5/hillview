@@ -21,7 +21,8 @@ SCRIPT = Path(__file__).resolve().parents[1] / 'migrate_detections.py'
 spec = importlib.util.spec_from_file_location('migrate_detections', SCRIPT)
 migration = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(migration)
-from common.detections import normalize_detections, verify_detection_migration  # noqa: E402
+from common.detections import normalize_detections  # noqa: E402
+from common.legacy_detections import verify_detection_migration  # noqa: E402
 
 
 def detection(**kwargs):
