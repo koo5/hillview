@@ -1,0 +1,89 @@
+diff --git a/node_modules/extract-zip/.bun-tag-c5bb7bad923410d7 b/.bun-tag-c5bb7bad923410d7
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/index.js b/index.js
+index 23384ea16bb848616886f356d8d69f94325535bf..76d8b4116cc00c7cccc16d92f389121f0f7582c2 100644
+--- a/index.js
++++ b/index.js
+@@ -1,6 +1,6 @@
+ const debug = require('debug')('extract-zip')
+ // eslint-disable-next-line node/no-unsupported-features/node-builtins
+-const { createWriteStream, promises: fs } = require('fs')
++const { createWriteStream, constants, promises: fs } = require('fs')
+ const getStream = require('get-stream')
+ const path = require('path')
+ const { promisify } = require('util')
+@@ -16,6 +16,40 @@ class Extractor {
+     this.opts = opts
+   }
+ 
++  async assertContained (target, hops = 0) {
++    if (hops > 40) throw new Error('Too many extraction symlink hops')
++    const outside = candidate => {
++      const relative = path.relative(this.opts.dir, candidate)
++      return path.isAbsolute(relative) || relative === '..' || relative.startsWith('..' + path.sep)
++    }
++    if (outside(target)) throw new Error('Out of bound extraction path: ' + target)
++    // Resolve the nearest existing ancestor too: lexical containment alone
++    // does not catch a link through a pre-existing symlinked directory.
++    let candidate = target
++    while (true) {
++      try {
++        if (outside(await fs.realpath(candidate))) throw new Error('Out of bound extraction path: ' + target)
++        return
++      } catch (error) {
++        if (error.code !== 'ENOENT') throw error
++        // realpath also returns ENOENT for dangling links. Validate their
++        // targets rather than treating them as nonexistent path components.
++        try {
++          if ((await fs.lstat(candidate)).isSymbolicLink()) {
++            const link = await fs.readlink(candidate)
++            await this.assertContained(path.resolve(path.dirname(candidate), link), hops + 1)
++            return
++          }
++        } catch (statError) {
++          if (statError.code !== 'ENOENT') throw statError
++        }
++        const parent = path.dirname(candidate)
++        if (parent === candidate) throw error
++        candidate = parent
++      }
++    }
++  }
++
+   async extract () {
+     debug('opening', this.zipPath, 'with opts', this.opts)
+ 
+@@ -53,6 +87,7 @@ class Extractor {
+         const destDir = path.dirname(path.join(this.opts.dir, entry.fileName))
+ 
+         try {
++          await this.assertContained(path.join(this.opts.dir, entry.fileName))
+           await fs.mkdir(destDir, { recursive: true })
+ 
+           const canonicalDestDir = await fs.realpath(destDir)
+@@ -86,6 +121,11 @@ class Extractor {
+     }
+ 
+     const dest = path.join(this.opts.dir, entry.fileName)
++    try {
++      if ((await fs.lstat(dest)).isSymbolicLink()) throw new Error('Refusing to overwrite symlink: ' + dest)
++    } catch (error) {
++      if (error.code !== 'ENOENT') throw error
++    }
+ 
+     // convert external file attr int into a fs stat mode int
+     const mode = (entry.externalFileAttributes >> 16) & 0xFFFF
+@@ -126,10 +166,11 @@ class Extractor {
+ 
+     if (symlink) {
+       const link = await getStream(readStream)
++      await this.assertContained(path.resolve(path.dirname(dest), link))
+       debug('creating symlink', link, dest)
+       await fs.symlink(link, dest)
+     } else {
+-      await pipeline(readStream, createWriteStream(dest, { mode: procMode }))
++      await pipeline(readStream, createWriteStream(dest, { mode: procMode, flags: constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | (constants.O_NOFOLLOW || 0) }))
+     }
+   }
+ 

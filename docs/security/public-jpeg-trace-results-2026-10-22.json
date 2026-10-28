@@ -1,0 +1,634 @@
+{
+  "image": "sha256:a208439b941dff3b9818c09e0cd86d51eaf284ae837ee562ec2b5170101866eb",
+  "source_commit": "f4f1cdb9",
+  "cases": [
+    {
+      "fixture": "bad-icc.jpg",
+      "results": {
+        "metadata": {
+          "ok": {
+            "has_exif": false,
+            "has_gps_coords": false,
+            "has_bearing": false,
+            "found_gps_tags": [],
+            "found_bearing_tags": [],
+            "parsing_errors": [],
+            "no_exif_container": null
+          }
+        },
+        "dimensions": {
+          "ok": [
+            31,
+            19
+          ]
+        },
+        "pixels": {
+          "ok": [
+            19,
+            31,
+            3
+          ]
+        }
+      },
+      "vips_operations": [
+        "autorot",
+        "icc_transform",
+        "jpegload"
+      ],
+      "exiftool_invocations": 2,
+      "exiftool_returncodes": [
+        0,
+        0
+      ],
+      "metadata_directories": [
+        "directory\tImage::ExifTool::ICC_Profile::Main\tPrintConv=0\tExtractEmbedded=0",
+        "directory\tImage::ExifTool::ICC_Profile::Main\tPrintConv=1\tExtractEmbedded=0",
+        "directory\tImage::ExifTool::JFIF::Main\tPrintConv=0\tExtractEmbedded=0",
+        "directory\tImage::ExifTool::JFIF::Main\tPrintConv=1\tExtractEmbedded=0"
+      ]
+    },
+    {
+      "fixture": "baseline.jpg",
+      "results": {
+        "metadata": {
+          "ok": {
+            "has_exif": false,
+            "has_gps_coords": false,
+            "has_bearing": false,
+            "found_gps_tags": [],
+            "found_bearing_tags": [],
+            "parsing_errors": [],
+            "no_exif_container": null
+          }
+        },
+        "dimensions": {
+          "ok": [
+            31,
+            19
+          ]
+        },
+        "pixels": {
+          "ok": [
+            19,
+            31,
+            3
+          ]
+        }
+      },
+      "vips_operations": [
+        "autorot",
+        "colourspace",
+        "jpegload"
+      ],
+      "exiftool_invocations": 2,
+      "exiftool_returncodes": [
+        0,
+        0
+      ],
+      "metadata_directories": [
+        "directory\tImage::ExifTool::JFIF::Main\tPrintConv=0\tExtractEmbedded=0",
+        "directory\tImage::ExifTool::JFIF::Main\tPrintConv=1\tExtractEmbedded=0"
+      ]
+    },
+    {
+      "fixture": "cmyk.jpg",
+      "results": {
+        "metadata": {
+          "ok": {
+            "has_exif": false,
+            "has_gps_coords": false,
+            "has_bearing": false,
+            "found_gps_tags": [],
+            "found_bearing_tags": [],
+            "parsing_errors": [],
+            "no_exif_container": null
+          }
+        },
+        "dimensions": {
+          "ok": [
+            31,
+            19
+          ]
+        },
+        "pixels": {
+          "ok": [
+            19,
+            31,
+            3
+          ]
+        }
+      },
+      "vips_operations": [
+        "autorot",
+        "bandjoin",
+        "colourspace",
+        "extract_band",
+        "jpegload"
+      ],
+      "exiftool_invocations": 2,
+      "exiftool_returncodes": [
+        0,
+        0
+      ],
+      "metadata_directories": [
+        "directory\tImage::ExifTool::JPEG::Adobe\tPrintConv=0\tExtractEmbedded=0",
+        "directory\tImage::ExifTool::JPEG::Adobe\tPrintConv=1\tExtractEmbedded=0"
+      ]
+    },
+    {
+      "fixture": "disguised.jpg",
+      "results": {
+        "metadata": {
+          "error": "ValueError",
+          "message": "Only JPEG input is enabled; other supported formats require HILLVIEW_AUX=1"
+        },
+        "dimensions": {
+          "error": "ValueError",
+          "message": "Only JPEG input is enabled; other supported formats require HILLVIEW_AUX=1"
+        },
+        "pixels": {
+          "error": "ValueError",
+          "message": "Only JPEG input is enabled; other supported formats require HILLVIEW_AUX=1"
+        }
+      },
+      "vips_operations": [],
+      "exiftool_invocations": 0,
+      "exiftool_returncodes": [],
+      "metadata_directories": []
+    },
+    {
+      "fixture": "grayscale.jpg",
+      "results": {
+        "metadata": {
+          "ok": {
+            "has_exif": false,
+            "has_gps_coords": false,
+            "has_bearing": false,
+            "found_gps_tags": [],
+            "found_bearing_tags": [],
+            "parsing_errors": [],
+            "no_exif_container": null
+          }
+        },
+        "dimensions": {
+          "ok": [
+            31,
+            19
+          ]
+        },
+        "pixels": {
+          "ok": [
+            19,
+            31,
+            3
+          ]
+        }
+      },
+      "vips_operations": [
+        "autorot",
+        "colourspace",
+        "jpegload"
+      ],
+      "exiftool_invocations": 2,
+      "exiftool_returncodes": [
+        0,
+        0
+      ],
+      "metadata_directories": [
+        "directory\tImage::ExifTool::JFIF::Main\tPrintConv=0\tExtractEmbedded=0",
+        "directory\tImage::ExifTool::JFIF::Main\tPrintConv=1\tExtractEmbedded=0"
+      ]
+    },
+    {
+      "fixture": "icc.jpg",
+      "results": {
+        "metadata": {
+          "ok": {
+            "has_exif": false,
+            "has_gps_coords": false,
+            "has_bearing": false,
+            "found_gps_tags": [],
+            "found_bearing_tags": [],
+            "parsing_errors": [],
+            "no_exif_container": null
+          }
+        },
+        "dimensions": {
+          "ok": [
+            31,
+            19
+          ]
+        },
+        "pixels": {
+          "ok": [
+            19,
+            31,
+            3
+          ]
+        }
+      },
+      "vips_operations": [
+        "autorot",
+        "icc_transform",
+        "jpegload"
+      ],
+      "exiftool_invocations": 2,
+      "exiftool_returncodes": [
+        0,
+        0
+      ],
+      "metadata_directories": [
+        "directory\tImage::ExifTool::ICC_Profile::Chromaticity\tPrintConv=0\tExtractEmbedded=0",
+        "directory\tImage::ExifTool::ICC_Profile::Chromaticity\tPrintConv=1\tExtractEmbedded=0",
+        "directory\tImage::ExifTool::ICC_Profile::Header\tPrintConv=0\tExtractEmbedded=0",
+        "directory\tImage::ExifTool::ICC_Profile::Header\tPrintConv=1\tExtractEmbedded=0",
+        "directory\tImage::ExifTool::ICC_Profile::Main\tPrintConv=0\tExtractEmbedded=0",
+        "directory\tImage::ExifTool::ICC_Profile::Main\tPrintConv=1\tExtractEmbedded=0",
+        "directory\tImage::ExifTool::JFIF::Main\tPrintConv=0\tExtractEmbedded=0",
+        "directory\tImage::ExifTool::JFIF::Main\tPrintConv=1\tExtractEmbedded=0"
+      ]
+    },
+    {
+      "fixture": "orientation.jpg",
+      "results": {
+        "metadata": {
+          "ok": {
+            "has_exif": false,
+            "has_gps_coords": false,
+            "has_bearing": false,
+            "found_gps_tags": [],
+            "found_bearing_tags": [],
+            "parsing_errors": [],
+            "no_exif_container": null
+          }
+        },
+        "dimensions": {
+          "ok": [
+            19,
+            31
+          ]
+        },
+        "pixels": {
+          "ok": [
+            31,
+            19,
+            3
+          ]
+        }
+      },
+      "vips_operations": [
+        "autorot",
+        "colourspace",
+        "jpegload"
+      ],
+      "exiftool_invocations": 2,
+      "exiftool_returncodes": [
+        0,
+        0
+      ],
+      "metadata_directories": [
+        "directory\tImage::ExifTool::Exif::Main\tPrintConv=0\tExtractEmbedded=0",
+        "directory\tImage::ExifTool::Exif::Main\tPrintConv=1\tExtractEmbedded=0",
+        "directory\tImage::ExifTool::JFIF::Main\tPrintConv=0\tExtractEmbedded=0",
+        "directory\tImage::ExifTool::JFIF::Main\tPrintConv=1\tExtractEmbedded=0"
+      ]
+    },
+    {
+      "fixture": "prefix-only.jpg",
+      "results": {
+        "metadata": {
+          "ok": {
+            "has_exif": false,
+            "has_gps_coords": false,
+            "has_bearing": false,
+            "found_gps_tags": [],
+            "found_bearing_tags": [],
+            "parsing_errors": [],
+            "no_exif_container": null
+          }
+        },
+        "dimensions": {
+          "error": "UnidentifiedImageError",
+          "message": "cannot identify image file '/app/uploads/trace/prefix-only.jpg'"
+        },
+        "pixels": {
+          "error": "ValueError",
+          "message": "Refusing speculative image handling: pyvips load failed for /app/uploads/trace/prefix-only.jpg (unable to call jpegload\n  VipsJpeg: premature end of JPEG image\nVipsJpeg: JPEG datastream contains no image\n) \u2014 falling back to cv2 with no color management. Convert to standard sRGB 8-bit (or tagged EXR with hillview:encoding) before upload."
+        }
+      },
+      "vips_operations": [
+        "jpegload"
+      ],
+      "exiftool_invocations": 1,
+      "exiftool_returncodes": [
+        0
+      ],
+      "metadata_directories": []
+    },
+    {
+      "fixture": "progressive.jpg",
+      "results": {
+        "metadata": {
+          "ok": {
+            "has_exif": false,
+            "has_gps_coords": false,
+            "has_bearing": false,
+            "found_gps_tags": [],
+            "found_bearing_tags": [],
+            "parsing_errors": [],
+            "no_exif_container": null
+          }
+        },
+        "dimensions": {
+          "ok": [
+            31,
+            19
+          ]
+        },
+        "pixels": {
+          "ok": [
+            19,
+            31,
+            3
+          ]
+        }
+      },
+      "vips_operations": [
+        "autorot",
+        "colourspace",
+        "jpegload"
+      ],
+      "exiftool_invocations": 2,
+      "exiftool_returncodes": [
+        0,
+        0
+      ],
+      "metadata_directories": [
+        "directory\tImage::ExifTool::JFIF::Main\tPrintConv=0\tExtractEmbedded=0",
+        "directory\tImage::ExifTool::JFIF::Main\tPrintConv=1\tExtractEmbedded=0"
+      ]
+    },
+    {
+      "fixture": "trailing-data.jpg",
+      "results": {
+        "metadata": {
+          "ok": {
+            "has_exif": false,
+            "has_gps_coords": false,
+            "has_bearing": false,
+            "found_gps_tags": [],
+            "found_bearing_tags": [],
+            "parsing_errors": [],
+            "no_exif_container": null
+          }
+        },
+        "dimensions": {
+          "ok": [
+            31,
+            19
+          ]
+        },
+        "pixels": {
+          "ok": [
+            19,
+            31,
+            3
+          ]
+        }
+      },
+      "vips_operations": [
+        "autorot",
+        "colourspace",
+        "jpegload"
+      ],
+      "exiftool_invocations": 2,
+      "exiftool_returncodes": [
+        0,
+        0
+      ],
+      "metadata_directories": [
+        "directory\tImage::ExifTool::JFIF::Main\tPrintConv=0\tExtractEmbedded=0",
+        "directory\tImage::ExifTool::JFIF::Main\tPrintConv=1\tExtractEmbedded=0"
+      ]
+    },
+    {
+      "fixture": "truncated.jpg",
+      "results": {
+        "metadata": {
+          "ok": {
+            "has_exif": false,
+            "has_gps_coords": false,
+            "has_bearing": false,
+            "found_gps_tags": [],
+            "found_bearing_tags": [],
+            "parsing_errors": [],
+            "no_exif_container": null
+          }
+        },
+        "dimensions": {
+          "error": "OSError",
+          "message": "Truncated File Read"
+        },
+        "pixels": {
+          "error": "ValueError",
+          "message": "Refusing speculative image handling: pyvips load failed for /app/uploads/trace/truncated.jpg (unable to call jpegload\n  VipsJpeg: premature end of JPEG image\nVipsJpeg: Invalid JPEG file structure: missing SOS marker\n) \u2014 falling back to cv2 with no color management. Convert to standard sRGB 8-bit (or tagged EXR with hillview:encoding) before upload."
+        }
+      },
+      "vips_operations": [
+        "jpegload"
+      ],
+      "exiftool_invocations": 1,
+      "exiftool_returncodes": [
+        0
+      ],
+      "metadata_directories": [
+        "directory\tImage::ExifTool::JFIF::Main\tPrintConv=0\tExtractEmbedded=0"
+      ]
+    },
+    {
+      "fixture": "mode-auto-fast-False",
+      "results": {
+        "variants": [
+          "full",
+          "640_llm"
+        ]
+      },
+      "vips_operations": [
+        "autorot",
+        "colourspace",
+        "jpegload"
+      ],
+      "exiftool_invocations": 2,
+      "exiftool_returncodes": [
+        0,
+        0
+      ],
+      "metadata_directories": [
+        "directory\tImage::ExifTool::JFIF::Main\tPrintConv=1\tExtractEmbedded=0"
+      ]
+    },
+    {
+      "fixture": "mode-auto-fast-True",
+      "results": {
+        "variants": [
+          "full"
+        ]
+      },
+      "vips_operations": [
+        "autorot",
+        "colourspace",
+        "jpegload"
+      ],
+      "exiftool_invocations": 0,
+      "exiftool_returncodes": [],
+      "metadata_directories": []
+    },
+    {
+      "fixture": "mode-skip-fast-False",
+      "results": {
+        "variants": [
+          "full",
+          "640_llm"
+        ]
+      },
+      "vips_operations": [
+        "autorot",
+        "colourspace",
+        "jpegload"
+      ],
+      "exiftool_invocations": 2,
+      "exiftool_returncodes": [
+        0,
+        0
+      ],
+      "metadata_directories": [
+        "directory\tImage::ExifTool::JFIF::Main\tPrintConv=1\tExtractEmbedded=0"
+      ]
+    },
+    {
+      "fixture": "mode-skip-fast-True",
+      "results": {
+        "variants": [
+          "full"
+        ]
+      },
+      "vips_operations": [
+        "autorot",
+        "colourspace",
+        "jpegload"
+      ],
+      "exiftool_invocations": 0,
+      "exiftool_returncodes": [],
+      "metadata_directories": []
+    },
+    {
+      "fixture": "mode-manual-fast-False",
+      "results": {
+        "variants": [
+          "full",
+          "640_llm"
+        ]
+      },
+      "vips_operations": [
+        "autorot",
+        "colourspace",
+        "jpegload"
+      ],
+      "exiftool_invocations": 2,
+      "exiftool_returncodes": [
+        0,
+        0
+      ],
+      "metadata_directories": [
+        "directory\tImage::ExifTool::JFIF::Main\tPrintConv=1\tExtractEmbedded=0"
+      ]
+    },
+    {
+      "fixture": "mode-manual-fast-True",
+      "results": {
+        "variants": [
+          "full"
+        ]
+      },
+      "vips_operations": [
+        "autorot",
+        "colourspace",
+        "jpegload"
+      ],
+      "exiftool_invocations": 0,
+      "exiftool_returncodes": [],
+      "metadata_directories": []
+    },
+    {
+      "fixture": "mode-precomputed-fast-False",
+      "results": {
+        "variants": [
+          "full",
+          "640_llm"
+        ]
+      },
+      "vips_operations": [
+        "autorot",
+        "colourspace",
+        "jpegload"
+      ],
+      "exiftool_invocations": 2,
+      "exiftool_returncodes": [
+        0,
+        0
+      ],
+      "metadata_directories": [
+        "directory\tImage::ExifTool::JFIF::Main\tPrintConv=1\tExtractEmbedded=0"
+      ]
+    },
+    {
+      "fixture": "mode-precomputed-fast-True",
+      "results": {
+        "variants": [
+          "full"
+        ]
+      },
+      "vips_operations": [
+        "autorot",
+        "colourspace",
+        "jpegload"
+      ],
+      "exiftool_invocations": 0,
+      "exiftool_returncodes": [],
+      "metadata_directories": []
+    }
+  ],
+  "gm_positive_control": "Generated PrintConv: \"$val unit$marker\"\nGM_DICTIONARY\n",
+  "gm_patch_control": {
+    "installed": "Generated PrintConv: \"$val unit$marker\"",
+    "upstream_fix": "Generated PrintConv: \"$val unit\\$marker\""
+  },
+  "backport_validation": {
+    "patched_image": "sha256:a2ddaedb83fb0fd049a027599587ac71f57670f3934113aa8b24890678f95fb7",
+    "trace_comparison": "All 19 full trace objects exactly equal to the original image results",
+    "original_vs_backport_control": {
+      "installed": "Generated PrintConv: \"$val unit$marker\"",
+      "upstream_fix": "Generated PrintConv: \"$val unit\\$marker\"",
+      "ordinary_unit_compatibility": {
+        "rpm": "Formatted: 12.50 rpm",
+        "kph": "Formatted: 12.50 km/h",
+        "widgets/s": "Formatted: 12.5 widgets/s"
+      }
+    },
+    "patched_image_control": {
+      "installed": "Generated PrintConv: \"$val unit\\$marker\"",
+      "upstream_fix": "Generated PrintConv: \"$val unit\\$marker\"",
+      "ordinary_unit_compatibility": {
+        "rpm": "Formatted: 12.50 rpm",
+        "kph": "Formatted: 12.50 km/h",
+        "widgets/s": "Formatted: 12.5 widgets/s"
+      }
+    },
+    "build_controls": [
+      "applied to original code",
+      "second application recognizes already-fixed code",
+      "unknown and ambiguous source rejected without writing"
+    ],
+    "deployment": "review image only; production Dockerfile wired; no running service changed"
+  }
+}

@@ -117,7 +117,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
     private currentBounds?: Bounds;
     private maxPhotos?: number;
     private picks?: Set<PhotoId>;
-    private queryOptionsJson?: string | null;  // Pre-serialized analysis filters
+    private queryOptionsJson?: string | null;  // Pre-serialized Hillview filters
     // Watchdog: an EventSource that goes silent (no message, no error) would
     // otherwise never resolve start(), and the area process it belongs to would
     // never complete. Re-armed on open and on every message.
@@ -250,9 +250,9 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             url.searchParams.set('max_photos', this.maxPhotos.toString());
         }
 
-        // Add analysis_filters parameter if pre-serialized filters are provided
+        // Add filters parameter if pre-serialized filters are provided
         if (this.queryOptionsJson) {
-            url.searchParams.set('analysis_filters', this.queryOptionsJson);
+            url.searchParams.set('filters', this.queryOptionsJson);
         }
 
         // Add authentication token (force refresh on retry attempts)

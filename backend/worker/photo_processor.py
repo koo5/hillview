@@ -12,24 +12,30 @@ import logging
 import re
 import subprocess
 import shlex
+from dataclasses import dataclass
 from typing import Optional, Dict, Any, List, Tuple
 from uuid import UUID
 from datetime import datetime, timezone, timedelta
 import cv2
 import numpy as np
 from PIL import Image
+from image_formats import HILLVIEW_AUX, require_supported_image
 import httpx
 from blur import read_image, apply_blackout, normalize_to_srgb
-from detections import should_blur
 from throttle import Throttle
-from pydantic import BaseModel
-from common.security_utils import sanitize_filename, validate_file_path, check_file_content, validate_image_dimensions, SecurityValidationError, validate_user_id, IMAGE_TOOL_TIMEOUT
+from pydantic import BaseModel, field_validator
+from common.detections import is_blurred, normalize_detections
+from common.security_utils import sanitize_filename, validate_file_path, check_file_content, validate_image_dimensions, SecurityValidationError, validate_user_id, IMAGE_TOOL_TIMEOUT, MAX_IMAGE_PIXELS
 import processing_state
 from common.cdn_uploader import cdn_uploader
 from common.config import get_pics_url
 
 
 logger = logging.getLogger(__name__)
+
+# JPEG probing must honor the same configured pixel limit as validation,
+# rather than Pillow's lower default. Auxiliary probes retain ImageMagick policy.
+Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
 os.environ["OPENCV_IMGCODECS_WEBP_MAX_FILE_SIZE"] = "209715200"  # 200MB
 
@@ -182,7 +188,10 @@ def _override_blur_free(override: Optional["AnonymizationOverride"]) -> Optional
 	if override is None:
 		return None
 	if override.detections is not None:
-		return not any(o.get('blurred', should_blur(o)) for o in (override.detections.get('objects') or []))
+		# This classifies incoming precomputed data, so normalize it before
+		# reading flags even if a caller changed the model after validation.
+		detections = normalize_detections(override.detections)
+		return not any(is_blurred(o) for o in (detections.get('objects') or []))
 	if override.skip_anonymization:
 		return True
 	return not any(None not in (r.get('x'), r.get('y'), r.get('width'), r.get('height')) for r in override.rectangles)
@@ -281,15 +290,20 @@ class AnonymizationOverride(BaseModel):
 	- Dict with an "objects" key: PRECOMPUTED detections — the
 	  detected_objects value from a previous processing of the same image
 	  bytes (e.g. copied from a dev server by the pics pipeline's
-	  apply_dev_ratings.py). The objects whose ``blurred`` flag (or the
-	  ``should_blur`` fallback for legacy entries) says so are blurred with
-	  their real class_ids (stick figures preserved), and the dict is
-	  persisted to ``detected_objects`` VERBATIM — class names, confidences,
-	  model_name and sub-threshold near-misses all survive for future
-	  re-anonymization / threshold tuning.
+	  apply_dev_ratings.py). Missing legacy flags/provenance are added when
+	  accepting the input. Objects whose explicit ``blurred`` flag is true
+	  are blurred with their real class_ids (stick figures preserved), and
+	  the normalized dict is persisted. Existing fields —
+	  class names, confidences, model_name and sub-threshold near-misses — all
+	  survive for future re-anonymization / threshold tuning.
 	"""
 	rectangles: List[Dict[str, int]] = []  # Each dict: {x, y, width, height}
-	detections: Optional[Dict[str, Any]] = None  # verbatim detected_objects dict
+	detections: Optional[Dict[str, Any]] = None
+
+	@field_validator('detections')
+	@classmethod
+	def normalize_precomputed_detections(cls, value):
+		return normalize_detections(value)
 
 	@classmethod
 	def from_json_string(cls, json_str: Optional[str]) -> Optional["AnonymizationOverride"]:
@@ -513,6 +527,28 @@ def parse_exif_datetime(value, offset_value=None) -> Optional[datetime]:
 
 throttle = Throttle('photo_processor')
 
+
+@dataclass(frozen=True)
+class OptimizedPhoto:
+	"""Metadata returned after creating a photo's output image files.
+
+	``sizes`` describes the generated WebP files (URLs, widths and heights),
+	including resized/cropped copies and optional zoom-pyramid metadata.
+	``detections`` contains the detected objects and their bounding boxes.
+	``width``/``height`` describe the whole processed photo after rotation,
+	before any resizing/cropping; the boxes use these full-size coordinates.
+
+	Returning these dimensions with the file metadata lets the caller save
+	the dimensions actually used, rather than keep its earlier header probe.
+	Even the file named ``full`` can be downscaled, so its dimensions cannot
+	be used to recover the full-size photo dimensions.
+	"""
+	sizes: Dict[str | int, Dict[str, Any]]
+	detections: Optional[Dict[str, Any]]
+	width: int
+	height: int
+
+
 class PhotoProcessor:
 	"""Unified photo processing service for uploads."""
 
@@ -523,6 +559,7 @@ class PhotoProcessor:
 
 	def extract_exif_data(self, filepath: str) -> Dict[str, Any]:
 		"""Extract EXIF data including GPS and bearing information using known-good implementation."""
+		require_supported_image(filepath)
 		logger.info(f"Processing EXIF data from {filepath}")
 
 		result = {
@@ -736,7 +773,7 @@ class PhotoProcessor:
 
 	def get_image_dimensions(self, filepath: str, orientation: int
 							 ) -> Tuple[int, int]:
-		"""Get image dimensions from the file header, without decoding pixels."""
+		"""Probe dimensions using JPEG-only public or established auxiliary paths."""
 		try:
 			# Validate filepath before passing to external tool
 			validated_filepath = _validate_input_path(filepath)
@@ -744,13 +781,15 @@ class PhotoProcessor:
 			logger.debug(f"Path validation failed for identify: {e}")
 			return 0, 0
 
+		require_supported_image(validated_filepath)
 		if validated_filepath.lower().endswith('.exr'):
-			# ImageMagick decodes the full EXR raster even for -format '%w %h'
-			# (observed: 8.5 min on a 35 GB pano). Read the header directly via
+			# The old ImageMagick command without -ping decoded a full EXR
+			# (8.5 min on a 35 GB pano). Preserve the direct header probe via
 			# OpenEXR instead — blur._exr_encoding already parses the same
 			# header on the same files, so this adds no new parser to the
 			# untrusted-input surface (and runs in the crash-isolated pool
 			# subprocess like everything else here).
+			# AUX only: native EXR header parsing also needs security auditing.
 			import OpenEXR
 			exr = OpenEXR.InputFile(validated_filepath)
 			try:
@@ -758,12 +797,17 @@ class PhotoProcessor:
 				dimensions = [dw.max.x - dw.min.x + 1, dw.max.y - dw.min.y + 1]
 			finally:
 				exr.close()
-		else:
-			# -ping: header-only inspection — identify must not decode a whole
-			# gigapixel raster to answer width×height.
+		elif HILLVIEW_AUX:
+			# Preserve the established auxiliary probe and its ImageMagick resource
+			# policy. These additional parsers may need further security audits.
 			cmd = ['identify', '-ping', '-format', '%w %h', validated_filepath]
 			output = subprocess.check_output(cmd, timeout=IMAGE_TOOL_TIMEOUT).decode('utf-8')
 			dimensions = [int(x) for x in output.split()]
+		else:
+			# Public input is JPEG only. Restrict Pillow's parser selection too;
+			# opening a JPEG reads dimensions without materializing its pixels.
+			with Image.open(validated_filepath, formats=['JPEG']) as image:
+				dimensions = list(image.size)
 		if orientation in [5, 6, 7, 8]:
 			dimensions = [dimensions[1], dimensions[0]]
 		logger.debug(f'Image dimensions: {dimensions}')
@@ -774,7 +818,7 @@ class PhotoProcessor:
 									 output_base: Optional[str] = None,
 									 keep_pics_in_worker: bool = False,
 									 local_pyramid_path: Optional[str] = None,
-									 ) -> tuple[Dict[str, Dict[str, Any]], Optional[Dict[str, Any]]]:
+									 ) -> OptimizedPhoto:
 		"""Create optimized versions with anonymization and unique IDs.
 
 		fast: Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding, reduced size set.
@@ -785,6 +829,8 @@ class PhotoProcessor:
 			volume instead of shipping them (see _get_size_url).
 		local_pyramid_path: an externally rendered <prefix>.dzi OFFERED by the
 			client; the worker decides whether to use it (see the pyramid block).
+		Returns generated-file metadata, detections and the full-size dimensions
+		after decoding (or from the accepted pyramid if decoding was skipped).
 		"""
 
 		sizes_info = {}
@@ -862,12 +908,13 @@ class PhotoProcessor:
 				if anonymization_override.detections is not None:
 					# Precomputed detections: reuse another run's rects on the
 					# same bytes instead of re-running the detector, and
-					# persist the dict verbatim (provenance survives — see
+					# persist normalized flags (provenance survives — see
 					# AnonymizationOverride). Blur decision per object follows
-					# the shared consumer convention (detections.py).
-					detections = anonymization_override.detections
+					# the shared consumer convention (detections.py). Normalize
+					# here too in case the model was modified after validation.
+					detections = normalize_detections(anonymization_override.detections)
 					objects = detections.get("objects") or []
-					to_blur = [o for o in objects if o.get("blurred", should_blur(o))]
+					to_blur = [o for o in objects if is_blurred(o)]
 					logger.info(f"Applying precomputed detections for {unique_id}: "
 								f"blurring {len(to_blur)}/{len(objects)} objects")
 					if pyr is None:
@@ -905,12 +952,21 @@ class PhotoProcessor:
 					apply_blur(source_path, image, detections['objects'])
 
 
-			# Use actual image dimensions (may differ from EXIF width/height
-			# due to auto-rotation during pyvips loading). Without a decoded
-			# raster the header dims stand — the accepted pyramid was checked
-			# against exactly those.
+			# Use the whole image's dimensions after decoding/rotation. If decoding
+			# was skipped, use the accepted pyramid's full-size dimensions instead.
 			if image is not None:
 				height, width = image.shape[:2]
+			elif pyr is not None:
+				width, height = pyr.width, pyr.height
+			# For sources narrower than 2*FULL_VARIANT_WIDTH, we can accept an
+			# offered pyramid for serving but still decode the original to create
+			# resized image files. That early acceptance checked header-probe
+			# dimensions; the decoded dimensions can differ. Recheck before
+			# publishing either the pyramid or the generated image files.
+			if ext_pyramid is not None and (ext_pyramid['width'], ext_pyramid['height']) != (width, height):
+				raise ValueError(
+					f"external pyramid {local_pyramid_path} is {ext_pyramid['width']}x{ext_pyramid['height']} "
+					f"but the decoded image is {width}x{height} — wrong pyramid for this file")
 
 			# Pyramid decision, now that anonymization has resolved: an
 			# external offer still pending (auto-detect) is judged on the real
@@ -919,7 +975,7 @@ class PhotoProcessor:
 			# after the variants. Neither becomes the variant source here: the
 			# raster exists on every path through this block and wins below.
 			if offer_pending:
-				blur_applied = any(o.get('blurred', should_blur(o)) for o in (detections or {}).get('objects', []))
+				blur_applied = any(is_blurred(o) for o in (detections or {}).get('objects', []))
 				ext_pyramid = self._external_pyramid(local_pyramid_path, width, height, blur_applied,
 				                                     keep_pics_in_worker, quality, unique_id)
 				# The source was decoded on this path (the detector needed it),
@@ -1045,11 +1101,11 @@ class PhotoProcessor:
 			llm_image = src.fresh_for_width(LLM_VARIANT_SIZE)
 			# Black out only the objects that were actually blurred — sub-threshold
 			# detections are recorded but stay visible (same policy as apply_blur).
-			# Prefer the persisted "blurred" flag; fall back to should_blur for legacy
-			# format-#1 records that predate it (see detections.py). Bboxes are
-			# full-image coords; a pyramid level needs them scaled to its size.
+			# Use the explicit decision; incoming precomputed data was normalized
+			# before this point. Bboxes are full-image coords; a pyramid level
+			# needs them scaled to its size.
 			apply_blackout(llm_image, scale_bboxes(
-				[o for o in detections.get("objects", []) if o.get("blurred", should_blur(o))],
+				[o for o in detections.get("objects", []) if is_blurred(o)],
 				llm_image.shape[1] / width))
 			llm_h, llm_w = llm_image.shape[:2]
 
@@ -1122,7 +1178,7 @@ class PhotoProcessor:
 			if pyramid:
 				sizes_info['full']['pyramid'] = pyramid
 
-		return sizes_info, detections
+		return OptimizedPhoto(sizes=sizes_info, detections=detections, width=width, height=height)
 
 
 
@@ -1150,6 +1206,10 @@ class PhotoProcessor:
 		match the processed image: that is not policy but a wrong pyramid for
 		this file (a pipeline association bug worth surfacing, not hiding).
 		"""
+		# Auxiliary XML descriptors and WebP tiles need further security audit.
+		# Public workers render their own pyramid from the validated JPEG.
+		if not HILLVIEW_AUX:
+			return None
 		# defusedxml: same ElementTree API, with entity expansion (billion
 		# laughs) and external-entity resolution refused — the descriptor is
 		# client-named input even though it lives on an operator archive.
@@ -1649,7 +1709,7 @@ class PhotoProcessor:
 			- "[]": skip anonymization entirely
 			- "[{...}]": use specific rectangles (future feature)
 			- '{"objects": [...], ...}': precomputed detected_objects — blur
-			  per the stored blurred flags and persist verbatim (see
+			  per the stored blurred flags and add missing legacy flags (see
 			  AnonymizationOverride)
 		fast: Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding, reduced size set.
 		output_base: This job's output root (its per-job work dir). Defaults to
@@ -1667,6 +1727,9 @@ class PhotoProcessor:
 			logger.error(f"Filename sanitization failed for {filename}: {e}")
 			raise ValueError(f"Invalid filename: {e}")
 
+		# Enforce the worker policy before dcraw, metadata tools or any decoder.
+		require_supported_image(file_path)
+
 		# Canon RAW (CR2): convert to TIFF so downstream PIL/cv2/exiftool see
 		# a standard image. Output is 8-bit sRGB (dcraw -T), which is what
 		# we want heading into WebP — 16-bit would be quantized away anyway.
@@ -1680,6 +1743,7 @@ class PhotoProcessor:
 		# work dir), NOT next to the source: the caller reclaims the work dir
 		# by rmtree'ing it, and in no-upload mode the source sits on a
 		# read-only mount where a sibling write would fail with EROFS.
+		# AUX only (gated above): dcraw and RAW metadata need further security audit.
 		if os.path.splitext(file_path)[1].lower() == '.cr2':
 			tiff_stem = sanitize_filename(os.path.splitext(os.path.basename(file_path))[0])
 			tiff_path = os.path.join(output_base or self.upload_dir, tiff_stem + '.tiff')
@@ -1863,7 +1927,7 @@ class PhotoProcessor:
 		# .exr.encoding sidecar value); read_image falls back to the embedded
 		# header tag when this is absent.
 		encoding = metadata.get('encoding') if metadata else None
-		sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override, quality=quality, fast=fast, encoding=encoding, output_base=output_base, keep_pics_in_worker=keep_pics_in_worker, local_pyramid_path=local_pyramid_path)
+		optimized = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override, quality=quality, fast=fast, encoding=encoding, output_base=output_base, keep_pics_in_worker=keep_pics_in_worker, local_pyramid_path=local_pyramid_path)
 
 		# The raw inertial window, stored as its own gzipped artifact rather than
 		# folded into exif_data. NOT in PROVENANCE_KEYS by design — see the note
@@ -1883,15 +1947,15 @@ class PhotoProcessor:
 		return {
 			'filename': safe_filename,
 			'exif_data': exif_data,
-			'width': width,
-			'height': height,
+			'width': optimized.width,
+			'height': optimized.height,
 			'latitude': gps_data.get('latitude'),
 			'longitude': gps_data.get('longitude'),
 			'compass_angle': gps_data.get('bearing'),
 			'pitch': gps_data.get('pitch'),
 			'altitude': gps_data.get('altitude'),
-			'sizes': sizes_info,  # Worker expects 'sizes', not 'sizes_info'
-			'detected_objects': detections,
+			'sizes': optimized.sizes,
+			'detected_objects': optimized.detections,
 			'description': description,
 			'is_public': is_public,
 			'user_id': user_id,

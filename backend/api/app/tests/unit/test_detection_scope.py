@@ -18,38 +18,74 @@ api_app_dir = os.path.join(os.path.dirname(__file__), '..', '..')
 sys.path.insert(0, os.path.abspath(api_app_dir))
 sys.path.insert(1, os.path.abspath(os.path.join(api_app_dir, '..', '..')))
 
-from common.detections import BLUR_CONFIDENCE, blurred_only, is_blurred  # noqa: E402
+from common.detections import BLUR_CONFIDENCE, blurred_only, is_blurred, should_blur  # noqa: E402
 from common.models import UserRole  # noqa: E402
-from photo_routes import get_photo_detections  # noqa: E402
+from photo_routes import ProcessedPhotoData, get_photo_detections  # noqa: E402
 
 OWNER_ID = 'owner-1'
 
-# One object per stored format (see common/detections.py), split by verdict.
+# Legacy examples are incoming worker payloads, not valid stored objects.
 LEGACY = {'class_id': 0, 'class_name': 'person', 'blur': 151, 'bbox': {'x1': 0, 'y1': 0, 'x2': 9, 'y2': 9}}
 CONF_HIGH = {'class_id': 2, 'class_name': 'car', 'confidence': 0.9, 'scale': 1.0, 'bbox': {'x1': 1, 'y1': 1, 'x2': 9, 'y2': 9}}
 CONF_LOW = {'class_id': 0, 'class_name': 'person', 'confidence': 0.3, 'scale': 0.5, 'bbox': {'x1': 2, 'y1': 2, 'x2': 9, 'y2': 9}}
-FLAGGED_ON = {'class_id': 7, 'class_name': 'truck', 'confidence': 0.8, 'blurred': True, 'bbox': {'x1': 3, 'y1': 3, 'x2': 9, 'y2': 9}}
-FLAGGED_OFF = {'class_id': 0, 'class_name': 'person', 'confidence': 0.31, 'blurred': False, 'bbox': {'x1': 4, 'y1': 4, 'x2': 9, 'y2': 9}}
+FLAGGED_ON = {'class_id': 7, 'class_name': 'truck', 'confidence': 0.1, 'blurred': True, 'bbox': {'x1': 3, 'y1': 3, 'x2': 9, 'y2': 9}}
+FLAGGED_OFF = {'class_id': 0, 'class_name': 'person', 'confidence': 0.99, 'blurred': False, 'bbox': {'x1': 4, 'y1': 4, 'x2': 9, 'y2': 9}}
 MANUAL = {'class_id': None, 'blur': 500, 'blurred': True, 'bbox': {'x1': 5, 'y1': 5, 'x2': 9, 'y2': 9}}
 
-ALL_OBJECTS = [LEGACY, CONF_HIGH, CONF_LOW, FLAGGED_ON, FLAGGED_OFF, MANUAL]
-BLURRED_OBJECTS = [LEGACY, CONF_HIGH, FLAGGED_ON, MANUAL]
+INCOMING_OBJECTS = [LEGACY, CONF_HIGH, CONF_LOW, FLAGGED_ON, FLAGGED_OFF, MANUAL]
+INCOMING = {'objects': INCOMING_OBJECTS, 'model_name': 'yolo11x.pt'}
+ALL_OBJECTS = [
+	{**LEGACY, 'blurred': True, 'blurred_from': 'legacy-no-confidence'},
+	{**CONF_HIGH, 'blurred': True, 'blurred_from': 'legacy-confidence-0.4'},
+	{**CONF_LOW, 'blurred': False, 'blurred_from': 'legacy-confidence-0.4'},
+	FLAGGED_ON, FLAGGED_OFF, MANUAL,
+]
+BLURRED_OBJECTS = [ALL_OBJECTS[0], ALL_OBJECTS[1], FLAGGED_ON, MANUAL]
 
 DETECTED = {'objects': ALL_OBJECTS, 'model_name': 'yolo11x.pt'}
 
 
+class TestWorkerDetectionsWriteBoundary:
+	def test_old_worker_payload_gets_explicit_flags_without_mutating_input(self):
+		out = ProcessedPhotoData(photo_id='p1', detected_objects=INCOMING).detected_objects
+		assert [o['blurred'] for o in out['objects']] == [True, True, False, True, False, True]
+		assert out['objects'][0]['blurred_from'] == 'legacy-no-confidence'
+		assert out['objects'][2]['blurred_from'] == 'legacy-confidence-0.4'
+		assert 'blurred' not in LEGACY
+		assert out['model_name'] == INCOMING['model_name']
+		assert out['objects'][3:] == ALL_OBJECTS[3:]
+
+	@pytest.mark.parametrize('detected', [None, {}, {'objects': []}, {'objects': [], 'manual': True}])
+	def test_no_objects_are_invented(self, detected):
+		assert ProcessedPhotoData(photo_id='p1', detected_objects=detected).detected_objects == detected
+
+	@pytest.mark.parametrize('obj', [{'blurred': 'false'}, {'confidence': 'bad'}, None])
+	def test_invalid_objects_are_rejected_before_storage(self, obj):
+		with pytest.raises(ValueError):
+			ProcessedPhotoData(photo_id='p1', detected_objects={'objects': [obj]})
+
+
 class TestIsBlurred:
-	"""The four stored formats, each read the way its writer meant it."""
+	"""Stored decisions are explicit; confidence is a writer concern."""
 
-	def test_legacy_without_confidence_is_blurred(self):
-		# Format #1 predates both the confidence and the flag: it was blurred
-		# unconditionally when it was written.
-		assert is_blurred(LEGACY) is True
+	@pytest.mark.parametrize('obj', [LEGACY, CONF_HIGH, CONF_LOW, {'confidence': BLUR_CONFIDENCE}])
+	def test_stored_legacy_objects_are_rejected(self, obj):
+		with pytest.raises(ValueError, match='explicit boolean'):
+			is_blurred(obj)
 
-	def test_confidence_is_compared_to_the_blur_threshold(self):
-		assert is_blurred(CONF_HIGH) is True
-		assert is_blurred(CONF_LOW) is False
-		assert is_blurred({'confidence': BLUR_CONFIDENCE}) is True
+	def test_confidence_threshold_is_still_used_for_new_writer_decisions(self):
+		assert should_blur(CONF_HIGH) is True
+		assert should_blur(CONF_LOW) is False
+		assert should_blur({'confidence': BLUR_CONFIDENCE}) is True
+
+	@pytest.mark.parametrize('flag', [False, True])
+	def test_reading_a_flag_does_not_evaluate_confidence(self, flag):
+		assert is_blurred({'blurred': flag, 'confidence': 'not evaluated'}) is flag
+
+	@pytest.mark.parametrize('flag', [None, 'false', 0, 1, []])
+	def test_non_boolean_stored_flags_are_rejected(self, flag):
+		with pytest.raises(ValueError, match='explicit boolean'):
+			is_blurred({'blurred': flag})
 
 	def test_persisted_flag_wins_over_the_threshold(self):
 		# A threshold move must not retroactively rewrite what was painted.
@@ -67,7 +103,7 @@ class TestBlurredOnly:
 
 	def test_keeps_the_container_keys(self):
 		# model_name/manual describe the pass, not its subjects.
-		out = blurred_only({'objects': [CONF_LOW], 'model_name': 'yolo11x.pt', 'manual': False})
+		out = blurred_only({'objects': [ALL_OBJECTS[2]], 'model_name': 'yolo11x.pt', 'manual': False})
 		assert out['model_name'] == 'yolo11x.pt'
 		assert out['manual'] is False
 		assert out['objects'] == []
@@ -94,6 +130,11 @@ def _user(user_id, role=UserRole.USER):
 
 
 class TestDetectionsEndpointScope:
+
+	@pytest.mark.asyncio
+	async def test_public_read_does_not_guess_decisions_for_unmigrated_rows(self):
+		with pytest.raises(ValueError, match='explicit boolean'):
+			await get_photo_detections('p1', current_user=None, db=_db(INCOMING))
 
 	@pytest.mark.asyncio
 	async def test_anonymous_gets_only_the_blurred_boxes(self):

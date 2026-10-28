@@ -119,14 +119,42 @@ describe('rectToViewBounds', () => {
 });
 
 describe('toW3cAnnotation', () => {
-	it('builds the exact W3C shape with pixel-space target', () => {
+	it('builds a pixel-space target with Annotorious rectangle bounds', () => {
 		expect(toW3cAnnotation({ id: 'a1', body: 'Ještěd | hill', target: RECT_TARGET }, 1000, 500)).toEqual({
 			'@context': 'http://www.w3.org/ns/anno.jsonld',
 			id: 'a1',
 			type: 'Annotation',
 			body: [{ type: 'TextualBody', value: 'Ještěd | hill', purpose: 'commenting' }],
-			target: { selector: { type: 'RECTANGLE', geometry: { x: 250, y: 250, w: 100, h: 100 } } },
+			target: {
+				selector: {
+					type: 'RECTANGLE',
+					geometry: {
+						x: 250,
+						y: 250,
+						w: 100,
+						h: 100,
+						bounds: { minX: 250, minY: 250, maxX: 350, maxY: 350 }
+					}
+				}
+			},
 		});
+	});
+
+	it('preserves existing pixel-space bounds', () => {
+		const target = {
+			selector: {
+				type: 'RECTANGLE',
+				geometry: {
+					x: 0.25,
+					y: 0.5,
+					w: 0.1,
+					h: 0.2,
+					bounds: { minX: 260, minY: 255, maxX: 345, maxY: 355 }
+				}
+			}
+		};
+		expect((toW3cAnnotation({ id: 'a3', body: null, target }, 1000, 500).target as any).selector.geometry.bounds)
+			.toEqual({ minX: 260, minY: 255, maxX: 345, maxY: 355 });
 	});
 
 	it('empty body → empty body array', () => {

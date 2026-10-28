@@ -22,10 +22,8 @@ TARGET_CLASSES = {
 #     blurred.
 DETECT_CONFIDENCE = 0.25
 
-# BLUR_CONFIDENCE and should_blur live in common/detections.py, together with
-# the four detected_objects formats they have to cope with: the API serves this
-# column too and must reach the same verdict. Re-exported so the worker's own
-# `from detections import ...` reads as before.
+# New model decisions use the shared writer threshold. Stored-object consumers
+# read the explicit blurred flag through common.detections.is_blurred instead.
 from common.detections import BLUR_CONFIDENCE, should_blur  # noqa: F401,E402
 
 

@@ -156,6 +156,29 @@ export function toW3cAnnotation(
 	imgWidth: number,
 	imgHeight: number,
 ): Record<string, unknown> {
+	const target = targetToPixels(a.target, imgWidth, imgHeight);
+	// Annotorious v3's internal spatial index requires pixel-space bounds on
+	// RECTANGLE geometries. Older DB annotations only contain x/y/w/h, so they
+	// parse and feed the label canvas but are silently absent from the SVG
+	// annotation layer unless the derived bounds are supplied here.
+	if (target) {
+		const selectorRaw = target.selector;
+		const selectors = Array.isArray(selectorRaw) ? selectorRaw : [selectorRaw];
+		for (const selector of selectors) {
+			if (!selector || selector.type !== 'RECTANGLE' || !selector.geometry) continue;
+			const geometry = selector.geometry;
+			const { x, y, w, h } = geometry;
+			if (
+				typeof x === 'number' && Number.isFinite(x) &&
+				typeof y === 'number' && Number.isFinite(y) &&
+				typeof w === 'number' && Number.isFinite(w) &&
+				typeof h === 'number' && Number.isFinite(h) &&
+				!geometry.bounds
+			) {
+				geometry.bounds = { minX: x, minY: y, maxX: x + w, maxY: y + h };
+			}
+		}
+	}
 	return {
 		'@context': 'http://www.w3.org/ns/anno.jsonld',
 		id: a.id,
@@ -163,6 +186,6 @@ export function toW3cAnnotation(
 		body: a.body
 			? [{ type: 'TextualBody', value: a.body, purpose: 'commenting' }]
 			: [],
-		target: targetToPixels(a.target, imgWidth, imgHeight),
+		target,
 	};
 }

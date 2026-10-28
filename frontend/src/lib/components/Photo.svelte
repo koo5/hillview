@@ -6,7 +6,7 @@
 	import {auth} from '$lib/auth.svelte.js';
 	import {http, handleApiError} from '$lib/http';
 	import {myGoto} from '$lib/navigation.svelte.js';
-	import {getDevicePhotoUrl} from '$lib/devicePhotoHelper';
+	import {getGalleryImage} from '$lib/galleryImage';
 	import {simplePhotoWorker} from '$lib/simplePhotoWorker';
 	import {zoomViewData, pendingZoomView} from '$lib/zoomView.svelte.js';
 	import {singleTap} from '$lib/actions/singleTap';
@@ -67,17 +67,17 @@
 	export let className = '';
 	export let clientWidth: number | undefined = undefined;
 	export let onInteraction: (() => void) | undefined = undefined;
+	export let onImageReady: ((url: string) => void) | undefined = undefined;
 
 	let clientWidth2: number | undefined;
 
-	let fetchPriority = className === 'front' ? 'high' : 'auto';
+	$: fetchPriority = className === 'front' ? 'high' : 'auto';
 
 	let containerElement: HTMLElement | undefined;
 	let selectedUrl: string | undefined;
 	let selectedSize: any;
 	let width = 100;
 	let height = 100;
-	let devicePhotoUrl: string | null = null;
 	let bg_style_stretched_photo;
 	let border_style;
 
@@ -109,95 +109,23 @@
 		handleImageChange(selectedUrl);
 	}
 
-	async function updateSelectedUrl() {
-
-		if (clientWidth)
-			clientWidth2 = clientWidth;
-		else if (!clientWidth2)
-			clientWidth2 = 500;
-
-		//console.log('🢄updateSelectedUrl clientWidth:', clientWidth2);
-
-		if (!containerElement) {
-			return;
-		}
-
+	function updateSelectedUrl() {
+		clientWidth2 = clientWidth || clientWidth2 || 500;
+		if (!containerElement) return;
 		if (!photo) {
 			selectedUrl = '';
-			devicePhotoUrl = null;
 			return;
 		}
-
-		// Handle device photos specially
-		if (photo.is_device_photo && photo.url) {
-			try {
-				devicePhotoUrl = getDevicePhotoUrl(photo.url);
-				selectedUrl = devicePhotoUrl;
-				/*console.log('🢄Photo.svelte: Device photo URL conversion:', {
-					originalUrl: photo.url,
-					convertedUrl: devicePhotoUrl,
-					photoId: photo.id
-				});*/
-				return;
-			} catch (error) {
-				console.error('🢄Failed to load device photo:', error);
-				selectedUrl = '';
-				return;
-			}
+		try {
+			const image = getGalleryImage(photo, clientWidth2);
+			selectedUrl = image.url;
+			selectedSize = image.size;
+			width = image.width ?? 100;
+			height = image.height ?? 100;
+		} catch (error) {
+			console.error('🢄Failed to select photo image:', error);
+			selectedUrl = '';
 		}
-
-		if (!photo.sizes) {
-			if (doLog) console.log('🢄Photo.svelte: No sizes, using photo.url:', photo.url);
-			selectedUrl = photo.url;
-			return;
-		}
-
-		//console.log('🢄Photo.svelte: Processing sizes for photo:', photo.id, 'is_device_photo:', photo.is_device_photo, 'sizes:', Object.keys(photo.sizes), 'clientWidth:', clientWidth2);
-
-		// Find the best scaled version based on container width. Take the 'full' size if this fails
-		const sizes = Object.keys(photo.sizes).filter(size => /^\d+$/.test(size)).sort((a, b) => Number(a) - Number(b));
-		let p: any;
-		for (let i = 0; i < sizes.length; i++) {
-			const size = sizes[i];
-			//console.log('🢄size:', size);
-			if (Number(size) >= clientWidth2 || ((i === sizes.length - 1) && !photo.sizes.full)) {
-				p = photo.sizes[sizes[i]];
-				selectedSize = size;
-				width = p.width;
-				height = p.height;
-
-				// Handle device photo URLs
-				if (photo.is_device_photo) {
-					selectedUrl = getDevicePhotoUrl(p.url);
-				} else {
-					selectedUrl = p.url;
-				}
-				return;
-			}
-		}
-		selectedSize = 'full';
-		width = photo.sizes.full?.width || p?.width || 0;
-		height = photo.sizes.full?.height || p?.height || 0;
-
-		// Handle device photo URLs for full size
-		if (photo.is_device_photo && photo.sizes.full) {
-			selectedUrl = getDevicePhotoUrl(photo.sizes.full.url);
-			//console.log('🢄Photo.svelte: Using full size for device photo:', photo.id, 'original:', photo.sizes.full.url, 'converted:', selectedUrl);
-		} else {
-			selectedUrl = photo.sizes.full?.url || '';
-			/*console.log('🢄Photo.svelte: Using full size for regular photo:', {
-				photoId: photo.id,
-				selectedUrl: selectedUrl
-			});*/
-		}
-
-		/*console.log('🢄Photo.svelte: URL flow debug:', JSON.stringify({
-			photoId: photo.id,
-			is_device_photo: photo.is_device_photo,
-			selectedUrl: selectedUrl,
-			currentDisplayedUrl: displayedUrl,
-			willTriggerImageChange: selectedUrl !== displayedUrl
-		}));*/
 	}
 
 	async function handleImageChange(newUrl: string) {
@@ -388,6 +316,17 @@
 	let annotationCanvas: HTMLCanvasElement | undefined;
 	let imgElement: HTMLImageElement | undefined;
 
+	function reportImageReady(image: HTMLImageElement, url: string | undefined) {
+		if (className === 'front' && url && displayedUrl === url
+			&& image.getAttribute('src') === url && image.complete && image.naturalWidth > 0) {
+			onImageReady?.(url);
+		}
+	}
+
+	$: if (className === 'front' && photo && imgElement && selectedUrl && displayedUrl === selectedUrl) {
+		reportImageReady(imgElement, selectedUrl);
+	}
+
 	function parseAnnotationRect(target: any): {x: number, y: number, w: number, h: number} | null {
 		const selector = Array.isArray(target?.selector) ? target.selector[0] : target?.selector;
 		if (selector?.type === 'RECTANGLE' && selector.geometry) {
@@ -522,6 +461,7 @@
 					}));
 				}}
 				onload={() => {
+					if (imgElement) reportImageReady(imgElement, selectedUrl);
 					if (doLog) console.log('🢄Photo.svelte: Image loaded successfully:', JSON.stringify({
 						photoId: photo?.id,
 						displayedUrl: displayedUrl,

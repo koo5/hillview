@@ -1,0 +1,9 @@
+{
+  "apply": false,
+  "at_migrated_value": 10517,
+  "backup_photos": 10517,
+  "command": "restore",
+  "conflict_examples": [],
+  "conflicts": 0,
+  "photos_would_restore": 10517
+}

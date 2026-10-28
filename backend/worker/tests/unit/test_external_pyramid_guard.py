@@ -87,8 +87,10 @@ def test_wide_enough_photo_derives_from_pyramid_without_decoding(env, tmp_path, 
 
     source = tmp_path / 'src.jpg'  # never opened as pixels
     source.write_bytes(b'not an image')
-    sizes_info, detections = _process(proc, source, width, height, prefix + '.dzi')
+    result = _process(proc, source, width, height, prefix + '.dzi')
+    sizes_info, detections = result.sizes, result.detections
 
+    assert (result.width, result.height) == (width, height)
     assert detections == {'objects': [], 'manual': True}
     assert sizes_info['full']['width'] == PhotoProcessor.FULL_VARIANT_WIDTH
     for size in (320, 1200, 2048):
@@ -119,8 +121,10 @@ def test_narrower_photo_decodes_and_keeps_pyramid_for_serving_only(env, tmp_path
         return real_read_image(*a, **kw)
     monkeypatch.setattr(photo_processor, 'read_image', _counting)
 
-    sizes_info, _ = _process(proc, source, width, height, dzi)
+    result = _process(proc, source, width, height, dzi)
+    sizes_info = result.sizes
 
+    assert (result.width, result.height) == (width, height)
     assert len(calls) == 1
     assert sizes_info['full']['width'] == PhotoProcessor.FULL_VARIANT_WIDTH
     pyramid = sizes_info['full']['pyramid']
@@ -139,8 +143,23 @@ def test_unreadable_descriptor_declines_offer_and_processes_normally(env, tmp_pa
     dzi = arch / 'bad.dzi'
     dzi.write_text('this is not a DZI descriptor')
 
-    sizes_info, _ = _process(proc, source, width, height, dzi)
+    result = _process(proc, source, width, height, dzi)
+    sizes_info = result.sizes
 
+    assert (result.width, result.height) == (width, height)
     assert sizes_info['full']['width'] == width
     assert 'pyramid' not in sizes_info['full']
     assert 320 in sizes_info
+
+
+@pytest.fixture(scope='module', autouse=True)
+def auxiliary_worker_policy():
+    # The module-scoped pyramid fixture also needs auxiliary input enabled.
+    import image_formats
+    import blur
+    import photo_processor
+    import pyramid_source
+    with pytest.MonkeyPatch.context() as patch:
+        for module in (image_formats, blur, photo_processor, pyramid_source):
+            patch.setattr(module, 'HILLVIEW_AUX', True)
+        yield

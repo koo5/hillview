@@ -1,0 +1,119 @@
+{
+  "backup_checks": {
+    "backup_ids_outside_export": 0,
+    "backup_photos": 10517,
+    "blurred_false": 499,
+    "blurred_true": 91364,
+    "export_ids_missing_from_backup": 0,
+    "legacy_confidence": 8128,
+    "legacy_no_confidence": 83735,
+    "objects_added": 91863,
+    "verified_photos": 10517
+  },
+  "backup_present": true,
+  "backup_table": "public.detections_fix_270aa7396d26a976",
+  "conflict_examples": [],
+  "database_snapshot": {
+    "database": "hillview",
+    "read_only": "on",
+    "snapshot_at": "2026-10-28 15:39:23.175221+00:00"
+  },
+  "dry_run": {
+    "after_id": null,
+    "apply": false,
+    "batches_scanned": 205,
+    "command": "migrate",
+    "last_id": "ffff3860-adbf-45c4-82f7-76c23ba07064",
+    "photos_scanned": 102448,
+    "photos_verified": 0,
+    "photos_would_change": 0,
+    "source": "operator-refreshed production dump after detections SQL, 2026-10-28",
+    "through_id": "ffff3860-adbf-45c4-82f7-76c23ba07064"
+  },
+  "generated_at": "2026-10-28T15:39:35.082446+00:00",
+  "issues": {
+    "bbox-exceeds-image": {
+      "examples": [
+        {
+          "object_index": 0,
+          "photo_id": "a1600126-f947-416a-960f-ced19d371eb3"
+        },
+        {
+          "object_index": 1,
+          "photo_id": "a1600126-f947-416a-960f-ced19d371eb3"
+        }
+      ],
+      "objects_by_format": {
+        "explicit": 2
+      },
+      "occurrences": 2,
+      "photos": 1
+    },
+    "missing-objects": {
+      "examples": [
+        {
+          "object_index": null,
+          "photo_id": "0006835c-4c98-40ae-b545-47e2fdf28f3e"
+        },
+        {
+          "object_index": null,
+          "photo_id": "003bc008-34de-4f9e-bb25-a89b1529aecc"
+        },
+        {
+          "object_index": null,
+          "photo_id": "006feba6-b034-4a27-aa5f-a5706a2f8b15"
+        },
+        {
+          "object_index": null,
+          "photo_id": "00f456cb-ecc8-4d67-bf6e-787a78138833"
+        },
+        {
+          "object_index": null,
+          "photo_id": "0137afd2-6ae6-4465-91aa-71d8ee1966f7"
+        },
+        {
+          "object_index": null,
+          "photo_id": "01673b64-9d39-4b7f-b65e-40c68e020e5f"
+        },
+        {
+          "object_index": null,
+          "photo_id": "0170512d-8c81-480d-81e9-9fee4fb966fc"
+        },
+        {
+          "object_index": null,
+          "photo_id": "0183f58f-95f1-437b-a3b7-85256fec2aff"
+        },
+        {
+          "object_index": null,
+          "photo_id": "0208bca0-a047-40f7-b41b-6350af82cd84"
+        },
+        {
+          "object_index": null,
+          "photo_id": "02146c6f-cf2d-44ac-ba8e-5224fdf95626"
+        }
+      ],
+      "objects_by_format": {},
+      "occurrences": 863,
+      "photos": 863
+    }
+  },
+  "objects_by_consumer_verdict": {
+    "blurred": 162844,
+    "visible": 22921
+  },
+  "objects_by_format": {
+    "explicit": 185765
+  },
+  "photos": {
+    "empty": 70537,
+    "missing-objects": 863,
+    "nonempty": 30884,
+    "sql-null": 164,
+    "total": 102448
+  },
+  "size_repair_checks": {
+    "backup_photos": 381,
+    "conflicts": 0
+  },
+  "source": "operator-refreshed production dump after detections SQL, 2026-10-28"
+}

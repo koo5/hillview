@@ -3,8 +3,7 @@ import type {PhotoId, SimpleCoord, PhotoSize, BasePhotoData} from './types/photo
 // Re-export common types for use in other worker files
 export type {PhotoId, SimpleCoord, PhotoSize};
 
-// Query options for photo filtering/sorting based on AI analysis
-export interface QueryOptions {
+export interface AnalysisFilters {
     time_of_day: string | null;  // day, night, dawn_dusk
     location_type: string | null;  // indoors, outdoors, mixed
     min_farthest_distance: number | null;  // meters
@@ -14,7 +13,16 @@ export interface QueryOptions {
     tallest_building: string | null;  // none, low_rise, mid_rise, high_rise, skyscraper
     features: string[];  // OR logic
     show_unanalyzed: boolean;  // include photos without analysis
-    // Future: sorting options can be added here
+}
+
+export interface PropertyFilters {
+    min_width: number | null; // orientation-corrected original width in pixels
+}
+
+// Hillview photo filters, shared by the map and timeline.
+export interface QueryOptions {
+    analysis: AnalysisFilters;
+    properties: PropertyFilters;
 }
 
 // Worker-specific photo data (extends base with SimpleCoord)

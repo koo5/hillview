@@ -1,0 +1,12 @@
+{
+  "after_id": null,
+  "apply": false,
+  "batches_scanned": 205,
+  "command": "migrate",
+  "last_id": "ffff3860-adbf-45c4-82f7-76c23ba07064",
+  "photos_scanned": 102254,
+  "photos_verified": 0,
+  "photos_would_change": 0,
+  "source": "local production dump rehearsal, 2026-10-27",
+  "through_id": "ffff3860-adbf-45c4-82f7-76c23ba07064"
+}

@@ -110,6 +110,9 @@ services:
       # root=url;root=url — where Caddy serves those trees, so an offered
       # external pyramid can be served in place (set_host-managed).
       - LOCAL_PHOTO_URLS=${LOCAL_PHOTO_URLS:-}
+      # Non-JPEG inputs and external pyramids: trusted auxiliary workers only.
+      # These additional decoder paths may need further security audits.
+      - HILLVIEW_AUX=${HILLVIEW_AUX:-0}
       # vips materializes full-decode loads (notably EXR) up to this size in
       # RAM instead of a /tmp/vips-*.v temp file; bigger rasters still spill
       # to disc gracefully. Sized with mem_limit in mind.

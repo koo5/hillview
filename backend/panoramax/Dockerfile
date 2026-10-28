@@ -2,9 +2,7 @@
 # worker), same uv-export pattern as worker/Dockerfile.
 FROM python:3.12-slim
 
-RUN apt-get update && apt-get install -y \
-    gcc \
-    libpq-dev \
+RUN apt-get update && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:0.11.5 /uv /bin/uv
@@ -20,7 +18,9 @@ RUN uv export --frozen --no-hashes --no-emit-project --package hillview-panorama
     grep -v "sys_platform == 'darwin'" | \
     sed "s/ ; sys_platform != 'darwin'//" > /tmp/requirements.txt && \
     uv pip install --system --no-deps -r /tmp/requirements.txt && \
-    rm /tmp/requirements.txt
+    rm /tmp/requirements.txt /bin/uv
+
+RUN python -m pip uninstall --yes pip && python -c "import pathlib, sysconfig; [p.unlink() for p in (pathlib.Path(sysconfig.get_path('stdlib')) / 'ensurepip' / '_bundled').glob('pip-*.whl')]"
 
 RUN groupadd --gid 1001 panoramax && \
     useradd --create-home --shell /bin/bash --uid 1001 --gid 1001 panoramax

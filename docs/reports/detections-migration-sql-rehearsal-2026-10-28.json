@@ -1,0 +1,17 @@
+{
+  "photos": 10517,
+  "objects_added": 91863,
+  "blurred_true": 91364,
+  "blurred_false": 499,
+  "apply": "passed",
+  "verify": "passed",
+  "exact_restore": "passed",
+  "geometry_existing_fields_and_verdicts": "preserved; independently verified",
+  "other_columns": "preserved exactly",
+  "source_database": "read-only; unchanged",
+  "backup_table": "public.detections_fix_270aa7396d26a976",
+  "client": "psql -v ON_ERROR_STOP=1",
+  "apply_log": "BEGIN\nCREATE TABLE\nCREATE TABLE\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 100\nINSERT 0 17\nDO\n backed_up_photos \n------------------\n            10517\n(1 row)\n\nCOMMIT\npsql:/home/koom/repos/koo5/hillview/0/hillview/oneoff/detections-format.sql:10686: NOTICE:  Migrated 10517 photos; 0 already matching. Backup: public.\"detections_fix_270aa7396d26a976\"\n",
+  "verify_log": "BEGIN\nDO\nCOMMIT\npsql:/home/koom/repos/koo5/hillview/0/hillview/oneoff/detections-format.verify.sql:32: NOTICE:  verify: 10517 backed-up photos checked\n",
+  "restore_log": "BEGIN\nDO\nCOMMIT\npsql:/home/koom/repos/koo5/hillview/0/hillview/oneoff/detections-format.restore.sql:45: NOTICE:  restore: 10517 backed-up photos checked\n"
+}

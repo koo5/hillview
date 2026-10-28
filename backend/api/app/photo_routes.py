@@ -48,7 +48,7 @@ from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 
 import aiofiles
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -61,14 +61,14 @@ from common.database import get_db
 from common.models import Photo, User, PhotoRating, UserPublicKey, PhotoAnnotation, PhotoLicenseHistory, PhotoModerationAudit, UserRole
 from common.config import get_write_pool
 from common.utc import format_utc
-from common.detections import blurred_only
+from common.detections import blurred_only, normalize_detections
 from auth import get_current_active_user, get_current_user_optional_with_query, get_current_user_optional_ssr
 from hidden_content_filters import apply_hidden_content_filters
 from hillview_routes import ALLOWED_LICENSES, legal_rights_to_license
 from common.file_utils import (
 	get_file_size_from_upload
 )
-from common.security_utils import verify_ecdsa_signature
+from common.security_utils import verify_ecdsa_signature, is_photo_artifact_relative_path
 from rate_limiter import rate_limit_photo_operations, get_client_ip
 from photos import delete_photo_files
 
@@ -156,6 +156,13 @@ class ProcessedPhotoData(BaseModel):
 	# docs/recon-capture-metadata.md, Phase 5 -- and note that DELETION must
 	# sweep it, or every deleted photo leaks one file.
 	imu_samples_url: Optional[str] = None
+
+	@field_validator('detected_objects')
+	@classmethod
+	def normalize_worker_detections(cls, value):
+		# Older deployed workers can still submit legacy payloads. Keep the DB
+		# invariant at the final storage boundary as well as in new workers.
+		return normalize_detections(value)
 
 class WorkerProcessedPhotoRequest(BaseModel):
 	"""Request model for processed photo data from worker with signature."""
@@ -338,6 +345,9 @@ async def upload_processed_file(
 	- X-Client-Signature: ECDSA signature for verification
 	"""
 
+	# This endpoint stores worker-produced artifacts (including WebP); it does
+	# not decode source images. JPEG-only source admission belongs to the worker.
+	# Any future image parsing here needs a separate public-input security audit.
 	# Read metadata from headers
 	photo_id = request.headers.get("X-Photo-Id")
 	relative_path = request.headers.get("X-Relative-Path")
@@ -442,6 +452,17 @@ async def upload_processed_file(
 			raise HTTPException(
 				status_code=status.HTTP_400_BAD_REQUEST,
 				detail="Path must be within pics directory"
+			)
+
+		# Containment alone would let an authorized upload overwrite another
+		# photo's artifact. Bind the destination to the DB photo and owner before
+		# creating directories or opening the file.
+		if not is_photo_artifact_relative_path(
+			relative_path, str(photo.owner_id), str(photo.id)
+		):
+			raise HTTPException(
+				status_code=status.HTTP_400_BAD_REQUEST,
+				detail="Path is not an artifact of this photo"
 			)
 
 		# Ensure parent directory exists
@@ -1237,6 +1258,7 @@ class PhotoEditRequest(BaseModel):
 	title: Optional[str] = None
 	description: Optional[str] = None
 	featured: Optional[bool] = None  # moderator-only; see the gate below
+	bestof_eligible: Optional[bool] = None  # moderator-only curation switch
 	bearing: Optional[float] = None  # degrees; normalized into [0, 360)
 	# Licence identifier from ALLOWED_LICENSES (stored as Photo.legal_rights).
 	# Owner-changeable, and every change is recorded — see the handler.
@@ -1252,12 +1274,12 @@ async def edit_photo(
 	current_user: User = Depends(get_current_active_user),
 	db: AsyncSession = Depends(get_db)
 ):
-	"""Edit a photo's title, description, bearing, licence, or featured flag.
+	"""Edit a photo's metadata and curation settings.
 
 	Owners may edit their own photo's title/description/bearing; admins and
-	moderators may edit any photo. ``featured`` is a curation flag, so only
-	admins/moderators may *change* it (403) — an owner re-submitting the value
-	it already has is a no-op, which keeps a full-form save working for them.
+	moderators may edit any photo. Only admins/moderators may change the
+	curation settings ``featured`` and ``bestof_eligible`` (403). An owner
+	re-submitting their current values is a no-op, keeping full-form saves working.
 
 	Fields left null are unchanged; an empty/whitespace title or description
 	clears the field. When the actor doesn't own the photo, the change is
@@ -1308,6 +1330,15 @@ async def edit_photo(
 				status_code=status.HTTP_403_FORBIDDEN,
 				detail="Only moderators can change the featured flag"
 			)
+		if (
+			payload.bestof_eligible is not None
+			and payload.bestof_eligible != photo.bestof_eligible
+			and not is_moderator
+		):
+			raise HTTPException(
+				status_code=status.HTTP_403_FORBIDDEN,
+				detail="Only moderators can change Best of eligibility"
+			)
 
 		changes = {}
 		# Blank is compared as blank on both sides: rows authorized before
@@ -1327,6 +1358,9 @@ async def edit_photo(
 		if payload.featured is not None and payload.featured != bool(photo.featured):
 			changes["featured"] = {"old": bool(photo.featured), "new": payload.featured}
 			photo.featured = payload.featured
+		if payload.bestof_eligible is not None and payload.bestof_eligible != photo.bestof_eligible:
+			changes["bestof_eligible"] = {"old": photo.bestof_eligible, "new": payload.bestof_eligible}
+			photo.bestof_eligible = payload.bestof_eligible
 		if payload.license is not None:
 			if payload.license not in ALLOWED_LICENSES:
 				raise HTTPException(
@@ -1411,6 +1445,7 @@ async def edit_photo(
 			"title": photo.title,
 			"description": photo.description,
 			"featured": bool(photo.featured),
+			"bestof_eligible": photo.bestof_eligible,
 			"bearing": photo.compass_angle,
 			# The API has two licence vocabularies: writes take the GRANT
 			# identifier (the same ones the upload authorization accepts,
@@ -2206,6 +2241,7 @@ async def get_public_photo(
 			"license": legal_rights_to_license(photo.legal_rights),
 			"is_public": photo.is_public,
 			"featured": bool(photo.featured),
+			"bestof_eligible": photo.bestof_eligible,
 			"latitude": latitude,
 			"longitude": longitude,
 			"bearing": photo.compass_angle,

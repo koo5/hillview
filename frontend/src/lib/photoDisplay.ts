@@ -21,6 +21,7 @@ export interface PublicPhoto {
 	license?: string | null;
 	is_public?: boolean;
 	featured?: boolean;
+	bestof_eligible?: boolean;
 	latitude: number | null;
 	longitude: number | null;
 	bearing: number | null;

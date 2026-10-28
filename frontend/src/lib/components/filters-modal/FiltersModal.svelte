@@ -2,42 +2,51 @@
 	import Modal from '../Modal.svelte';
 	import { Sun, Moon, Sunrise, Home, Trees, RotateCcw } from 'lucide-svelte';
 	import { maxPhotosInArea } from '$lib/data.svelte';
-	import { filters, hasActiveFilters, clearFilters, filtersModalState, closeFiltersModal, type QueryOptions } from './filtersStore';
+	import { filters, hasActiveFilters, hasActiveAnalysisFilters, clearFilters, filtersModalState, closeFiltersModal } from './filtersStore';
 	import { track } from '$lib/analytics';
 
 	function setTimeOfDay(value: string | null) {
 		track('filter', {name: 'time_of_day', value: value ?? 'off'});
-		filters.update(f => ({ ...f, time_of_day: f.time_of_day === value ? null : value }));
+		filters.update(f => ({ ...f, analysis: { ...f.analysis, time_of_day: f.analysis.time_of_day === value ? null : value } }));
 	}
 
 	function setLocationType(value: string | null) {
 		track('filter', {name: 'location_type', value: value ?? 'off'});
-		filters.update(f => ({ ...f, location_type: f.location_type === value ? null : value }));
+		filters.update(f => ({ ...f, analysis: { ...f.analysis, location_type: f.analysis.location_type === value ? null : value } }));
 	}
 
 	function setMinFarthestDistance(value: number | null) {
 		track('filter', {name: 'min_farthest_distance', value: value ?? 'off'});
-		filters.update(f => ({ ...f, min_farthest_distance: f.min_farthest_distance === value ? null : value }));
+		filters.update(f => ({ ...f, analysis: { ...f.analysis, min_farthest_distance: f.analysis.min_farthest_distance === value ? null : value } }));
 	}
 
 	function setMaxClosestDistance(value: number | null) {
 		track('filter', {name: 'max_closest_distance', value: value ?? 'off'});
-		filters.update(f => ({ ...f, max_closest_distance: f.max_closest_distance === value ? null : value }));
+		filters.update(f => ({ ...f, analysis: { ...f.analysis, max_closest_distance: f.analysis.max_closest_distance === value ? null : value } }));
 	}
 
 	function setMinScenicScore(value: number | null) {
 		track('filter', {name: 'min_scenic_score', value: value ?? 'off'});
-		filters.update(f => ({ ...f, min_scenic_score: f.min_scenic_score === value ? null : value }));
+		filters.update(f => ({ ...f, analysis: { ...f.analysis, min_scenic_score: f.analysis.min_scenic_score === value ? null : value } }));
 	}
 
 	function setVisibilityDistance(value: string | null) {
 		track('filter', {name: 'visibility_distance', value: value ?? 'off'});
-		filters.update(f => ({ ...f, visibility_distance: f.visibility_distance === value ? null : value }));
+		filters.update(f => ({ ...f, analysis: { ...f.analysis, visibility_distance: f.analysis.visibility_distance === value ? null : value } }));
 	}
 
 	function setTallestBuilding(value: string | null) {
 		track('filter', {name: 'tallest_building', value: value ?? 'off'});
-		filters.update(f => ({ ...f, tallest_building: f.tallest_building === value ? null : value }));
+		filters.update(f => ({ ...f, analysis: { ...f.analysis, tallest_building: f.analysis.tallest_building === value ? null : value } }));
+	}
+
+	// Keep drag feedback local; commit once on release/keyboard change.
+	let minWidth = $state(0);
+	$effect(() => { minWidth = $filters.properties.min_width ?? 0; });
+	function commitMinWidth() {
+		const value = minWidth > 0 ? minWidth : null;
+		track('filter', { name: 'min_width', value: value ?? 'off' });
+		filters.update(f => ({ ...f, properties: { ...f.properties, min_width: value } }));
 	}
 
 	function stepMaxPhotos(delta: number) {
@@ -49,9 +58,12 @@
 		track('filter', {name: 'feature', value: feature});
 		filters.update(f => ({
 			...f,
-			features: f.features.includes(feature)
-				? f.features.filter(x => x !== feature)
-				: [...f.features, feature]
+			analysis: {
+				...f.analysis,
+				features: f.analysis.features.includes(feature)
+					? f.analysis.features.filter(x => x !== feature)
+					: [...f.analysis.features, feature]
+			}
 		}));
 	}
 
@@ -190,12 +202,31 @@
 		</section>
 
 		<section class="filter-section">
+			<label for="min-photo-width">Minimum Width</label>
+			<p class="hint">Original Hillview image width in pixels</p>
+			<output for="min-photo-width" data-testid="min-width-value">
+				{minWidth === 0 ? 'Any width' : `${minWidth.toLocaleString()} px`}
+			</output>
+			<input
+				id="min-photo-width"
+				type="range"
+				min="0"
+				max={Math.max(100000, minWidth)}
+				step="100"
+				bind:value={minWidth}
+				onchange={commitMinWidth}
+				aria-valuetext={minWidth === 0 ? 'Any width' : `${minWidth} pixels`}
+				data-testid="min-width-slider"
+			/>
+		</section>
+
+		<section class="filter-section">
 			<h4>Time of Day</h4>
 			<div class="option-chips">
 				{#each timeOptions as opt}
 					<button
 						class="chip"
-						class:selected={$filters.time_of_day === opt.value}
+						class:selected={$filters.analysis.time_of_day === opt.value}
 						onclick={() => setTimeOfDay(opt.value)}
 						data-testid="filter"
 						data-filter-name="time_of_day"
@@ -216,7 +247,7 @@
 				{#each locationOptions as opt}
 					<button
 						class="chip"
-						class:selected={$filters.location_type === opt.value}
+						class:selected={$filters.analysis.location_type === opt.value}
 						onclick={() => setLocationType(opt.value)}
 						data-testid="filter"
 						data-filter-name="location_type"
@@ -238,7 +269,7 @@
 				{#each distancePresets as preset}
 					<button
 						class="chip"
-						class:selected={$filters.min_farthest_distance === preset.value}
+						class:selected={$filters.analysis.min_farthest_distance === preset.value}
 						onclick={() => setMinFarthestDistance(preset.value)}
 						data-testid="filter"
 						data-filter-name="min_farthest_distance"
@@ -257,7 +288,7 @@
 				{#each maxClosestPresets as preset}
 					<button
 						class="chip"
-						class:selected={$filters.max_closest_distance === preset.value}
+						class:selected={$filters.analysis.max_closest_distance === preset.value}
 						onclick={() => setMaxClosestDistance(preset.value)}
 						data-testid="filter"
 						data-filter-name="max_closest_distance"
@@ -276,7 +307,7 @@
 				{#each scenicScoreOptions as opt}
 					<button
 						class="chip"
-						class:selected={$filters.min_scenic_score === opt.value}
+						class:selected={$filters.analysis.min_scenic_score === opt.value}
 						onclick={() => setMinScenicScore(opt.value)}
 						data-testid="filter"
 						data-filter-name="min_scenic_score"
@@ -295,7 +326,7 @@
 				{#each visibilityOptions as opt}
 					<button
 						class="chip"
-						class:selected={$filters.visibility_distance === opt.value}
+						class:selected={$filters.analysis.visibility_distance === opt.value}
 						onclick={() => setVisibilityDistance(opt.value)}
 						data-testid="filter"
 						data-filter-name="visibility_distance"
@@ -314,7 +345,7 @@
 				{#each buildingOptions as opt}
 					<button
 						class="chip"
-						class:selected={$filters.tallest_building === opt.value}
+						class:selected={$filters.analysis.tallest_building === opt.value}
 						onclick={() => setTallestBuilding(opt.value)}
 						data-testid="filter"
 						data-filter-name="tallest_building"
@@ -336,7 +367,7 @@
 						{#each category.features as feature}
 							<button
 								class="chip"
-								class:selected={$filters.features.includes(feature)}
+								class:selected={$filters.analysis.features.includes(feature)}
 								onclick={() => toggleFeature(feature)}
 								data-testid="filter"
 								data-filter-name="feature"
@@ -351,11 +382,11 @@
 		</section>
 
 		<div class="bottom-controls">
-			<label class="toggle-label" class:disabled={!$hasActiveFilters} data-testid="show-unanalyzed">
+			<label class="toggle-label" class:disabled={!$hasActiveAnalysisFilters} data-testid="show-unanalyzed">
 				<input
 					type="checkbox"
-					bind:checked={$filters.show_unanalyzed}
-					disabled={!$hasActiveFilters}
+					bind:checked={$filters.analysis.show_unanalyzed}
+					disabled={!$hasActiveAnalysisFilters}
 				/>
 				Show unanalyzed photos
 			</label>
@@ -380,7 +411,8 @@
 		gap: 8px;
 	}
 
-	.filter-section h4 {
+	.filter-section h4,
+	.filter-section > label {
 		margin: 0;
 		font-size: 14px;
 		font-weight: 600;

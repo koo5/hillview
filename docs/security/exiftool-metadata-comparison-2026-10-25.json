@@ -1,0 +1,926 @@
+{
+  "upstream_commit": "2200871d9cef988051d2a99d67df3bda6cbb30a8",
+  "candidate_image": "sha256:5a563038c4e0cbb8d4f718500bf08e4c794dec732d60388986ef146050c58e15",
+  "cases": [
+    {
+      "fixture": "AFCP.jpg",
+      "sha256": "4fcd62252ada39e21b001074e5da4704f4cdae7f34909254d80a6ab94505299a",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "Apple.jpg",
+      "sha256": "113a01f606e2508bda673503e1d62ea94e7fada9f92872880d69bc91f3d45ec8",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "Canon.jpg",
+      "sha256": "98c290283dbff10950bd0eac63bf95804fd09661de727df4f2946d203ca9e7a2",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [
+        "FlashActivity",
+        "FlashModel"
+      ],
+      "changed_copied_tags": [
+        "FlashActivity",
+        "FlashModel"
+      ]
+    },
+    {
+      "fixture": "Canon1DmkIII.jpg",
+      "sha256": "d754d0f8d2eed21e6d7e1ab1a7bac7d451ba50730a1919aaaf97c3482256d5bd",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [
+        "FlashActivity",
+        "FlashBatteryLevel",
+        "FlashModel",
+        "FlashOutput"
+      ],
+      "changed_copied_tags": [
+        "FlashActivity",
+        "FlashBatteryLevel",
+        "FlashModel",
+        "FlashOutput"
+      ]
+    },
+    {
+      "fixture": "Casio.jpg",
+      "sha256": "c08fed0e193a1549c130d79814d30a3ac3fcd81980e261c4947ff45691628f92",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "Casio2.jpg",
+      "sha256": "24e19e2eecc5391e63cfbc2a5f17b62a0e86cbb783c98bd294c107a090d6cd02",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "CasioQVCI.jpg",
+      "sha256": "bcb7f2c2e9620a4cc0e562847c4993774bf183fa31a57d6de304d62629275a97",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "ExifTool.jpg",
+      "sha256": "e3a60411d07103a9747805668a0b9f0bd85d68b9c6eaa9ad96d6f32b5fed8231",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "ExifTool.jps",
+      "sha256": "e3a60411d07103a9747805668a0b9f0bd85d68b9c6eaa9ad96d6f32b5fed8231",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "ExtendedXMP.jpg",
+      "sha256": "43c971e0db60917a69be759be57ad33bca23028ec6456621a55cd22eb673a0f6",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": [
+        "XMPToolkit"
+      ]
+    },
+    {
+      "fixture": "FLIR.jpg",
+      "sha256": "3e217e288a21ac765cfe0e4f072e98efc84310bc574464a64a41e6a6ae1a90b9",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "FotoStation.jpg",
+      "sha256": "05c90d683c6d889bfdbaa19c2c32bcc7fdcd3f9d6645acc53e7176e0063b9a1b",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "FujiFilm.jpg",
+      "sha256": "0e9e951ef4c091c2d35f107f664acd5b2dd2f8735f24d4cc8633f7380d784dac",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "GE.jpg",
+      "sha256": "393e9a5c424d97db3b551175f5a53a7cffc4daae5f8cbc634db54e7cc9330c05",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "GPS.jpg",
+      "sha256": "4fb0a681632d618a2a35f463127e3e39ab5eac683f88e7945f9b3ea82692d843",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "GoPro.jpg",
+      "sha256": "d4f9d433ae69deffd764e23b709174d3d3304f1a767f6f20d1b868b4219180c4",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "Google.jpg",
+      "sha256": "156a7510315a4fb27c97d12a6dedb4e791eaf26e4810458e86b629f862e34651",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [
+        "AndroidRelease",
+        "AppVersion",
+        "Application",
+        "DeviceCodename",
+        "DeviceHardwareRevision",
+        "DeviceMake",
+        "DeviceModel",
+        "ExposureTimeMax",
+        "ExposureTimeMin",
+        "FrameCount",
+        "HDRPSoftware",
+        "HDRPlusMakerNote",
+        "HdrPlusMakernote",
+        "ISOMax",
+        "ISOMin",
+        "ImageData",
+        "ImageName",
+        "MaxAnalogISO",
+        "SoftwareDate",
+        "SummaryText",
+        "TimeLogText"
+      ],
+      "changed_copied_tags": [
+        "AndroidRelease",
+        "AppVersion",
+        "Application",
+        "DeviceCodename",
+        "DeviceHardwareRevision",
+        "DeviceMake",
+        "DeviceModel",
+        "ExposureTimeMax",
+        "ExposureTimeMin",
+        "FrameCount",
+        "HDRPSoftware",
+        "HDRPlusMakerNote",
+        "HdrPlusMakernote",
+        "ISOMax",
+        "ISOMin",
+        "ImageData",
+        "ImageName",
+        "MaxAnalogISO",
+        "SoftwareDate",
+        "SummaryText",
+        "TimeLogText",
+        "XMPToolkit"
+      ]
+    },
+    {
+      "fixture": "IPTC.jpg",
+      "sha256": "2fc7ca78b0abbb694c2483fee8e4b7d137ff085220004d53c5dd86f8c1cca04b",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "InfiRay.jpg",
+      "sha256": "de2565cee6084d9524f22161049b64f785eb572aed7a3faf4c38b312aafe0874",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "JVC.jpg",
+      "sha256": "4dfd04b3525052a57ae5825f3da3fbebb155ef311ce7f05c0302290b66aee557",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "JVC2.jpg",
+      "sha256": "f1b9460770ac07d639c5993417033db08b4c8c413fc15402d550d0cf88bb8e74",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "Kodak.jpg",
+      "sha256": "eab06f9fb9f1d5ad6ff888046a5273ca115398f43e7bd01a98a054036a79aed3",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "MWG.jpg",
+      "sha256": "762b840c07bf353e2cd15084ff7dcb92b0130c06b450a72ed31afc3b5f38b4e9",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": [
+        "XMPToolkit"
+      ]
+    },
+    {
+      "fixture": "Minolta.jpg",
+      "sha256": "adddfd71a847396fce34bce473bb800cde31bc8fb4eb4ad5ec2f0fcf26e6cbad",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "Motorola.jpg",
+      "sha256": "d4c38eacb7cec6bb24773494a411f134266525cd9dd104f6ef1386fb47813fc3",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "Nikon.jpg",
+      "sha256": "26e9f26631281d399002b28ac2bb468cbb8cb12ffc7a309631bbfb18fed410be",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "NikonD2Hs.jpg",
+      "sha256": "aab7d17da3151e9e34f78c4ee3102826d8269877dbb1e50cbd84971b852e2c08",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "NikonD70.jpg",
+      "sha256": "62aafe7295848d10c88f5d97849a21e9bb60470a31e3e896ff38d26136e50304",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "Olympus.jpg",
+      "sha256": "86265e9c942bf3a4f72e8b69f238bc63bbaa93f77184e4623b4f13aba1c366f8",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "Olympus2.jpg",
+      "sha256": "61124579779fa7ce6b74392c7c94f75cdd0efbd301db520ab4e3bef2e1620c0d",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": [
+        "PreviewImageStart"
+      ]
+    },
+    {
+      "fixture": "OlympusE1.jpg",
+      "sha256": "7d76d6421265420326bb43845e15732c45d1ffe5866df2a63553ae0bc8e228f8",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": [
+        "PreviewImageStart"
+      ]
+    },
+    {
+      "fixture": "Panasonic.jpg",
+      "sha256": "ea5b7c50c4314e212bf99c21b870058b4eace03153ec88b02fea73904f269c71",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "Pentax.jpg",
+      "sha256": "554756d3cbbebad49d8ab67ecb8add51740a022015f97d6bd97acce87551a3c6",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "PhotoMechanic.jpg",
+      "sha256": "958036dd4e25c2dcf06d5f1c869e7df3df98538a9423bbcd2daeb505e623ff48",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": [
+        "XMPToolkit"
+      ]
+    },
+    {
+      "fixture": "Ricoh.jpg",
+      "sha256": "c563500ea71e9221b896b7c226d5db6f88e4ff32f11236fa7070a906be1bb621",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "Ricoh2.jpg",
+      "sha256": "863fad461be0ce69720f4f93eb847d980898553914c403787b18f34bd3d8789c",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "Sanyo.jpg",
+      "sha256": "aba50453000eeecced8c81318ab2c873d0973613a70bf47c9fba00bbfef60ebc",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "Sigma.jpg",
+      "sha256": "164624e76a45ee2d151b79cc774b3c2220426cbf3f6f600891b1dc5e282d6683",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "Sony.jpg",
+      "sha256": "7376ad79cad2ac750e765ad253df2f3ae297c2089a562d00d88e9338ea8980b7",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "Unknown.jpg",
+      "sha256": "cb3484f91dd6de6a41e79fe39f63c709bd345990ee66cc00ec844482aba91292",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "Writer.jpg",
+      "sha256": "c4ccfb8dc64caf6622d8cf330741dff990fb33b73aa274010352db02aa161aaa",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "XMP.jpg",
+      "sha256": "8b39cd1636913ef5027dd6816b006a3942e6df5377aa2ebfcf082916e9859b39",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": [
+        "XMPToolkit"
+      ]
+    },
+    {
+      "fixture": "synthetic-video-trailer",
+      "sha256": "969f7c8807a40b19942af34a9b938ac039842d813bfc8d4985b5aee88ad0cbb7",
+      "backport_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "candidate_exit": {
+        "extract": 0,
+        "copy": 0
+      },
+      "changed_extracted_tags": [],
+      "changed_copied_tags": []
+    },
+    {
+      "fixture": "quicktime-positive-control",
+      "sha256": "eea529609b6026e0cd7b3d9188b997889f905cd89a93421ad7a9063c670449ec",
+      "backport_exit": {
+        "extract": 0
+      },
+      "candidate_exit": {
+        "extract": 0
+      },
+      "changed_extracted_tags": []
+    }
+  ],
+  "backport_jpeg_directories": [
+    "Image::ExifTool::Apple::Main",
+    "Image::ExifTool::Apple::RunTime",
+    "Image::ExifTool::Canon::AFInfo",
+    "Image::ExifTool::Canon::AFInfo2",
+    "Image::ExifTool::Canon::AFMicroAdj",
+    "Image::ExifTool::Canon::AspectInfo",
+    "Image::ExifTool::Canon::CameraInfo1DmkIII",
+    "Image::ExifTool::Canon::CameraInfoUnknown",
+    "Image::ExifTool::Canon::CameraSettings",
+    "Image::ExifTool::Canon::ColorBalance",
+    "Image::ExifTool::Canon::ColorCoefs",
+    "Image::ExifTool::Canon::ColorData4",
+    "Image::ExifTool::Canon::CropInfo",
+    "Image::ExifTool::Canon::FileInfo",
+    "Image::ExifTool::Canon::FocalLength",
+    "Image::ExifTool::Canon::Main",
+    "Image::ExifTool::Canon::MeasuredColor",
+    "Image::ExifTool::Canon::PSInfo",
+    "Image::ExifTool::Canon::Processing",
+    "Image::ExifTool::Canon::SensorInfo",
+    "Image::ExifTool::Canon::ShotInfo",
+    "Image::ExifTool::CanonCustom::Functions2",
+    "Image::ExifTool::Casio::Main",
+    "Image::ExifTool::Casio::QVCI",
+    "Image::ExifTool::Casio::Type2",
+    "Image::ExifTool::Exif::Main",
+    "Image::ExifTool::FLIR::CameraInfo",
+    "Image::ExifTool::FLIR::FFF",
+    "Image::ExifTool::FLIR::Header",
+    "Image::ExifTool::FLIR::Main",
+    "Image::ExifTool::FLIR::MeasInfo",
+    "Image::ExifTool::FLIR::PaletteInfo",
+    "Image::ExifTool::FLIR::RawData",
+    "Image::ExifTool::FlashPix::AudioInfo",
+    "Image::ExifTool::FlashPix::Extensions",
+    "Image::ExifTool::FlashPix::Main",
+    "Image::ExifTool::FotoStation::SoftEdit",
+    "Image::ExifTool::FujiFilm::Main",
+    "Image::ExifTool::GE::Main",
+    "Image::ExifTool::GPS::Main",
+    "Image::ExifTool::GoPro::GPMF",
+    "Image::ExifTool::ICC_Profile::Header",
+    "Image::ExifTool::ICC_Profile::Main",
+    "Image::ExifTool::ICC_Profile::Measurement",
+    "Image::ExifTool::ICC_Profile::ViewingConditions",
+    "Image::ExifTool::IPTC::Main",
+    "Image::ExifTool::InfiRay::Factory",
+    "Image::ExifTool::InfiRay::Isothermal",
+    "Image::ExifTool::InfiRay::MixMode",
+    "Image::ExifTool::InfiRay::OpMode",
+    "Image::ExifTool::InfiRay::Picture",
+    "Image::ExifTool::InfiRay::Sensor",
+    "Image::ExifTool::InfiRay::Version",
+    "Image::ExifTool::JFIF::Main",
+    "Image::ExifTool::JPEG::Adobe",
+    "Image::ExifTool::JPEG::JPS",
+    "Image::ExifTool::JVC::Main",
+    "Image::ExifTool::JVC::Text",
+    "Image::ExifTool::Kodak::Main",
+    "Image::ExifTool::Minolta::CameraSettings",
+    "Image::ExifTool::Minolta::Main",
+    "Image::ExifTool::Motorola::Main",
+    "Image::ExifTool::Nikon::AFInfo",
+    "Image::ExifTool::Nikon::ColorBalance2",
+    "Image::ExifTool::Nikon::ColorBalance3",
+    "Image::ExifTool::Nikon::FlashInfo0100",
+    "Image::ExifTool::Nikon::LensData01",
+    "Image::ExifTool::Nikon::Main",
+    "Image::ExifTool::Nikon::PreviewIFD",
+    "Image::ExifTool::Nikon::ShotInfo",
+    "Image::ExifTool::Olympus::CameraSettings",
+    "Image::ExifTool::Olympus::Equipment",
+    "Image::ExifTool::Olympus::FocusInfo",
+    "Image::ExifTool::Olympus::ImageProcessing",
+    "Image::ExifTool::Olympus::Main",
+    "Image::ExifTool::Olympus::RawDevelopment",
+    "Image::ExifTool::Olympus::TextInfo",
+    "Image::ExifTool::Panasonic::Main",
+    "Image::ExifTool::Pentax::AEInfo",
+    "Image::ExifTool::Pentax::AFInfo",
+    "Image::ExifTool::Pentax::BatteryInfo",
+    "Image::ExifTool::Pentax::CameraInfo",
+    "Image::ExifTool::Pentax::CameraSettings",
+    "Image::ExifTool::Pentax::ColorInfo",
+    "Image::ExifTool::Pentax::FlashInfo",
+    "Image::ExifTool::Pentax::LensData",
+    "Image::ExifTool::Pentax::LensInfo2",
+    "Image::ExifTool::Pentax::LensRec",
+    "Image::ExifTool::Pentax::Main",
+    "Image::ExifTool::Pentax::SRInfo",
+    "Image::ExifTool::Pentax::UnknownInfo",
+    "Image::ExifTool::PhotoMechanic::Main",
+    "Image::ExifTool::Photoshop::JPEG_Quality",
+    "Image::ExifTool::Photoshop::Main",
+    "Image::ExifTool::Photoshop::PrintScaleInfo",
+    "Image::ExifTool::Photoshop::Resolution",
+    "Image::ExifTool::Photoshop::SliceInfo",
+    "Image::ExifTool::Photoshop::VersionInfo",
+    "Image::ExifTool::PrintIM::Main",
+    "Image::ExifTool::Ricoh::ImageInfo",
+    "Image::ExifTool::Ricoh::Main",
+    "Image::ExifTool::Ricoh::RMETA",
+    "Image::ExifTool::Ricoh::Subdir",
+    "Image::ExifTool::Sanyo::Main",
+    "Image::ExifTool::Sigma::Main",
+    "Image::ExifTool::Sony::Main",
+    "Image::ExifTool::Unknown::Main",
+    "Image::ExifTool::XMP::Main"
+  ],
+  "backport_gm_hits": [],
+  "candidate_jpeg_directories": [
+    "Image::ExifTool::Apple::Main",
+    "Image::ExifTool::Apple::RunTime",
+    "Image::ExifTool::Canon::AFInfo",
+    "Image::ExifTool::Canon::AFInfo2",
+    "Image::ExifTool::Canon::AFMicroAdj",
+    "Image::ExifTool::Canon::AspectInfo",
+    "Image::ExifTool::Canon::CameraInfo1DmkIII",
+    "Image::ExifTool::Canon::CameraInfoUnknown",
+    "Image::ExifTool::Canon::CameraSettings",
+    "Image::ExifTool::Canon::ColorBalance",
+    "Image::ExifTool::Canon::ColorCoefs",
+    "Image::ExifTool::Canon::ColorData4",
+    "Image::ExifTool::Canon::CropInfo",
+    "Image::ExifTool::Canon::FileInfo",
+    "Image::ExifTool::Canon::FocalLength",
+    "Image::ExifTool::Canon::Main",
+    "Image::ExifTool::Canon::MeasuredColor",
+    "Image::ExifTool::Canon::PSInfo",
+    "Image::ExifTool::Canon::Processing",
+    "Image::ExifTool::Canon::SensorInfo",
+    "Image::ExifTool::Canon::ShotInfo",
+    "Image::ExifTool::CanonCustom::Functions2",
+    "Image::ExifTool::Casio::Main",
+    "Image::ExifTool::Casio::QVCI",
+    "Image::ExifTool::Casio::Type2",
+    "Image::ExifTool::Exif::Main",
+    "Image::ExifTool::FLIR::CameraInfo",
+    "Image::ExifTool::FLIR::FFF",
+    "Image::ExifTool::FLIR::Header",
+    "Image::ExifTool::FLIR::Main",
+    "Image::ExifTool::FLIR::MeasInfo",
+    "Image::ExifTool::FLIR::PaletteInfo",
+    "Image::ExifTool::FLIR::RawData",
+    "Image::ExifTool::FlashPix::AudioInfo",
+    "Image::ExifTool::FlashPix::Extensions",
+    "Image::ExifTool::FlashPix::Main",
+    "Image::ExifTool::FotoStation::SoftEdit",
+    "Image::ExifTool::FujiFilm::Main",
+    "Image::ExifTool::GE::Main",
+    "Image::ExifTool::GPS::Main",
+    "Image::ExifTool::GoPro::GPMF",
+    "Image::ExifTool::Google::HDRPlusMakerNote",
+    "Image::ExifTool::ICC_Profile::Header",
+    "Image::ExifTool::ICC_Profile::Main",
+    "Image::ExifTool::ICC_Profile::Measurement",
+    "Image::ExifTool::ICC_Profile::ViewingConditions",
+    "Image::ExifTool::IPTC::Main",
+    "Image::ExifTool::InfiRay::Factory",
+    "Image::ExifTool::InfiRay::Isothermal",
+    "Image::ExifTool::InfiRay::MixMode",
+    "Image::ExifTool::InfiRay::OpMode",
+    "Image::ExifTool::InfiRay::Picture",
+    "Image::ExifTool::InfiRay::Sensor",
+    "Image::ExifTool::InfiRay::Version",
+    "Image::ExifTool::JFIF::Main",
+    "Image::ExifTool::JPEG::Adobe",
+    "Image::ExifTool::JPEG::JPS",
+    "Image::ExifTool::JVC::Main",
+    "Image::ExifTool::JVC::Text",
+    "Image::ExifTool::Kodak::Main",
+    "Image::ExifTool::Minolta::CameraSettings",
+    "Image::ExifTool::Minolta::Main",
+    "Image::ExifTool::Motorola::Main",
+    "Image::ExifTool::Nikon::AFInfo",
+    "Image::ExifTool::Nikon::ColorBalance2",
+    "Image::ExifTool::Nikon::ColorBalance3",
+    "Image::ExifTool::Nikon::FlashInfo0100",
+    "Image::ExifTool::Nikon::LensData01",
+    "Image::ExifTool::Nikon::Main",
+    "Image::ExifTool::Nikon::PreviewIFD",
+    "Image::ExifTool::Nikon::ShotInfo",
+    "Image::ExifTool::Olympus::CameraSettings",
+    "Image::ExifTool::Olympus::Equipment",
+    "Image::ExifTool::Olympus::FocusInfo",
+    "Image::ExifTool::Olympus::ImageProcessing",
+    "Image::ExifTool::Olympus::Main",
+    "Image::ExifTool::Olympus::RawDevelopment",
+    "Image::ExifTool::Olympus::TextInfo",
+    "Image::ExifTool::Panasonic::Main",
+    "Image::ExifTool::Pentax::AEInfo",
+    "Image::ExifTool::Pentax::AFInfo",
+    "Image::ExifTool::Pentax::BatteryInfo",
+    "Image::ExifTool::Pentax::CameraInfo",
+    "Image::ExifTool::Pentax::CameraSettings",
+    "Image::ExifTool::Pentax::ColorInfo",
+    "Image::ExifTool::Pentax::FlashInfo",
+    "Image::ExifTool::Pentax::LensData",
+    "Image::ExifTool::Pentax::LensInfo2",
+    "Image::ExifTool::Pentax::LensRec",
+    "Image::ExifTool::Pentax::Main",
+    "Image::ExifTool::Pentax::SRInfo",
+    "Image::ExifTool::Pentax::UnknownInfo",
+    "Image::ExifTool::PhotoMechanic::Main",
+    "Image::ExifTool::Photoshop::JPEG_Quality",
+    "Image::ExifTool::Photoshop::Main",
+    "Image::ExifTool::Photoshop::PrintScaleInfo",
+    "Image::ExifTool::Photoshop::Resolution",
+    "Image::ExifTool::Photoshop::SliceInfo",
+    "Image::ExifTool::Photoshop::VersionInfo",
+    "Image::ExifTool::PrintIM::Main",
+    "Image::ExifTool::Ricoh::ImageInfo",
+    "Image::ExifTool::Ricoh::Main",
+    "Image::ExifTool::Ricoh::RMETA",
+    "Image::ExifTool::Ricoh::Subdir",
+    "Image::ExifTool::Sanyo::Main",
+    "Image::ExifTool::Sigma::Main",
+    "Image::ExifTool::Sony::Main",
+    "Image::ExifTool::Unknown::Main",
+    "Image::ExifTool::XMP::Main"
+  ],
+  "candidate_gm_hits": [],
+  "small_corpus_exact_trace_equality": true,
+  "copy_output_values_compared": true,
+  "copy_readback_ignored_fields": [
+    "Directory",
+    "ExifToolVersion",
+    "FileAccessDate",
+    "FileInodeChangeDate",
+    "FileModifyDate",
+    "FileSize",
+    "SourceFile"
+  ]
+}

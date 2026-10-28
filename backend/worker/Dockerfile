@@ -14,7 +14,8 @@ FROM python:3.12-slim
 # jpegoptim, and the ops tools are an `apt-get install` away in a console.
 # Repair /tmp in the same layer as apt so _apt can create signature files.
 RUN mkdir -p /tmp && chmod 1777 /tmp \
-    && apt-get update && apt-get install -y --no-install-recommends \
+    && apt-get update && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
     libsm6 \
@@ -27,6 +28,12 @@ RUN mkdir -p /tmp && chmod 1777 /tmp \
     dcraw \
     procps \
     && rm -rf /var/lib/apt/lists/*
+
+# Debian's ExifTool 13.25 still has the GM PrintConv construction addressed
+# upstream in 13.54. Backport only that escaping fix; see security/README.md.
+# This covers metadata reading/copying without changing any image decoder.
+COPY worker/security/patch_exiftool.py /tmp/patch_exiftool.py
+RUN python /tmp/patch_exiftool.py && rm /tmp/patch_exiftool.py
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:0.11.5 /uv /bin/uv
@@ -52,6 +59,10 @@ RUN uv export --frozen --no-hashes --no-emit-project --package hillview-worker |
     rm /tmp/requirements.txt /bin/uv
 # (/bin/uv removed: install-time only, and the static binary drags its own
 # Rust/Go dependency advisories into every scan of the runtime image)
+
+# Installation tooling is not needed by the running service. Remove both pip
+# and ensurepip's bundled copy so it cannot reintroduce the vulnerable version.
+RUN python -m pip uninstall --yes pip && python -c "import pathlib, sysconfig; [p.unlink() for p in (pathlib.Path(sysconfig.get_path('stdlib')) / 'ensurepip' / '_bundled').glob('pip-*.whl')]"
 
 # Run as non-root user
 RUN groupadd --gid 1001 worker && useradd --create-home --shell /bin/bash --uid 1001 --gid 1001 worker
@@ -80,6 +91,8 @@ RUN python -m compileall -b /app
 RUN chown -R worker:worker /app
 
 
+# Auxiliary dimension probes retain the established ImageMagick limits.
+# These are not memory budgets for Pillow, libvips or dcraw.
 ARG MAGICK_MEMORY_LIMIT=2GiB
 ARG MAGICK_MAP_LIMIT=4GiB
 ARG MAGICK_DISK_LIMIT=8GiB

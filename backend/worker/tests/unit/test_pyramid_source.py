@@ -139,3 +139,16 @@ class TestStitching:
         via_raster = create_center_crop(image, 320, 240)
         assert via_pyramid.shape == via_raster.shape == (240, 320, 3)
         assert np.mean(np.abs(via_pyramid.astype(np.int16) - via_raster.astype(np.int16))) < 5.0
+
+
+@pytest.fixture(scope='module', autouse=True)
+def auxiliary_worker_policy():
+    # The module-scoped pyramid fixture also needs auxiliary input enabled.
+    import image_formats
+    import blur
+    import photo_processor
+    import pyramid_source
+    with pytest.MonkeyPatch.context() as patch:
+        for module in (image_formats, blur, photo_processor, pyramid_source):
+            patch.setattr(module, 'HILLVIEW_AUX', True)
+        yield

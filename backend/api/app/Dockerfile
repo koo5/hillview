@@ -3,9 +3,7 @@ FROM python:3.12-slim
 # Install system dependencies
 # Repair /tmp in the same layer as apt so _apt can create signature files.
 RUN mkdir -p /tmp && chmod 1777 /tmp \
-    && apt-get update && apt-get install -y \
-    gcc \
-    libpq-dev \
+    && apt-get update && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv
@@ -25,7 +23,10 @@ RUN uv export --frozen --no-hashes --no-emit-project --package hillview-api | \
     grep -v "sys_platform == 'darwin'" | \
     sed "s/ ; sys_platform != 'darwin'//" > /tmp/requirements.txt && \
     uv pip install --system --no-deps -r /tmp/requirements.txt && \
-    rm /tmp/requirements.txt
+    rm /tmp/requirements.txt /bin/uv
+
+# Remove installation-only pip, including ensurepip's old bundled wheel.
+RUN python -m pip uninstall --yes pip && python -c "import pathlib, sysconfig; [p.unlink() for p in (pathlib.Path(sysconfig.get_path('stdlib')) / 'ensurepip' / '_bundled').glob('pip-*.whl')]"
 
 # Copy common directory
 COPY common /app/common

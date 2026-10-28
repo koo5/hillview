@@ -18,8 +18,8 @@ from common.SecurityExceptions import SecurityValidationError
 logger = logging.getLogger(__name__)
 
 # Allowed file extensions for uploads
-ALLOWED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.exr', '.cr2'}
-ALLOWED_MIME_TYPES = {'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'image/tiff', 'image/x-exr', 'image/x-canon-cr2'}
+ALLOWED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.tiff', '.tif', '.exr', '.cr2'}
+ALLOWED_MIME_TYPES = {'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/tiff', 'image/x-exr', 'image/x-canon-cr2'}
 
 
 # Image processing limits
@@ -194,7 +194,6 @@ def check_file_content(file_path: str, expected_type: str = "image") -> bool:
 				(b'GIF87a', 'gif'),  # GIF87a
 				(b'GIF89a', 'gif'),  # GIF89a
 				(b'RIFF', 'webp'),  # WebP (needs additional check)
-				(b'BM', 'bmp'),  # BMP
 				(b'II*\x00', 'tiff'),  # TIFF (little-endian)
 				(b'MM\x00*', 'tiff'),  # TIFF (big-endian)
 				(b'\x76\x2f\x31\x01', 'exr'),  # OpenEXR (magic 0x01312f76 little-endian)
@@ -300,6 +299,56 @@ def validate_photo_id(photo_id: str) -> str:
 def validate_user_id(user_id: str) -> str:
 	"""Validate user ID for filesystem safety."""
 	return validate_filesystem_safe_id(user_id, "user_id")
+
+
+# Relative paths produced by the worker's current artifact layout. The owner
+# and photo components are checked separately below; these names describe only
+# the variant directory, so a future variant cannot silently write another
+# photo's namespace.
+PHOTO_WEBP_VARIANTS = frozenset({
+	"full", "320", "640", "1200", "2048", "3072", "4096",
+	"320_crop", "1200_crop", "3840_crop", "640_llm",
+})
+_DZI_TILE_FILENAME = re.compile(r"^[A-Za-z0-9_-]+\.webp$")
+
+
+def is_photo_artifact_relative_path(relative_path: str, owner_id: str, photo_id: str) -> bool:
+	"""Return whether *relative_path* belongs to the referenced photo.
+
+	Path containment protects the write pool from traversal, but it does not
+	stop one authorized photo from naming another photo's artifact. This check
+	binds the worker's known artifact layouts to the database owner/photo pair.
+	"""
+	if not isinstance(relative_path, str) or not isinstance(owner_id, str) or not isinstance(photo_id, str):
+		return False
+	if not relative_path or "\\" in relative_path or relative_path.startswith("/"):
+		return False
+
+	parts = relative_path.split("/")
+	if any(not part or part in (".", "..") for part in parts):
+		return False
+	if parts[0] != "opt" or len(parts) < 4 or parts[2] != owner_id:
+		return False
+
+	photo_webp = f"{photo_id}.webp"
+	if len(parts) == 4:
+		variant, _, filename = parts[1:]
+		if variant in PHOTO_WEBP_VARIANTS and filename == photo_webp:
+			return True
+		if variant == "dzi" and filename == f"{photo_id}.dzi":
+			return True
+		if variant == "imu" and filename == f"{photo_id}.json.gz":
+			return True
+		return False
+
+	# vips writes DZI tiles below <photo_id>_files/<level>/<tile>.webp.
+	return (
+		len(parts) == 6
+		and parts[1] == "dzi"
+		and parts[3] == f"{photo_id}_files"
+		and parts[4].isdigit()
+		and bool(_DZI_TILE_FILENAME.fullmatch(parts[5]))
+	)
 
 def generate_client_key_id(public_key_pem: str) -> str:
 	"""

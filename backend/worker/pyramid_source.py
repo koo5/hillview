@@ -22,6 +22,7 @@ from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
+from image_formats import HILLVIEW_AUX
 
 
 def scale_bboxes(objects: List[Dict], factor: float) -> List[Dict]:
@@ -57,6 +58,10 @@ class PyramidSource:
 	"""A validated DZI pyramid (descriptor already parsed by the caller)."""
 
 	def __init__(self, dzi_path: str, meta: Dict):
+		# Auxiliary XML/tile parsers and resource behavior need further security
+		# audits. Preserve the existing OpenCV decoder behind this input gate.
+		if not HILLVIEW_AUX:
+			raise ValueError('External pyramid input requires HILLVIEW_AUX=1')
 		self.files_dir = dzi_path[:-len('.dzi')] + '_files'
 		self.tile_size = int(meta['tile_size'])
 		self.overlap = int(meta['overlap'])

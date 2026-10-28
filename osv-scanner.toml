@@ -1,0 +1,175 @@
+# Accepted / deferred findings for `scripts/deps.py audit` (osv-scanner --config).
+#
+# Every entry has an `ignoreUntil`: either the day the fix clears the 14-day
+# dependency cooloff (then it resurfaces and gets applied), or a review date
+# for findings with no fix or no reachable path. Nothing here is permanent.
+# When an entry resurfaces, either apply the fix or re-justify with a new date.
+# osv-scanner matches on the GHSA id of an alias group, so list the GHSA id and
+# name the RUSTSEC id in the reason (a RUSTSEC entry is reported as unused).
+# Reachability notes are from the 2026-10-25 review (session "SEC").
+
+# ---- deferred until the fix clears the cooloff -------------------------------
+
+[[IgnoredVulns]]
+id = "GHSA-rxp7-6hxx-x8q5"
+ignoreUntil = 2026-10-26
+reason = "ip-address 10.7.4 (tests-appium, via socks) published 2026-10-11; cooloff clears 2026-10-25 evening. bun update ip-address"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0386"
+ignoreUntil = 2026-10-27
+reason = "tokio 1.51.6 published 2026-10-13. scripts/deps.py cargo tokio==1.51.6, then rebuild the Android app"
+
+[[IgnoredVulns]]
+id = "GHSA-qxg6-89mg-rqv8"
+ignoreUntil = 2026-10-29
+reason = "@vitest/mocker 4.1.12 published 2026-10-15 (frontend devDependency). scripts/deps.py frontend vitest"
+
+[[IgnoredVulns]]
+id = "GHSA-xp26-3454-mjgp"
+ignoreUntil = 2026-10-29
+reason = "@vitest/mocker 4.1.12 published 2026-10-15 (frontend devDependency). scripts/deps.py frontend vitest"
+
+[[IgnoredVulns]]
+id = "GHSA-4qv8-2p9j-2685"
+ignoreUntil = 2026-10-29
+reason = "undici 6.29.1 / 7.30.1 published 2026-10-15 (tests-appium, via cheerio/webdriverio). bun update undici"
+
+[[IgnoredVulns]]
+id = "GHSA-xjj6-f33q-929c"
+ignoreUntil = 2026-10-29
+reason = "undici 6.29.1 / 7.30.1 published 2026-10-15 (tests-appium). bun update undici"
+
+[[IgnoredVulns]]
+id = "GHSA-f72v-6w45-q472"
+ignoreUntil = 2026-10-29
+reason = "undici 7.30.1 published 2026-10-15 (tests-appium). bun update undici"
+
+[[IgnoredVulns]]
+id = "GHSA-xmj3-9gf7-h52w"
+ignoreUntil = 2026-11-02
+reason = "setuptools 84.1.0 published 2026-10-19; CVSS 1.0, install-time dep of torch in the worker. scripts/deps.py backend setuptools==84.1.0, then rebuild the worker"
+
+[[IgnoredVulns]]
+id = "GHSA-333x-w4r6-6crp"
+ignoreUntil = 2026-11-02
+reason = "fast-uri 3.1.9 published 2026-10-19 (tests-appium, via ajv/appium). bun update fast-uri"
+
+[[IgnoredVulns]]
+id = "GHSA-w74x-v6f9-j3xg"
+ignoreUntil = 2026-11-02
+reason = "fast-uri 3.1.9 published 2026-10-19 (tests-appium). bun update fast-uri"
+
+[[IgnoredVulns]]
+id = "GHSA-wjr9-j795-jxcr"
+ignoreUntil = 2026-11-02
+reason = "fast-uri 3.1.9 published 2026-10-19 (tests-appium). bun update fast-uri"
+
+[[IgnoredVulns]]
+id = "GHSA-xhq7-xmqj-769h"
+ignoreUntil = 2026-11-02
+reason = "fast-uri 3.1.9 published 2026-10-19 (tests-appium). bun update fast-uri"
+
+[[IgnoredVulns]]
+id = "GHSA-834v-8h66-3h79"
+ignoreUntil = 2026-11-03
+reason = "happy-dom 21.0.4 published 2026-10-20; unit-test DOM only, parses our own markup. Major bump: widen the range in frontend/package.json, then bun install"
+
+[[IgnoredVulns]]
+id = "GHSA-m5mm-p8h7-m29v"
+ignoreUntil = 2026-11-05
+reason = "serialize-javascript 7.1.3 published 2026-10-22 (tests-appium, via mocha). bun update serialize-javascript"
+
+# ---- no reachable path; re-review quarterly --------------------------------
+
+[[IgnoredVulns]]
+id = "GHSA-27mw-82g8-phjj"
+ignoreUntil = 2027-01-31
+reason = "SvelteKit <3: XSS via cache-control on a prerendered page. Every route sets prerender=false. Fix is the Kit 3 migration (own thread)"
+
+[[IgnoredVulns]]
+id = "GHSA-pfhg-q3qv-9q6r"
+ignoreUntil = 2027-01-31
+reason = "SvelteKit <3: open redirect via enhanced form submission. No use:enhance in frontend/src. Fix is the Kit 3 migration (own thread)"
+
+[[IgnoredVulns]]
+id = "GHSA-wrw7-89jp-8q8g"
+ignoreUntil = 2027-01-31
+reason = "RUSTSEC-2024-0429: glib 0.18 via gtk/webkit2gtk, desktop-Linux Tauri only, not linked into the Android APK; blocked on tauri's gtk 0.18"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0370"
+ignoreUntil = 2027-01-31
+reason = "zvariant: desktop-Linux (zbus) only, no fixed version published"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0371"
+ignoreUntil = 2027-01-31
+reason = "zbus_names: desktop-Linux (zbus) only, no fixed version published"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0372"
+ignoreUntil = 2027-01-31
+reason = "zvariant_derive: desktop-Linux (zbus) only, no fixed version published"
+
+# ---- blocked upstream / no fix exists; re-review quarterly -------------------
+
+[[IgnoredVulns]]
+id = "GHSA-27r3-jxmh-p828"
+ignoreUntil = 2027-01-31
+reason = "body-parser 2.3.0 pinned exactly by @appium/base-driver 10.8.1 (still latest as of 2026-10-25). Test tooling on a dev machine; wait for appium"
+
+[[IgnoredVulns]]
+id = "GHSA-mrhx-c7xc-m3w5"
+ignoreUntil = 2027-01-31
+reason = "zod fix is 4.6.6 but jimp (via @wdio/visual-service) requires ^3.23.8. Test tooling; wait for jimp"
+
+[[IgnoredVulns]]
+id = "GHSA-7pqw-9j4j-h8q3"
+ignoreUntil = 2027-01-31
+reason = "extract-zip 2.0.1 via @puppeteer/browsers: no fixed version. Test tooling that only unpacks browser downloads from puppeteer's own CDN"
+
+[[IgnoredVulns]]
+id = "GHSA-jmr9-qjv8-65gv"
+ignoreUntil = 2027-01-31
+reason = "extract-zip 2.0.1 via @puppeteer/browsers: no fixed version. Test tooling"
+
+[[IgnoredVulns]]
+id = "GHSA-cq8v-f236-94qc"
+ignoreUntil = 2027-01-31
+reason = "RUSTSEC-2026-0097: rand 0.7.3 is a build-dependency of selectors (phf_codegen), never in the runtime binary; 0.8 is a breaking bump owned upstream"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0057"
+ignoreUntil = 2027-01-31
+reason = "fxhash unmaintained notice, transitive via tauri; no vulnerability"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0370"
+ignoreUntil = 2027-01-31
+reason = "proc-macro-error unmaintained notice, transitive via tauri; no vulnerability"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0075"
+ignoreUntil = 2027-01-31
+reason = "unic-char-range unmaintained notice, transitive via tauri; no vulnerability"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0080"
+ignoreUntil = 2027-01-31
+reason = "unic-common unmaintained notice, transitive via tauri; no vulnerability"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0081"
+ignoreUntil = 2027-01-31
+reason = "unic-char-property unmaintained notice, transitive via tauri; no vulnerability"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0098"
+ignoreUntil = 2027-01-31
+reason = "unic-ucd-version unmaintained notice, transitive via tauri; no vulnerability"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0100"
+ignoreUntil = 2027-01-31
+reason = "unic-ucd-ident unmaintained notice, transitive via tauri; no vulnerability"

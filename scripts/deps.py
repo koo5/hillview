@@ -22,6 +22,7 @@ How each toolchain enforces the cooloff, and why this script exists:
 
 Usage:
     scripts/deps.py audit                          # osv-scanner over every lockfile present
+    scripts/deps.py audit --all-vulns              # ... ignoring osv-scanner.toml (the dated accept-list)
     scripts/deps.py cooloff                        # show the configured window vs. today
     scripts/deps.py backend pillow==12.3.0 h2      # advance exclude-newer, uv lock --upgrade-package each
     scripts/deps.py backend --all                  # advance exclude-newer, uv lock --upgrade
@@ -60,6 +61,7 @@ SRC_TAURI = FRONTEND / "src-tauri"
 # Every lockfile osv-scanner knows how to read. Missing ones are skipped.
 LOCKFILES = [
 	"backend/uv.lock",
+	"backend/analyzer/uv.lock",
 	"enrich/api/uv.lock",
 	"enrich/terrain/requirements.txt",
 	"frontend/bun.lock",
@@ -112,6 +114,10 @@ def cmd_cooloff(args):
 def cmd_audit(args):
 	present = [p for p in LOCKFILES if (REPO / p).exists()]
 	cmd = ["osv-scanner", "scan", "source"]
+	# Accepted/deferred findings, each with an ignoreUntil date so they
+	# resurface by themselves (see the file's header). --all-vulns shows them.
+	if (REPO / "osv-scanner.toml").exists() and not args.all_vulns:
+		cmd += ["--config", "osv-scanner.toml"]
 	for p in present:
 		cmd += ["-L", p]
 	if args.json:
@@ -127,7 +133,14 @@ def cmd_images(args):
 		# Everything running on this host, not `docker compose config --images`:
 		# the compose file needs its overlays (external volumes etc.) to even
 		# parse, and the caddy/umami side lives in other projects anyway.
-		out = subprocess.run(["docker", "ps", "--format", "{{.Image}}"], capture_output=True, text=True, check=True).stdout
+		out = subprocess.run(["docker", "ps", "--quiet", "--no-trunc"], capture_output=True, text=True, check=True).stdout
+		containers = out.split()
+		if not containers:
+			print("No running containers to scan")
+			return
+		# Scan immutable IDs: display names may omit a pinned digest, and tags
+		# may move while the running container still uses an older image.
+		out = subprocess.run(["docker", "inspect", "--format", "{{.Image}}", *containers], capture_output=True, text=True, check=True).stdout
 		images = sorted(set(out.split()))
 	print("images: " + " ".join(images))
 	worst = 0
@@ -138,8 +151,15 @@ def cmd_images(args):
 			print(f"\n##### {image}")
 			if run(["docker", "save", image, "-o", str(tar)], REPO, args.dry_run, check=False):
 				print("(not present locally -- docker pull it first)")
+				worst = max(worst, 2)
 				continue
-			rc = run(["osv-scanner", "scan", "image", "--archive", str(tar)], REPO, args.dry_run, check=False)
+			cmd = ["osv-scanner", "scan", "image", "--archive", str(tar)]
+			if args.output_dir:
+				output_dir = Path(args.output_dir).resolve()
+				if not args.dry_run:
+					output_dir.mkdir(parents=True, exist_ok=True)
+				cmd += ["--format", "json", "--output-file", str(output_dir / (tar.stem + ".json"))]
+			rc = run(cmd, REPO, args.dry_run, check=False)
 			worst = max(worst, rc)
 			tar.unlink(missing_ok=True)
 	finally:
@@ -218,10 +238,12 @@ def main():
 
 	p = sub.add_parser("audit", help="osv-scanner over every lockfile present")
 	p.add_argument("--json", action="store_true")
+	p.add_argument("--all-vulns", action="store_true", help="skip osv-scanner.toml, show the accepted/deferred findings too")
 	p.set_defaults(fn=cmd_audit)
 
 	p = sub.add_parser("images", help="osv-scanner over docker images (default: every image running on this host)")
 	p.add_argument("images", nargs="*", help="image refs; empty = images of all running containers")
+	p.add_argument("--output-dir", help="save a JSON report per image in this directory")
 	p.set_defaults(fn=cmd_images)
 
 	p = sub.add_parser("cooloff", help="show the configured cooloff vs. today")
