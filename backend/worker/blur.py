@@ -245,12 +245,16 @@ def read_image(source_path, encoding=None):
 		# /tmp/vips-*.v for a gigapixel pano). Where that materialization goes
 		# is steered by VIPS_DISC_THRESHOLD (worker env): rasters under the
 		# threshold stay in a RAM buffer, larger ones spill to a temp file.
+		# A local source path can be replaced or its symlink retargeted between
+		# jobs. libvips otherwise reuses the old load operation (including pixels),
+		# even when the file's mtime changed. Revalidate this load without changing
+		# the process-wide operation cache used by concurrent jobs.
 		if HILLVIEW_AUX:
 			# Auxiliary decoder selection may need additional codec/security audits.
-			img = pyvips.Image.new_from_file(source_path)
+			img = pyvips.Image.new_from_file(source_path, revalidate=True)
 		else:
 			# Explicit JPEG reader: no autodetection into another format.
-			img = pyvips.Image.jpegload(source_path)
+			img = pyvips.Image.jpegload(source_path, revalidate=True)
 		img = img.autorot()
 	except pyvips.Error as e:
 		_dev_only(f"pyvips load failed for {source_path} ({e}) — falling back to cv2 with no color management")
