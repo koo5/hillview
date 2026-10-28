@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -293,6 +294,10 @@ fun DevicePhotosScreen(
                             }
                             scope.launch { browser.setServerDeletion(card.id, wanted) }
                         },
+                        onSetPanoramaxShare = { share ->
+                            cards = cards.map { if (it.id == card.id) it.copy(panoramaxShare = share) else it }
+                            scope.launch { browser.setPanoramaxShare(card.id, share) }
+                        },
                         onChangeLicense = { license ->
                             scope.launch {
                                 browser.changeLicense(card.id, license)
@@ -335,6 +340,7 @@ internal fun PhotoCard(
     /** What a row with no licence of its own would go out under. */
     globalLicense: String? = null,
     onChangeLicense: (String) -> Unit = {},
+    onSetPanoramaxShare: (Boolean) -> Unit = {},
     /** null = auto-detect & blur, "[]" = no anonymization. */
     onSetAnonymization: (String?) -> Unit = {},
     /**
@@ -656,7 +662,7 @@ internal fun PhotoCard(
                 }
             }
 
-            Row {
+            FlowRow {
                 TextButton(
                     onClick = { confirmingDelete = true },
                     modifier = Modifier.testTag("delete-photo-button"),
@@ -671,6 +677,11 @@ internal fun PhotoCard(
                     enabled = licenseEditable(card.uploadStatus),
                     modifier = Modifier.testTag("change-license-button"),
                 ) { Text("Change license") }
+                TextButton(
+                    onClick = { onSetPanoramaxShare(!card.panoramaxShare) },
+                    enabled = !card.onServer || ratingEnabled,
+                    modifier = Modifier.testTag("photo-panoramax-share-button"),
+                ) { Text("Panoramax: ${if (card.panoramaxShare) "on" else "off"}") }
                 // Offered at every status — a re-upload is the point — but
                 // not for a row whose file is gone: there is nothing to send.
                 TextButton(

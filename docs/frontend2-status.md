@@ -3444,3 +3444,15 @@ STRUCTURAL_TOOLS.md.
 
 `androidDeviceTest` had never been run in this work and found three real defects in
 minutes; it is worth running for anything touching migrations or the upload hold.
+
+
+### Panoramax contribution (2026-10-28)
+
+Prototype-only decision: frontend2 adds per-photo Panoramax sharing; the web
+and Tauri controls follow later. The capture P button persists its default,
+snapshots it into Room v31, and opens a dedicated explainer on long press.
+Device-photo cards can change sharing at any upload status through the
+account-keyed photo outbox; pre-upload edits also update authorization's
+snapshot. Intake includes `panoramax_in`; public reads use `panoramax` as a
+separate outflow id. Post-upload intake editing remains outside this client.
+The licence wording and federation SPDX declaration remain provisional.

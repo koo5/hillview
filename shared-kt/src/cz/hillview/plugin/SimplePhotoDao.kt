@@ -344,11 +344,13 @@ interface SimplePhotoDao {
         captureTimingJson: String?,
     ): Int
 
-    // Changing a licence is only meaningful before the photo goes out; the
-    // server has its own copy afterwards and there is no endpoint to amend
-    // it, so the UI offers this only while a row is still local.
+    // This UI only edits intake before upload. The server supports later
+    // grant edits, but this client does not expose them yet.
     @Query("UPDATE photos SET license = :license WHERE id = :photoId")
     fun updateLicense(photoId: String, license: String)
+
+    @Query("UPDATE photos SET panoramaxShare = :share WHERE id = :photoId")
+    fun updatePanoramaxShare(photoId: String, share: Boolean)
 
     @Query("UPDATE photos SET serverPhotoId = :serverPhotoId WHERE id = :photoId")
     fun updateServerPhotoId(photoId: String, serverPhotoId: String)

@@ -64,3 +64,7 @@ data object MapKey : NavKey
  */
 @Serializable
 data class PhotoDetailKey(val photoId: String) : NavKey
+
+/** How sharing and the contribution grant affect federation. */
+@Serializable
+data object PanoramaxInfoKey : NavKey

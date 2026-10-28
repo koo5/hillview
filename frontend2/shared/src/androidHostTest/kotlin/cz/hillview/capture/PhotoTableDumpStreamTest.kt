@@ -16,6 +16,25 @@ import kotlin.test.assertTrue
  */
 class PhotoTableDumpStreamTest {
 
+    @Test
+    fun deltaFieldsAreSeparateFromTheFinalPhotoColumn() {
+        val row = cz.hillview.plugin.PhotoEntity(
+            id = "sharing", filename = "photo.jpg", path = "/tmp/photo.jpg",
+            latitude = null, longitude = null, capturedAt = 1, accuracy = 0.0,
+            width = 4, height = 4, fileSize = 16, createdAt = 1, panoramaxShare = true,
+        )
+        val upsert = StringBuilder().also { appendPhotoTableDeltaRow(it, row, 42) }
+            .toString().trimEnd('\n').split(',')
+        assertEquals(PHOTO_DUMP_COLUMNS.size + 2, upsert.size)
+        assertEquals("1", upsert[PHOTO_DUMP_COLUMNS.indexOf("panoramaxShare")])
+        assertEquals(listOf("42", "upsert"), upsert.takeLast(2))
+        val deleted = StringBuilder().also { appendPhotoTableTombstone(it, row.id, 43) }
+            .toString().trimEnd('\n').split(',')
+        assertEquals(PHOTO_DUMP_COLUMNS.size + 2, deleted.size)
+        assertEquals("0", deleted[PHOTO_DUMP_COLUMNS.indexOf("panoramaxShare")])
+        assertEquals(listOf("43", "delete"), deleted.takeLast(2))
+    }
+
     /**
      * THE IDENTITY THAT LETS THE HASH CHANGE SOURCE WITHOUT CHANGING VALUE.
      *

@@ -37,6 +37,7 @@ class User(Base):
 	is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 	is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
 	is_test: Mapped[bool] = mapped_column(Boolean, default=False)
+	panoramax_contributor: Mapped[bool] = mapped_column(Boolean, default=True, server_default='true')
 	role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.USER)
 	created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
 	updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), onupdate=func.now())
@@ -153,6 +154,8 @@ class Photo(Base):
 
 	# License / legal rights identifier (e.g. 'full1', 'ccbysa4')
 	legal_rights: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+	panoramax_owner_share: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
+	panoramax_moderator_approved: Mapped[bool] = mapped_column(Boolean, default=True, server_default='true')
 
 	# Featured photo flag
 	featured: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
@@ -408,7 +411,9 @@ class PhotoModerationAudit(Base):
 
 
 class PhotoLicenseHistory(Base):
-	"""Every change to a photo's licence, whoever made it.
+	"""Every change to a photo's intake grant, whoever made it.
+
+	Publication changes are tracked separately by PhotoOutflowLicenseHistory.
 
 	Separate from ``PhotoModerationAudit`` on purpose. That table answers "what
 	did a moderator do to someone else's photo", and relicensing is normally
@@ -438,6 +443,41 @@ class PhotoLicenseHistory(Base):
 	# Both sides of the change: null old_license = the photo carried none.
 	old_license: Mapped[Optional[str]] = mapped_column(String)
 	new_license: Mapped[Optional[str]] = mapped_column(String)
+
+	actor_user_id: Mapped[str] = mapped_column(String, index=True)
+	actor_username: Mapped[Optional[str]] = mapped_column(String)
+	actor_role: Mapped[Optional[str]] = mapped_column(String)
+	# Whether the actor was the owner AT THE TIME — ownership can change, and
+	# "did the rights-holder do this themselves?" is the question that matters.
+	actor_was_owner: Mapped[bool] = mapped_column(Boolean, default=False)
+
+	reason: Mapped[Optional[str]] = mapped_column(Text)
+	ip_address: Mapped[Optional[str]] = mapped_column(String)
+	user_agent: Mapped[Optional[str]] = mapped_column(String)
+
+	created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class PhotoOutflowLicenseHistory(Base):
+	"""Append-only publication history, separate from the intake grant history.
+
+	FK-free snapshots survive deletion of the photo and both accounts. The
+	original outflow is derived from the intake and share choice at upload;
+	the first change records it as old_license, like PhotoLicenseHistory.
+	"""
+	__tablename__ = "photo_outflow_license_history"
+
+	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
+
+	photo_id: Mapped[str] = mapped_column(String(255), index=True)  # no FK — survives photo deletion
+	photo_owner_id: Mapped[Optional[str]] = mapped_column(String, index=True)
+	photo_owner_username: Mapped[Optional[str]] = mapped_column(String)
+
+	# Both sides of the change: null old_license = the photo carried none.
+	old_license: Mapped[Optional[str]] = mapped_column(String)
+	new_license: Mapped[Optional[str]] = mapped_column(String)
+
+	cause: Mapped[str] = mapped_column(String(32))  # grant_change | panoramax_share
 
 	actor_user_id: Mapped[str] = mapped_column(String, index=True)
 	actor_username: Mapped[Optional[str]] = mapped_column(String)
@@ -509,6 +549,8 @@ class UserModeration(Base):
 	new_role: Mapped[Optional[str]] = mapped_column(String)
 	old_active: Mapped[Optional[bool]] = mapped_column(Boolean)
 	new_active: Mapped[Optional[bool]] = mapped_column(Boolean)
+	old_panoramax_contributor: Mapped[Optional[bool]] = mapped_column(Boolean)
+	new_panoramax_contributor: Mapped[Optional[bool]] = mapped_column(Boolean)
 	reason: Mapped[Optional[str]] = mapped_column(Text)
 
 	created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)

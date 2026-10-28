@@ -15,7 +15,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import Photo, PhotoAnnotation, PhotoRating, PhotoRatingType, SiteState, User
-from hillview_routes import legal_rights_to_license
+from hillview_routes import outflow_license
 from common.utc import format_utc
 from auth import get_current_user_optional_ssr
 from hidden_content_filters import apply_hidden_content_filters
@@ -266,7 +266,7 @@ async def get_best_photos(
 				"score": score_int,
 				"annotation_count": int(annotation_count) if annotation_count else 0,
 				"annotations": bodies_by_photo.get(photo.id, []),
-				"license": legal_rights_to_license(photo.legal_rights)
+				"license": outflow_license(photo.legal_rights, photo.panoramax_owner_share)
 			})
 			next_cursor = f"{score_int}:{photo.id}"
 

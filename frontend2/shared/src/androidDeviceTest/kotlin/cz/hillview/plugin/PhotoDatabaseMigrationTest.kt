@@ -123,6 +123,25 @@ class PhotoDatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun version30PhotosDoNotOptIntoPanoramaxOnUpgrade() {
+        helper.createDatabase(DB, 30).use { db ->
+            db.execSQL("""
+                INSERT INTO photos (
+                    id, filename, path, bearing, capturedAt, accuracy, width, height, fileSize,
+                    createdAt, uploadStatus, uploadedAt, retryCount, lastUploadAttempt,
+                    uploadError, fileHash, deleted, version, uploadHoldUntil, uploadHoldReasons
+                ) VALUES ('before-sharing', 'photo.jpg', '/tmp/photo.jpg', 0, 1, 0, 4, 4, 16, 1,
+                          'pending', 0, 0, 0, '', '', 0, 1, 0, 0)
+            """.trimIndent())
+        }
+        val db = helper.runMigrationsAndValidate(DB, PHOTO_DB_VERSION, true, *PhotoDatabase.MIGRATIONS)
+        db.query("SELECT panoramaxShare FROM photos WHERE id = 'before-sharing'").use {
+            assertTrue(it.moveToFirst())
+            assertEquals(0, it.getInt(0))
+        }
+    }
+
     /** Every step from the oldest schema Room still has, in one go. */
     @Test
     fun theWholeChainRunsAndMatchesTheEntities() {

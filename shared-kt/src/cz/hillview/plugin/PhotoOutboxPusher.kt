@@ -67,6 +67,9 @@ class PhotoOutboxPusher(
     }
 
     /**
+     * Carry edits made before or during upload as soon as a server id exists.
+     * Sharing may already have gone out in authorization; the repeat is idempotent.
+     *
      * The other half of deleting a photo that was caught mid-upload.
      *
      * Called the moment an upload writes its server id. Sent bytes cannot be
@@ -78,10 +81,10 @@ class PhotoOutboxPusher(
      */
     fun afterUpload(photoId: String, serverUrl: String) {
         val userId = PhotoOutbox.currentUserId(authManager) ?: return
-        val row = dao.find(userId, photoId, OUTBOX_KIND_DELETE, "") ?: return
-        if (row.valueJson == null || !row.dirty) return
-        Log.i(TAG, "photo $photoId was deleted while it uploaded — deleting it server-side now")
-        push(row, serverUrl)
+        for (kind in listOf(OUTBOX_KIND_DELETE, OUTBOX_KIND_PANORAMAX_SHARE)) {
+            val row = dao.find(userId, photoId, kind, "") ?: continue
+            if (row.valueJson != null && row.dirty) push(row, serverUrl)
+        }
     }
 
     private fun push(row: PhotoOutboxEntity, serverUrl: String): Boolean {
@@ -95,6 +98,7 @@ class PhotoOutboxPusher(
             val ok = when (row.kind) {
                 OUTBOX_KIND_RATING -> sendRating(row, serverPhotoId, serverUrl)
                 OUTBOX_KIND_DELETE -> sendDelete(row, serverPhotoId, serverUrl)
+                OUTBOX_KIND_PANORAMAX_SHARE -> sendPanoramaxShare(row, serverPhotoId, serverUrl)
                 else -> {
                     // An unknown kind is a NEWER app's row after a downgrade,
                     // or a half-finished feature. Leave it dirty and untouched
@@ -126,6 +130,17 @@ class PhotoOutboxPusher(
             )
             false
         }
+    }
+
+    private fun sendPanoramaxShare(row: PhotoOutboxEntity, serverPhotoId: String, serverUrl: String): Boolean {
+        val share = JSONObject(row.valueJson ?: return false).getBoolean("panoramax_share")
+        val request = authorized(
+            Request.Builder().url("$serverUrl/photos/$serverPhotoId").patch(
+                JSONObject().put("panoramax_share", share).toString()
+                    .toRequestBody("application/json".toMediaType()),
+            ),
+        ) ?: return false
+        return client.newCall(request).execute().use { it.isSuccessful }
     }
 
     private fun sendRating(row: PhotoOutboxEntity, serverPhotoId: String, serverUrl: String): Boolean {

@@ -170,7 +170,7 @@ class PhotoUploadLogic(internal val context: Context) {
 				// one query when there is nothing to say.
 				getServerUrl()?.let { url ->
 					try {
-						outboxPusher.pushAll(url)
+						if (authManager.getValidToken() != null) outboxPusher.pushAll(url)
 					} catch (e: Exception) {
 						Log.w(TAG, "outbox push failed; rows stay dirty", e)
 					}
@@ -211,12 +211,13 @@ class PhotoUploadLogic(internal val context: Context) {
 					// toggle flip by hours, so the enqueue-time gate in
 					// startAutomaticUpload is not enough. An explicitly targeted
 					// photoId is a manual action and proceeds regardless.
-					if (!autoUploadEnabled && photoId.isNullOrEmpty()) {
+					val hasUploadLicense = prefs.getString("auto_upload_license", null) != null
+					if ((!autoUploadEnabled || !hasUploadLicense) && photoId.isNullOrEmpty()) {
 						Log.d(
 							TAG,
-							"Auto upload disabled, stopping upload work"
+							"Automatic file upload gate closed, stopping file work"
 						)
-						stoppedByGate = "auto-upload is off"
+						stoppedByGate = if (!autoUploadEnabled) "auto-upload is off" else "no upload licence chosen"
 						break
 					}
 
@@ -465,6 +466,13 @@ class PhotoUploadLogic(internal val context: Context) {
 				if (networkDeferred) {
 					Log.d(TAG, "Metered network with wifi-only — letting WorkManager reschedule the drain")
 					recordDrain(triggerSource, "deferred: metered network, Wi-Fi only is on")
+					return ListenableWorker.Result.retry()
+				}
+
+				// Metadata still owed keeps the constrained drain alive even when
+				// automatic FILE uploads are off. Its own per-row backoff still applies.
+				if (PhotoOutbox(context).pushablePendingCount() > 0) {
+					recordDrain(triggerSource, "metadata edits still queued")
 					return ListenableWorker.Result.retry()
 				}
 
@@ -747,6 +755,7 @@ class PhotoUploadLogic(internal val context: Context) {
 			put("is_public", true)  // Could be made configurable
 			put("version", photo.version)  // Version for re-upload support
 			put("license", license)
+			put("panoramax_share", photo.panoramaxShare)
 			// Use PhotoEntity geolocation data
 			// Absent position, absent keys: the server then stores the photo
 			// with no geometry (UploadAuthorizationRequest takes Optional
@@ -1473,6 +1482,7 @@ class PhotoUploadLogic(internal val context: Context) {
         inertialJson: String? = null,
         /** What captured_at means — see PhotoEntity.captureTimingJson. */
         captureTimingJson: String? = null,
+        panoramaxShare: Boolean = false,
         // The refiner's upload gate (PhotoEntity.uploadHoldUntil): non-zero
         // keeps the drain off the row until then, so refinement wins the
         // race against an expedited upload.
@@ -1519,6 +1529,7 @@ class PhotoUploadLogic(internal val context: Context) {
             lensJson = lensJson,
             inertialJson = inertialJson,
             captureTimingJson = captureTimingJson,
+            panoramaxShare = panoramaxShare,
             uploadHoldUntil = uploadHoldUntil,
             uploadHoldReasons = uploadHoldReasons,
         )

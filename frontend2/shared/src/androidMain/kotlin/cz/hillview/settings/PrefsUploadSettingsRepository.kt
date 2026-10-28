@@ -38,6 +38,7 @@ class PrefsUploadSettingsRepository(
             autoUploadPromptEnabled = prefs.getBoolean("auto_upload_prompt_enabled", true),
             writeExif = prefs.getBoolean("write_exif", false),
             exactCaptureTime = prefs.getBoolean("exact_capture_time", false),
+            shareToPanoramax = prefs.getBoolean("share_to_panoramax", false),
         ).also(::persist)
     )
     override val settings: StateFlow<UploadSettings> = _settings.asStateFlow()
@@ -76,6 +77,7 @@ class PrefsUploadSettingsRepository(
             .putBoolean("auto_upload_prompt_enabled", s.autoUploadPromptEnabled)
             .putBoolean("write_exif", s.writeExif)
             .putBoolean("exact_capture_time", s.exactCaptureTime)
+            .putBoolean("share_to_panoramax", s.shareToPanoramax)
             .apply()
     }
 }

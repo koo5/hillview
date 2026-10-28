@@ -1,4 +1,4 @@
-"""Upload CC-licensed test photos through the real upload path, shaped so the
+"""Upload Panoramax-sharing test photos through the real upload path, shaped so the
 sequencer has something interesting to split.
 
 Used by e2e_federation.sh. Goes through the full authorize → worker → process
@@ -63,7 +63,8 @@ async def seed(sessions: int, per_session: int, gap_hours: float) -> list[str]:
 				description=f"panoramax e2e session {s} photo {i}",
 				file_data=image,
 				captured_at=captured.isoformat(),
-				license='ccbysa4+osm',
+				license='full1' if n % 2 == 0 else 'panoramax_in',
+				panoramax_share=True,
 				title=f"E2E session {s} #{i}",
 			)
 			auth['worker_url'] = WORKER_URL

@@ -85,6 +85,54 @@ class TestPhotoMetadataEdit(BasePhotoTest):
 		return [e for e in response.json()["entries"] if e["photo_id"] == photo_id]
 
 	@pytest.mark.asyncio
+	async def test_panoramax_intake_outflow_and_moderation_are_separate(self):
+		photo_id = await self._create_test_photo("panoramax_consent_edit.jpg")
+		url = f"{API_URL}/photos/{photo_id}"
+		response = requests.patch(url, json={"license": "full1"}, headers=self.test_headers)
+		self.assert_success(response)
+		before = requests.get(url + "/license-history", headers=self.test_headers).json()
+		response = requests.patch(url, json={"panoramax_share": True, "reason": "share it"}, headers=self.test_headers)
+		self.assert_success(response)
+		assert response.json()['license'] == 'panoramax'
+		assert response.json()['license_granted'] == 'full1'
+		assert response.json()['panoramax_share'] is True
+		history = requests.get(url + "/license-history", headers=self.test_headers).json()
+		assert len(history['entries']) == len(before['entries'])
+		assert len(history['outflow_entries']) == len(before['outflow_entries']) + 1
+		entry = history['outflow_entries'][0]
+		assert (entry['old_license'], entry['new_license'], entry['cause']) == ('arr', 'panoramax', 'panoramax_share')
+		assert entry['actor_was_owner'] is True
+		assert entry['reason'] == 'share it'
+		assert 'ip_address' not in entry
+		public_history = requests.get(url + "/license-history").json()
+		assert 'actor_username' not in public_history['outflow_entries'][0]
+		assert public_history['current'] == 'panoramax'
+		# Repeating a wish is idempotent, including its audit history.
+		self.assert_success(requests.patch(url, json={"panoramax_share": True}, headers=self.test_headers))
+		assert requests.get(url + "/license-history").json()['outflow_entries'] == public_history['outflow_entries']
+		# A grant change writes both histories when its outflow changes.
+		self.assert_success(requests.patch(url, json={"license": "ccbysa4+osm"}, headers=self.test_headers))
+		after = requests.get(url + "/license-history").json()
+		assert len(after['entries']) == len(history['entries']) + 1
+		assert after['outflow_entries'][0]['cause'] == 'grant_change'
+		assert after['outflow_entries'][0]['old_license'] == 'panoramax'
+		assert after['current'] == 'ccbysa4+osm'
+		# Even moderators cannot manufacture owner consent.
+		self.assert_forbidden(requests.patch(url, json={"panoramax_share": False}, headers=self._moderator_headers()))
+		self.assert_forbidden(requests.patch(url, json={"panoramax_approved": False}, headers=self.test_headers))
+		self.assert_forbidden(requests.patch(url, json={"panoramax_share": False}, headers=self.get_auth_headers(self.get_test_token('testuser'))))
+		response = requests.patch(url, json={"panoramax_approved": False}, headers=self._moderator_headers())
+		self.assert_success(response)
+		assert response.json()['panoramax_approved'] is False
+		audit = self._audit_entries_for(photo_id)
+		assert audit[0]['extra_data']['changes']['panoramax_approved'] == {'old': True, 'new': False}
+		for headers in [self.test_headers, self._moderator_headers()]:
+			detail = requests.get(f"{API_URL}/photos/public/hillview-{photo_id}", headers=headers).json()
+			assert detail['license_granted'] == 'ccbysa4+osm'
+			assert detail['panoramax_share'] is True
+		assert 'license_granted' not in self._public_photo(photo_id)
+
+	@pytest.mark.asyncio
 	async def test_moderator_edit_others_photo_with_audit(self):
 		"""A moderator can edit another user's photo; the change lands in the audit."""
 		photo_id = await self._create_test_photo("mod_edit_full.jpg")

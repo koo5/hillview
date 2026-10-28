@@ -123,7 +123,8 @@ def test_shared_ranking_excludes_before_pagination_and_can_restore():
 
 def test_migration_keeps_existing_and_new_photos_eligible_by_default():
 	scripts = ScriptDirectory(str(APP_DIR / 'alembic'))
-	assert scripts.get_heads() == ['037_photo_bestof_eligible']
+	assert len(scripts.get_heads()) == 1
+	assert scripts.get_revision('037_photo_bestof_eligible') is not None
 	path = APP_DIR / 'alembic/versions/037_photo_bestof_eligible.py'
 	spec = importlib.util.spec_from_file_location('bestof_eligibility_migration', path)
 	migration = importlib.util.module_from_spec(spec)

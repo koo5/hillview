@@ -4,7 +4,9 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from hillview_routes import legal_rights_to_license, LEGAL_RIGHTS_TO_LICENSE
+import pytest
+
+from hillview_routes import legal_rights_to_license, outflow_license, LEGAL_RIGHTS_TO_LICENSE
 
 
 class TestLegalRightsToLicense:
@@ -31,3 +33,14 @@ class TestLegalRightsToLicense:
         for internal, public in LEGAL_RIGHTS_TO_LICENSE.items():
             assert isinstance(internal, str) and internal
             assert isinstance(public, str) and public
+
+
+@pytest.mark.parametrize('intake,share,expected', [
+    ('full1', False, 'arr'), ('full1', True, 'panoramax'),
+    ('ccbysa4+osm', False, 'ccbysa4+osm'), ('ccbysa4+osm', True, 'ccbysa4+osm'),
+    ('panoramax_in', False, 'panoramax'), ('panoramax_in', True, 'panoramax'),
+    (None, False, 'arr'), (None, True, 'arr'),
+    ('future-grant', True, 'future-grant'),
+])
+def test_outflow_is_the_publication_choice(intake, share, expected):
+    assert outflow_license(intake, share) == expected

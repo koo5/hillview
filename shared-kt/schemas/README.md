@@ -45,6 +45,14 @@ cache, deleting a file goes unnoticed, and a build that finds kapt up-to-date
 leaves whatever is on disk. If a Tauri-side schema diff fails to appear, force
 kapt to run (touch the entity, or clean) before believing it.
 
+An incremental kapt run can also export a new database version with the old
+entity layout, even while its Kotlin stubs contain the new field (observed
+with `panoramaxShare` in v31). Regenerate from clean plugin outputs with
+`--no-build-cache -Pkapt.incremental.apt=false`, then compare both apps'
+`identityHash` values and the changed entity fields. For v31, a clean
+`:tauri-plugin-hillview:clean :tauri-plugin-hillview:assembleDebug` fixed the
+stale export and produced the same hash as frontend2.
+
 ## History
 
 `exportSchema = false` sat here from the first commit of `PhotoDatabase`

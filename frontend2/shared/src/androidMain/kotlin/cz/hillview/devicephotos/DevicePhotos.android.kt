@@ -95,6 +95,7 @@ class DaoDevicePhotoBrowser(private val context: Context) : DevicePhotoBrowser {
         // worth saying so on the card.
         fileMissing = !locatorExists(context, it.path),
         license = it.license,
+        panoramaxShare = wishes?.panoramaxShare ?: it.panoramaxShare,
         anonymization = logic.getPhotoAnonymizationState(it.id)?.state ?: "auto",
         rating = wishes?.rating,
         serverDeletion = when (wishes?.deletion) {
@@ -238,6 +239,11 @@ class DaoDevicePhotoBrowser(private val context: Context) : DevicePhotoBrowser {
         // path bypasses the gate deliberately — an explicit "upload THIS
         // again" is not automatic uploading.
         PhotoUploadManager(context).startManualUpload(id)
+    }
+
+    override suspend fun setPanoramaxShare(id: String, share: Boolean) = withContext(Dispatchers.IO) {
+        outbox.setPanoramaxShare(id, share)
+        PhotoUploadManager(context).reconcile("panoramax_share")
     }
 
     override suspend fun changeLicense(id: String, license: String) = withContext(Dispatchers.IO) {

@@ -3,6 +3,8 @@ package cz.hillview.capture
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
@@ -95,6 +97,7 @@ internal object CaptureSessionCounters {
 @Composable
 fun CaptureScreen(
     onOpenSettings: () -> Unit = {},
+    onOpenPanoramaxInfo: () -> Unit = {},
     /** Where the just-taken thumbnail sends a tap. */
     onOpenPhoto: (String) -> Unit = {},
     uploadPipeline: UploadPipeline = org.koin.compose.koinInject(),
@@ -424,6 +427,7 @@ fun CaptureScreen(
                 motionSample = photo.snapshot.motion,
                 // Snapshot, not a live read — see PendingUpload.license.
                 license = uploadSettings.license,
+                panoramaxShare = uploadSettings.shareToPanoramax,
             )
         )
         // Under eco the map catches up here, once per capture — Tauri's
@@ -485,6 +489,7 @@ fun CaptureScreen(
     var ladderPinned by remember { mutableStateOf(false) }
     // The 📷 selector's right edge in root px, for placing ⏱ beside it.
     var cameraButtonRight by remember { mutableStateOf<Float?>(null) }
+    var timerButtonRight by remember { mutableStateOf<Float?>(null) }
     // Null while the ladder is open = the finger is on the button's side
     // (CancelZone), the one release that does nothing. There used to be a
     // third answer, armedCapture — that side took one photo, and the cancel
@@ -1269,10 +1274,33 @@ fun CaptureScreen(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(start = timerStart, bottom = 6.dp)
+                    .onGloballyPositioned { timerButtonRight = it.boundsInRoot().right }
                     .background(if (ladderPinned) Color(0xCC4CAF50) else LightGlass, CircleShape)
                     .semantics { selected = ladderPinned }
                     .testTag("capture-interval-button"),
             ) { Text("⏱", style = MaterialTheme.typography.titleMedium) }
+            val shareStart = timerButtonRight?.let {
+                with(androidx.compose.ui.platform.LocalDensity.current) { (it - paneOrigin.x).toDp() } + 4.dp
+            } ?: (timerStart + 52.dp)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = shareStart, bottom = 6.dp)
+                    .clip(CircleShape)
+                    .background(if (uploadSettings.shareToPanoramax) Color(0xCC4CAF50) else LightGlass)
+                    .combinedClickable(
+                        onClick = { uploadSettingsRepo.update { it.copy(shareToPanoramax = !it.shareToPanoramax) } },
+                        onLongClick = onOpenPanoramaxInfo,
+                        role = Role.Button,
+                    )
+                    .semantics {
+                        selected = uploadSettings.shareToPanoramax
+                        contentDescription = "Panoramax sharing ${if (uploadSettings.shareToPanoramax) "on" else "off"}"
+                    }
+                    .testTag("capture-panoramax-toggle")
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text("P", style = MaterialTheme.typography.titleMedium) }
         }
 
         // Bottom-centre stack over the video: hints and gate escapes above

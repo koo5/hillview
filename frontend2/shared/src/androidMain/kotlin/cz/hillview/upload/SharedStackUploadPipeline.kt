@@ -329,6 +329,7 @@ class SharedStackUploadPipeline(
                     locationAgeMs = upload.locationAgeMs,
                     exposureJson = upload.exposureJson,
                     license = upload.license,
+                    panoramaxShare = upload.panoramaxShare,
                     pitch = upload.pitchDeg,
                     altLocationJson = upload.altLocationJson,
                     attitudeJson = upload.attitudeJson,

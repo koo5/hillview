@@ -1583,7 +1583,8 @@ class UploadAuthorizationRequest(BaseModel):
 	keywords: Optional[list[str]] = None
 	is_public: bool = True
 	featured: bool = False  # admin-only; a non-admin sending true is rejected (see authorize_upload)
-	license: Optional[str] = None  # e.g. 'ccbysa4'
+	license: Optional[str] = None  # intake grant
+	panoramax_share: bool = False
 	# Geolocation data from client (EXIF or device GPS)
 	latitude: Optional[float] = None
 	longitude: Optional[float] = None
@@ -1792,6 +1793,7 @@ async def authorize_upload(
 			compass_angle=auth_request.compass_angle,
 			captured_at=captured_at_naive,
 			version=auth_request.version,
+			panoramax_owner_share=auth_request.panoramax_share,
 			legal_rights=auth_request.license
 		)
 

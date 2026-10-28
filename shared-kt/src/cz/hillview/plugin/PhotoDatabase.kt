@@ -626,6 +626,12 @@ abstract class PhotoDatabase : RoomDatabase() {
 			}
 		}
 
+		private val MIGRATION_30_31 = object : Migration(30, 31) {
+			override fun migrate(db: SupportSQLiteDatabase) {
+				db.execSQL("ALTER TABLE photos ADD COLUMN panoramaxShare INTEGER NOT NULL DEFAULT 0")
+			}
+		}
+
 		private val MIGRATION_29_30 = object : Migration(29, 30) {
 			override fun migrate(db: SupportSQLiteDatabase) {
 				PhotoExportChangeTracking.create(db, seedExistingPhotos = true)
@@ -643,7 +649,7 @@ abstract class PhotoDatabase : RoomDatabase() {
 			MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
 			MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25,
 			MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28,
-			MIGRATION_28_29, MIGRATION_29_30,
+			MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31,
 		)
 
         fun getDatabase(context: Context): PhotoDatabase {
@@ -671,6 +677,6 @@ abstract class PhotoDatabase : RoomDatabase() {
  * the inertial rename) were never once validated against the entities. A hardcoded
  * target in a test whose job is to catch drift is the one place drift hides.
  */
-const val PHOTO_DB_VERSION = 30
+const val PHOTO_DB_VERSION = 31
 
 

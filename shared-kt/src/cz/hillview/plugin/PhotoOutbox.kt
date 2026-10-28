@@ -88,6 +88,20 @@ class PhotoOutbox(context: Context) {
         }
     }
 
+    fun setPanoramaxShare(photoId: String, share: Boolean) {
+        database.runInTransaction {
+            database.photoDao().updatePanoramaxShare(photoId, share)
+            want(photoId, OUTBOX_KIND_PANORAMAX_SHARE,
+                JSONObject().put("panoramax_share", share).toString())
+        }
+    }
+
+    fun panoramaxShareOf(photoId: String): Boolean? {
+        val userId = currentUserId() ?: return null
+        val value = dao.find(userId, photoId, OUTBOX_KIND_PANORAMAX_SHARE, "")?.valueJson ?: return null
+        return runCatching { JSONObject(value).getBoolean("panoramax_share") }.getOrNull()
+    }
+
     /** `"thumbs_up"`, `"thumbs_down"`, or null to take the rating back. */
     fun setRating(photoId: String, rating: String?) {
         want(
@@ -165,9 +179,14 @@ class PhotoOutbox(context: Context) {
                     deleteRow.dirty -> DeletionWish.Pending
                     else -> DeletionWish.Pushed
                 }
-                PhotoWishes(rating = rating, deletion = deletion)
+                val share = rows.firstOrNull { it.kind == OUTBOX_KIND_PANORAMAX_SHARE }
+                    ?.valueJson?.let { runCatching { JSONObject(it).getBoolean("panoramax_share") }.getOrNull() }
+                PhotoWishes(rating = rating, deletion = deletion, panoramaxShare = share)
             }
     }
+
+    /** Scheduler input: wishes for photos the server already knows, including backoff. */
+    fun pushablePendingCount(): Int = currentUserId()?.let { dao.pushablePendingCount(it) } ?: 0
 
     /** How much this account still owes the server. */
     fun pendingCount(): Int = currentUserId()?.let { dao.pendingCount(it) } ?: 0
@@ -177,6 +196,7 @@ class PhotoOutbox(context: Context) {
 data class PhotoWishes(
     val rating: String? = null,
     val deletion: DeletionWish? = null,
+    val panoramaxShare: Boolean? = null,
 )
 
 /** How far a wanted deletion has got; null means none was asked for. */

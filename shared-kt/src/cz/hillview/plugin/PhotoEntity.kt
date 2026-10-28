@@ -277,7 +277,11 @@ data class PhotoEntity(
      * at the SAVE and the row is the stamp's only vehicle to the upload metadata in
      * the fast-write default.
      */
-    val captureTimingJson: String? = null
+    val captureTimingJson: String? = null,
+
+    /** Owner's Panoramax sharing choice, snapshotted at capture (v31). */
+    @ColumnInfo(defaultValue = "0")
+    val panoramaxShare: Boolean = false,
 )
 
 /**

@@ -29,7 +29,7 @@
 # What it exercises, in order:
 #   1. hillview stack up (postgres+api+worker+panoramax), migration applied,
 #      panoramax_ro provisioned
-#   2. seeds CC-licensed photos through the real upload path, laid out as N
+#   2. seeds opted-in photos through the real upload path, laid out as N
 #      time-gap sessions -> asserts the sequencer produces exactly N sequences
 #   3. meta-catalog stack up, harvester installed, instance registered
 #   4. full harvest: asserts collections + items land with ZERO harvest errors
@@ -132,14 +132,16 @@ set -a; . ./.env; set +a
 
 step "1/8  hillview stack"
 ./compose.sh --profile panoramax up --build -d postgres api worker panoramax >/dev/null
-until curl -sf "$PANORAMAX_URL/api/health" >/dev/null 2>&1; do sleep 2; done
-ok "panoramax API healthy at $PANORAMAX_URL"
-[ "$(hv_psql "SELECT count(*) FROM alembic_version WHERE version_num = '033_add_panoramax_schema'")" = "1" ] \
-	|| fail "migration 033 not applied (api prestart should have done it)"
-ok "migration 033 applied"
-./backend/scripts/provision_panoramax_role.sh >/dev/null 2>&1 && ok "panoramax_ro provisioned"
+# API prestart applies migrations. On existing volumes, the dedicated role
+# must then be provisioned BEFORE the DB-backed federation health check.
 until curl -sf "http://localhost:8055/api/debug" >/dev/null 2>&1; do sleep 2; done
 ok "hillview api reachable"
+[ "$(hv_psql "SELECT to_regclass('public.photo_outflow_license_history') IS NOT NULL")" = "t" ] \
+	|| fail "Panoramax contribution migration not applied (api prestart should have done it)"
+ok "Panoramax contribution migration applied"
+./backend/scripts/provision_panoramax_role.sh >/dev/null 2>&1 && ok "panoramax_ro provisioned"
+until curl -sf "$PANORAMAX_URL/api/health" >/dev/null 2>&1; do sleep 2; done
+ok "panoramax API healthy at $PANORAMAX_URL"
 
 if [ "$SEED" = "1" ]; then
 	step "2/8  seed $SESSIONS sessions × $PER_SESSION photos through the real upload path"
@@ -231,6 +233,11 @@ assert_eq "$(cat_psql "SELECT count(*) FROM items")" "$TOTAL_PHOTOS" "items in c
 	|| fail "no computed_geom — geovisio:rank_in_collection or geometry is wrong"
 
 if [ "$HEAVY" = "1" ]; then
+    EXCLUDED_IDS="'$(jsonq "$LOAD_SUMMARY" "\"','\".join(d['excluded_sample_ids'])")'"
+    assert_eq "$(cat_psql "SELECT count(*) FROM items WHERE id IN ($EXCLUDED_IDS)")" "0" "every exclusion kind absent from catalog"
+fi
+
+if [ "$HEAVY" = "1" ]; then
 	step "4b/8 heavy: paging walk"
 	BIG_SEQ=$(hv_psql "SELECT sequence_id FROM panoramax.sequence_photos GROUP BY 1 ORDER BY count(*) DESC LIMIT 1")
 	BIG_N=$(hv_psql "SELECT count(*) FROM panoramax.sequence_photos WHERE sequence_id = '$BIG_SEQ'")
@@ -278,6 +285,19 @@ harvester harvest "$INSTANCE_NAME" --incremental-harvest >/dev/null 2>&1
 metric "incremental harvest, 1 collection changed: $(since "$T")"
 assert_eq "$(cat_psql "SELECT content->'properties'->>'title' FROM items WHERE id = '$PHOTO'")" "$MARK" "edited title in catalog"
 assert_eq "$(harvest_errors_since '2 minutes')" "0" "harvest errors after edit"
+
+step "5a/8  owner sharing withdrawal and restoration"
+hv_psql "UPDATE photos SET panoramax_owner_share = false WHERE id = '$PHOTO'" >/dev/null
+curl -sf "$PANORAMAX_URL/api/collections/$SEQ/items?limit=1000" \
+    | grep -q "\"$PHOTO\"" && fail "serve-time filter did not hide the unshared photo" \
+    || ok "unshared photo hidden immediately"
+sequencer
+harvester harvest "$INSTANCE_NAME" --incremental-harvest >/dev/null 2>&1
+assert_eq "$(cat_psql "SELECT count(*) FROM items WHERE id = '$PHOTO'")" "0" "unshared item removed from catalog"
+hv_psql "UPDATE photos SET panoramax_owner_share = true WHERE id = '$PHOTO'" >/dev/null
+sequencer
+harvester harvest "$INSTANCE_NAME" --incremental-harvest >/dev/null 2>&1
+assert_eq "$(cat_psql "SELECT count(*) FROM items WHERE id = '$PHOTO'")" "1" "shared item restored to catalog"
 
 if [ "$HEAVY" = "1" ]; then
 	step "5b/8 heavy: churn across users (200 random edits)"

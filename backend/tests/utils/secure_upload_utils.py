@@ -310,6 +310,7 @@ class SecureUploadClient:
 										   license: str = 'ccbysa4+osm',
 										   title: str = None, keywords: list = None,
 										   featured: bool = False,
+										   panoramax_share: bool = False,
 										   fast_md5: bool = False):
 		"""Request upload authorization with custom parameters.
 
@@ -374,6 +375,7 @@ class SecureUploadClient:
 			"description": description,
 			"is_public": is_public,
 			"license": license,
+			"panoramax_share": panoramax_share,
 		}
 
 		# Only include title/keywords when set, so non-pipeline callers are unchanged.

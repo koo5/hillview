@@ -39,6 +39,7 @@ data class DevicePhotoCard(
      * global setting, which is what the card says.
      */
     val license: String? = null,
+    val panoramaxShare: Boolean = false,
     /**
      * The EFFECTIVE anonymization choice — "auto" (detect and blur), "none",
      * or "custom" (regions drawn on the web) — pending edits included, so a
@@ -230,9 +231,11 @@ interface DevicePhotoBrowser {
      * change cannot silently relicense a queue.
      *
      * Only offered while the row has not gone out — once the server has it,
-     * its copy is the one that counts and there is no endpoint to amend it.
+     * its copy is the one that counts; post-upload intake edits are not exposed here.
      */
     suspend fun changeLicense(id: String, license: String)
+
+    suspend fun setPanoramaxShare(id: String, share: Boolean)
 }
 
 /** A row whose licence is still ours to change (not yet on the server). */

@@ -24,7 +24,7 @@ const parseUrlList = (raw: unknown, fallback: string[]): string[] =>
 		: fallback;
 export const ownPanoramaxInstanceUrls = parseUrlList(
 	import.meta.env.VITE_OWN_PANORAMAX_INSTANCE_URLS,
-	['https://panoramax.hillview.cz']
+	['https://p1.geovisio.hillview.cz']
 );
 // Trailing slash enforced: these are matched with startsWith(), so a bare-host
 // override like "https://pics.hillview.cz" would also match

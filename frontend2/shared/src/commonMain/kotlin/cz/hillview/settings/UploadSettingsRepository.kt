@@ -113,6 +113,8 @@ data class UploadSettings(
      * docs/todo/captured-at-is-the-exposure.md.
      */
     val exactCaptureTime: Boolean = false,
+    /** Default for future shots; each photo keeps its own copy. */
+    val shareToPanoramax: Boolean = false,
 )
 
 /**
@@ -184,10 +186,19 @@ val LICENSE_INFO: List<LicenseInfo> = listOf(
         label = "Full rights to Hillview",
         explainer = "You keep your copyright and grant Hillview full rights to " +
             "the photo, including paid tiers later. Hillview currently " +
-            "publishes it as all rights reserved plus the same OpenStreetMap " +
+            "publishes it as Panoramax when you turn on sharing, otherwise as " +
+            "all rights reserved plus the same OpenStreetMap " +
             "mapping grant: others can view it here and OSM mappers may trace " +
             "map data from it, but nobody may otherwise reuse it without " +
             "arrangement. Choose this to support the project.",
+    ),
+    LicenseInfo(
+        id = "panoramax_in",
+        label = "Panoramax contribution grant",
+        explainer = "You keep your copyright and permit Hillview to publish under a " +
+            "Panoramax-compatible licence. Draft wording: the final licence text is pending. " +
+            "The photo is published as Panoramax whether or not it qualifies for federation. " +
+            "Turn on sharing separately to offer it to the federation.",
     ),
 )
 
@@ -195,7 +206,11 @@ val LICENSE_INFO: List<LicenseInfo> = listOf(
 val ALLOWED_LICENSES: List<String> = LICENSE_INFO.map { it.id }
 
 /** Human label for a grant id; the id itself for one we do not know. */
-fun licenseLabel(id: String): String = LICENSE_INFO.firstOrNull { it.id == id }?.label ?: id
+fun licenseLabel(id: String): String = when (id) {
+    "panoramax" -> "Panoramax (licence wording pending)"
+    "arr" -> "All rights reserved + OSM mapping grant"
+    else -> LICENSE_INFO.firstOrNull { it.id == id }?.label ?: id
+}
 
 /**
  * Defaults. autoUploadEnabled is OFF until the user turns it on — a

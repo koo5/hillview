@@ -1,5 +1,32 @@
 # Panoramax contribution: flags, the `panoramax_in` grant, intake vs outflow licence
 
+## Implementation status (2026-10-28)
+
+Phases 1 and 2 are implemented. Phase 0 was already complete and was not rerun.
+The migration is **038_panoramax_contribution**, chained after the existing
+037_photo_bestof_eligible merge; dev now has one head and scope `p1`.
+
+Verification completed: API unit tests (380 passed, 1 skipped), federation unit
+tests (81 passed), upload/edit/contributor and real PostgreSQL eligibility
+integration tests, JVM tests (455), Android host tests (548), Room migration and
+outbox device tests, CSV export device tests, and both real-catalog e2e modes.
+The heavy run used 50,000 photos and harvested 40,473 eligible items with zero
+harvest errors; all new exclusion kinds and share withdrawal/restoration passed.
+Both Room v31 schemas have the same identity hash. The Tauri plugin also passes
+a clean `assembleDebug`; its incremental kapt cache needed clearing to export
+the correct v31 entity layout (see `shared-kt/schemas/README.md`).
+
+Implementation also fixes gaps exposed during verification: JSON-null detections
+are excluded, outbox-only work wakes the single upload drain even with automatic
+file uploads off, and CSV delta fields have a separator. A changed CSV header
+starts a new segment with a current baseline and preserves older segments.
+
+The live emulator upload/card-edit smoke test passed, including withdrawal with
+automatic file uploads off, as did capture-to-CSV verification. The external ADB
+server on port 5038 has no device; device verification used a disposable local
+AVD. Panoramax legal wording and SPDX declarations remain provisional as planned.
+See [the federation guide](../panoramax-federation.md) for the implemented model.
+
 ## Context
 
 The Panoramax federation service (`backend/panoramax/`, not yet deployed/registered)

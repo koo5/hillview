@@ -22,6 +22,7 @@ import cz.hillview.lock.ControlsLockScrim
 import cz.hillview.lock.LockSettingsScreen
 import cz.hillview.main.MainScreen
 import cz.hillview.nav.CaptureGuideKey
+import cz.hillview.nav.PanoramaxInfoKey
 import cz.hillview.nav.UploadStatusKey
 import cz.hillview.nav.EventLogKey
 import cz.hillview.nav.CaptureKey
@@ -59,6 +60,7 @@ private val navSavedStateConfig = SavedStateConfiguration {
             subclass(EventLogKey::class)
             subclass(UploadStatusKey::class)
             subclass(CaptureGuideKey::class)
+            subclass(PanoramaxInfoKey::class)
             subclass(PhotoDetailKey::class)
         }
     }
@@ -97,6 +99,7 @@ fun App() {
                 onOpenClockVideo = { backStack.add(ClockVideoKey) },
                 onOpenDevicePhotos = { backStack.add(DevicePhotosKey) },
                 onOpenCaptureGuide = { backStack.add(CaptureGuideKey) },
+                onOpenPanoramaxInfo = { backStack.add(PanoramaxInfoKey) },
                 onOpenUploadStatus = { backStack.add(UploadStatusKey) },
                 onOpenEventLog = { backStack.add(EventLogKey) },
                 onOpenLockSettings = { backStack.add(LockSettingsKey) },
@@ -120,6 +123,7 @@ fun App() {
                     SettingsScreen(
                         onBack = { pop() },
                         onOpenLogin = { backStack.add(LoginKey) },
+                        onOpenPanoramaxInfo = { backStack.add(PanoramaxInfoKey) },
                     )
                 }
                 entry<DevicePhotosKey> {
@@ -148,6 +152,9 @@ fun App() {
                     cz.hillview.upload.ui.UploadStatusScreen(
                         onBack = { pop() },
                     )
+                }
+                entry<PanoramaxInfoKey> {
+                    cz.hillview.help.PanoramaxInfoScreen(onBack = { pop() })
                 }
                 entry<CaptureGuideKey> {
                     cz.hillview.help.CaptureGuideScreen(

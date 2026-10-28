@@ -7,7 +7,12 @@ the sequence's updated_at so the harvester re-crawls, but until the sequencer
 prunes membership the item must already be gone from /items responses.
 
 Requires `photos p JOIN users u ON u.id = p.owner_id` in the enclosing query
-and a :scope_legal_rights bind param.
+and a list-valued :scope_legal_rights bind param.
+
+Only full1/panoramax_in grants can qualify, with owner consent and both
+moderation gates. Skip and manual anonymization cannot establish that the
+detector found no doodles, so only detector records without blurred objects
+qualify. The data migration already made every blurred flag explicit.
 
 Moderation signals also exclude a photo from federation: any thumbs-down
 rating, or an unresolved flag (resolved flags don't exclude — an admin looked
@@ -18,7 +23,17 @@ serve-time filtering hides the item immediately.
 """
 
 ELIGIBLE_PHOTO_WHERE = """
-	p.legal_rights = :scope_legal_rights
+	p.legal_rights = ANY(:scope_legal_rights)
+	AND p.panoramax_owner_share
+	AND p.panoramax_moderator_approved
+	AND u.panoramax_contributor
+	AND p.detected_objects IS NOT NULL
+	AND json_typeof(p.detected_objects) = 'object'
+	AND COALESCE((p.detected_objects->>'manual')::boolean, false) = false
+	AND NOT EXISTS (
+		SELECT 1 FROM json_array_elements(COALESCE(p.detected_objects->'objects', '[]'::json)) o
+		WHERE (o->>'blurred')::boolean
+	)
 	AND p.deleted = false
 	AND p.is_public = true
 	AND p.processing_status = 'completed'

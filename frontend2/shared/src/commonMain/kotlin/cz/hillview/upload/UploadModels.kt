@@ -158,6 +158,7 @@ data class PendingUpload(
      * was taken, so changing the setting later must not relicense a queue.
      */
     val license: String? = null,
+    val panoramaxShare: Boolean = false,
     val state: UploadState = UploadState.Pending,
     val attempts: Int = 0,
     val lastError: String? = null,

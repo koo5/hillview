@@ -5,7 +5,7 @@ package cz.hillview.plugin
  *
  * The rule this file exists to keep — everything here is in service of it:
  *
- *     If any photo is waiting to upload, exactly one drain job is enqueued
+ *     If any permitted file or pushable metadata edit is waiting, one drain is enqueued
  *     (or running) whose constraints match the CURRENT settings. If none is
  *     waiting, no drain job exists.
  *
@@ -43,7 +43,11 @@ data class UploadGate(
  * own retry backoff paces the re-attempts. Modelling the timing twice would
  * mean two clocks that can disagree.
  */
-data class UploadQueueSnapshot(val waiting: Int)
+data class UploadQueueSnapshot(
+    val waiting: Int,
+    /** Account-keyed metadata wishes whose photo already has a server id. */
+    val outboxWaiting: Int = 0,
+)
 
 /**
  * What WorkManager already holds under our unique names.
@@ -99,17 +103,19 @@ fun decideUploadSchedule(
     // waiting" would cancel the very work it was measuring.
     if (existing.running) return ScheduleAction.Leave("a drain is running")
 
-    if (!gate.autoUploadEnabled) return ScheduleAction.CancelAll("auto-upload is off")
+    // Explicit metadata edits do not opt the user into uploading more files.
+    val hasOutbox = queue.outboxWaiting > 0
+    if (!gate.autoUploadEnabled && !hasOutbox) return ScheduleAction.CancelAll("auto-upload is off")
     // Enqueueing against a closed gate is worse than not enqueueing: the job
     // holds the unique name it cannot use, and KEEP then drops the enqueue that
     // arrives once the gate opens.
-    if (!gate.hasLicense) return ScheduleAction.CancelAll("no upload licence chosen")
+    if (!gate.hasLicense && !hasOutbox) return ScheduleAction.CancelAll("no upload licence chosen")
 
-    if (queue.waiting == 0) return ScheduleAction.CancelAll("nothing waiting to upload")
+    if (queue.waiting == 0 && !hasOutbox) return ScheduleAction.CancelAll("nothing waiting to upload")
 
     val wifiOnly = gate.wifiOnly && !bypassWifiOnly
     if (existing.exists && existing.wifiOnly == wifiOnly) {
-        return ScheduleAction.Leave("${queue.waiting} waiting, already scheduled")
+        return ScheduleAction.Leave("${queue.waiting} files and ${queue.outboxWaiting} metadata edits waiting, already scheduled")
     }
     return ScheduleAction.Ensure(
         wifiOnly = wifiOnly,
@@ -120,7 +126,7 @@ fun decideUploadSchedule(
             "network rule changed (was ${constraintName(existing.wifiOnly)}, " +
                 "now ${constraintName(wifiOnly)})"
         } else {
-            "${queue.waiting} waiting, nothing scheduled"
+            "${queue.waiting} files and ${queue.outboxWaiting} metadata edits waiting, nothing scheduled"
         },
     )
 }

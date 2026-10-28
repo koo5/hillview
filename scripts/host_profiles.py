@@ -102,7 +102,7 @@ def vm_profiles(machine, ip, local_host, ygg_host, ygg_reachable_locally=False, 
 	`env` is extra api/worker declarations the machine carries in every profile
 	(e.g. PANORAMAX_BASE_URL), merged over the template's.
 	"""
-	extra = dict(env or {})
+	extra = {"PANORAMAX_SCOPE": "p1", **(env or {})}
 
 	def caddy(host, frontend_url, **more):
 		return {

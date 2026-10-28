@@ -2,7 +2,7 @@
 
 Hillview joins the [Panoramax](https://panoramax.fr) federation by exposing a
 GeoVisio-compatible **read-only STAC API** that the federation's meta-catalog
-(api.panoramax.xyz) harvests. Users' CC-licensed photos then appear on the
+(api.panoramax.xyz) harvests. Owners' opted-in photos then appear on the
 shared Panoramax map alongside every other instance's.
 
 ## Components
@@ -15,23 +15,17 @@ shared Panoramax map alongside every other instance's.
 | Compose service | `docker-compose.yml`, profile `panoramax`, port 127.0.0.1:8058 | `docker compose --profile panoramax up -d --build panoramax` |
 | Frontend self-dedup | `PanoramaxSourceLoader.ts` (`isOwnInstanceItem`) | drops our own photos when they come back through the meta-catalog |
 
-## Naming: why `cc.geovisio.hillview.cz`
+## Naming: `p1.geovisio.hillview.cz`
 
-This service is **not a Panoramax instance** — it is Hillview speaking the
-GeoVisio STAC dialect that Panoramax harvests. The naming reflects that:
-
-- `panoramax.hillview.cz` is deliberately **left free** for a possible real
-  Panoramax deployment later.
-- `geovisio` names the API dialect we actually implement (the wire format is
-  full of `geovisio:status`, `geovisio:rank_in_collection`).
-- the `cc.` prefix scopes the host to one license set, leaving
-  `arr.geovisio.hillview.cz` available if a second scope is ever built.
+The `p1` scope is the first contribution scope. `geovisio` identifies the
+STAC dialect this read API implements. The service is not yet deployed or
+registered. The canonical production host is `p1.geovisio.hillview.cz`.
 
 **The `rstrip("/api")` caveat is not binding for us.** The catalog canonicalises
 the registered URL with a *character-class* strip, so the URL must not end in
 any of `/`, `a`, `p`, `i`. Every `*.hillview.cz` host is safe because `.cz`
 ends in `z` (and a trailing slash is simply stripped, as intended). It would
-bite on a `.app`/`.ai` domain, or on a path-suffixed URL: `.../cc` survives,
+bite on a `.app`/`.ai` domain, or on a path-suffixed URL: `.../p1` survives,
 `.../cc-osm-map` is silently mangled to `.../cc-osm-m`.
 
 **Can one host serve two scopes?** In the catalog, instances are keyed by a
@@ -56,87 +50,64 @@ on the registered one. Hence `/` on this service **redirects to
 catalog attaches a `rel=via` link to every harvested item pointing at the
 registered instance URL, presented to users as "Link to the original instance".
 
+
 ## Scope and licensing
 
-The instance serves **only** photos with `legal_rights = 'ccbysa4+osm'`,
-declared instance-wide as **CC-BY-SA-4.0** (the +OSM grant is an *additional
-grant*, spelled out in the instance description — it does not change the
-declared license). Serving everything as ARR was rejected: federation policy
-accepts only CC-BY-SA-4.0 / Licence Ouverte 2.0, enforced by human review at
-registration (the harvester code itself never validates licenses).
+Intake is what the contributor grants Hillview (`Photo.legal_rights`); outflow
+is the licence Hillview publishes on every read (`license`). These are separate:
 
-### How our grant compares (and why it matters less than it looks)
+| Intake | Outflow |
+| --- | --- |
+| `full1` | `arr`, or `panoramax` when the owner turns sharing on |
+| `ccbysa4+osm` | `ccbysa4+osm` |
+| `panoramax_in` | `panoramax`, regardless of sharing or federation eligibility |
 
-The written policy's CC option is not bare CC-BY-SA-4.0: *"CC-BY-SA 4.0 for
-original or derivated pictures sharing **+ usable for creating derivated data
-(including AI models) under LO 2.0, CC-BY 4.0 or ODbL 1.0**"*. The reference
-instance's EULA (OSM-France, Article 3, as amended 2026-02-02; live text at
-`panoramax.openstreetmap.fr/api/pages/end-user-license-agreement/en-gb`,
-re-verified 2026-08-27) puts the same two-layer grant in front of
-contributors:
+The `panoramax` wording is still a placeholder. The federation's declared SPDX
+`CC-BY-SA-4.0`, URL and configuration description remain provisional until
+that wording is settled. Installed Tauri clients show unfamiliar outflow ids
+as unknown until their next release; the prototype controls are in frontend2.
 
-> "Open Data Licence" pictures are:
-> - under CC-BY-SA 4.0 licence for every original or derivated picture
-> - free to use (as in free speech) for creating other derivated data
->   (including AI models) under Licence Ouverte 2.0, CC-BY 4.0 or ODbL 1.0
->
-> "Metadata and semantic tags" … are published under Licence Ouverte 2.0 and
-> CC-BY 4.0.
+### How our grant compares
 
-Hillview's `ccbysa4+osm` grants derived-data rights only for OSM
-contributions, so on paper we cover the ODbL-via-OSM destination but not
-LO 2.0 / CC-BY 4.0 generally.
+`ccbysa4+osm` covers derived-data use for OpenStreetMap contributions only.
+It does not authorize the LO 2.0 / CC-BY derived-data uses the federation
+catalog makes, including its metadata exports. We therefore do **not**
+federate photos under that intake. Hillview needs the wider `full1` or
+`panoramax_in` intake to publish under a Panoramax-compatible outflow.
+The final photo and metadata terms must be settled before registration.
 
-**In practice this is near-invisible.** The Panoramax config model allows
-exactly one SPDX id + URL per instance, with no field for supplementary
-permissions, and the meta-catalog performs no license validation whatsoever
-(its own test fixtures carry `"license": "proprietary"`). So OSM-France's
-extra grant lives only in its own prose; every consumer reading the federated
-catalog sees bare `CC-BY-SA-4.0`. Measured against the live instances API,
-**20 of 21 federated instances declare `CC-BY-SA-4.0`** (18 clean, 2
-malformed as `[CC-BY-SA-4.0]`) and one declares `etalab-2.0`. Join requests
-consist of a bare licence line and are accepted as such; the project lead's
-own guidance on the wider grant is phrased as advice ("I *suggest* to add the
-authorization…"), not a condition.
+A photo is **servable** iff (one definition in
+`backend/panoramax/app/eligibility.py`, used by sequencer and API):
 
-Conclusion: declaring `CC-BY-SA-4.0` and stating our narrower grant in the
-registration issue and our own licensing page puts us in the same structural
-position as almost every federated instance. Nothing in the harvester carries
-the difference either way.
+- Its intake is `full1` or `panoramax_in` (scope `p1`).
+- `panoramax_owner_share` is on (default **off**).
+- `panoramax_moderator_approved` is on (default **on**).
+- The owner's `panoramax_contributor` flag is on (default **on**).
+- The detector ran and no object has `blurred = true`. NULL detections,
+  skipped anonymization and manual anonymization do not qualify. The
+  completed detections migration makes each object's `blurred` explicit;
+  the column is PostgreSQL `json`, not `jsonb`.
+- All existing gates pass: not deleted, public, processing completed, geometry,
+  capture/upload effective time and renditions present, owner active and not a
+  test user, no thumbs-down rating and no unresolved flag.
 
-**Undecided and worth deciding**: Hillview does not state a licence for photo
-*metadata*, which is precisely what the catalog copies. OSM-France moved its
-metadata and semantic tags to LO 2.0 + CC-BY 4.0 in February 2026.
+Sharing changes the outflow of a `full1` photo even when another gate excludes
+it from federation. Approval and contributor flags affect eligibility only.
+Photo share, approval and detection changes bump sequence timestamps; the
+sequencer prunes membership on its next pass while reads filter immediately.
 
-Where that bites, concretely (verified 2026-08-25): the federation itself
-**redistributes the harvested metadata under Licence Ouverte 2.0**. The weekly
-pg_dump + GeoParquet exports of api.panoramax.xyz are published on
-data.gouv.fr as "Export du catalogue global des photos de Panoramax"
-(organisation Panoramax, created 2025-11-24, licence `lov2`) — three months
-*before* OSM-France relicensed its own metadata. Nothing in the catalog's
-docs or API states this: the STAC landing page has no `license` field or
-`rel=license` link, `/api/configuration` is a 404, the docs mention licences
-only in the joining policy, and each item/collection merely carries the
-*pictures* licence copied verbatim from its source instance (osm-fr items say
-`CC-BY-SA-4.0`, ign says `etalab-2.0`). So the policy's "usable for creating
-derivated data under LO 2.0 / CC-BY 4.0 / ODbL 1.0" clause is not advisory
-after all: the catalog exercises it on every joined instance's metadata. An
-instance that grants only CC-BY-SA-4.0 + an OSM-only grant (our current
-`ccbysa4+osm`) has, strictly, not authorised that LO 2.0 export. Whatever we
-decide for metadata should include an LO 2.0-compatible grant, or we join
-knowing the export exceeds our terms as almost every other instance does.
+`PhotoLicenseHistory` records intake changes. The FK-free append-only
+`PhotoOutflowLicenseHistory` records publication changes with `grant_change`
+or `panoramax_share` as their cause. Original grants/outflows are derived from
+the upload choices, with the first change snapshotting the original value.
+A version-bump re-upload still recreates the photo without either history;
+this existing intake-history gap also applies to flags and outflow history.
 
-The scope machinery (`sequences.scope` column + `Scope` object in
-`backend/panoramax/app/settings.py`) keeps a future second instance (e.g. "ARR
-+ OSM mapper provision") a contained code change, not a config framework.
-
-A photo is **servable** iff (single definition in
-`backend/panoramax/app/eligibility.py`, used by sequencer *and* API):
-in-scope license, not soft-deleted, `is_public`, processing completed, has
-geometry + effective_at + sizes, owner active and not a test user, no
-thumbs-down rating, and no unresolved flag (moderation signals propagate to
-the catalog on the sequencer's cadence; serve-time filtering hides the item
-immediately).
+The capture default is saved across restarts and copied into each photo's
+Room row. Card edits update that row and an account-keyed outbox wish, so
+unuploaded photos authorize with the new choice and already uploaded photos
+receive an idempotent PATCH. Pre-choice photos retain a null intake and adopt
+the global licence at upload, with no migration or dialog.
 
 ## Sequences
 
@@ -255,7 +226,7 @@ landing page currently guarantees, since it declares no `item-preview` link.
 
 Cheapest fixes, in order: declare `item-preview`/`collection-preview` links on
 our landing page; or generate real JPEG for the `thumb` tier only (500px q75 ≈
-15 KiB/photo); or full JPEG derivatives for the CC subset (largest change —
+15 KiB/photo); or full JPEG derivatives for the federated subset (largest change —
 the worker is WebP-only end to end, including `.webp` DZI tiles).
 
 Size-wise WebP is currently costing us rather than saving: at `WEBP_QUALITY_SIZES = 97`
@@ -271,7 +242,7 @@ joined. Current state: `pics.hillview.cz` sends
 `Access-Control-Allow-Origin: *` ✅, but the **Tigris CDN
 (`pics4.t3.storage.dev`) sends no CORS headers at all** ❌. No federated photo
 lives there today (863 non-CC photos do), so it is a latent trap: configure
-the bucket's CORS policy before any CC photo is written to that pool.
+the bucket's CORS policy before any federated photo is written to that pool.
 
 The **instance API itself** is also CORS-open (added 2026-08-30), but this is
 **optional, not a federation requirement** — the earlier claim that the viewer
@@ -282,7 +253,7 @@ us is a navigation, not a fetch; and our own hillview.cz frontend reads
 it; `main.py`'s `CORSMiddleware` (`allow_origins=['*']`, GET/HEAD/OPTIONS, no
 credentials) is a zero-cost hedge for a third-party STAC browser pointed
 straight at us, harmless because everything served is public and anonymous.
-The prod Caddy vhost for `cc.geovisio.hillview.cz` needs no CORS config of its
+The prod Caddy vhost for `p1.geovisio.hillview.cz` needs no CORS config of its
 own either way. The genuinely required CORS is the asset-host header above;
 the dev box's `/pics` route in `~/caddy/Caddyfile` sends
 `Access-Control-Allow-Origin: *` now, matching prod.
@@ -290,7 +261,7 @@ the dev box's `/pics` route in `~/caddy/Caddyfile` sends
 ## Deployment
 
 1. Set in `.env`: `PANORAMAX_DB_PASSWORD=<secret>`, and for prod
-   `PANORAMAX_BASE_URL=https://cc.geovisio.hillview.cz`. Leaving the password
+   `PANORAMAX_BASE_URL=https://p1.geovisio.hillview.cz`. Leaving the password
    empty (the compose default — it can't be `:?`-required, since compose
    interpolates before applying profiles and would then break every command
    for everyone) makes the container exit at boot with a message naming the
@@ -313,12 +284,12 @@ the dev box's `/pics` route in `~/caddy/Caddyfile` sends
    safe:
 
    ```caddy
-   https://cc.geovisio.hillview.cz {
+   https://p1.geovisio.hillview.cz {
        reverse_proxy localhost:8058
    }
    ```
 
-Env knobs: `PANORAMAX_SCOPE` (default `cc`), `PANORAMAX_SESSION_GAP_HOURS`
+Env knobs: `PANORAMAX_SCOPE` (default `p1`), `PANORAMAX_SESSION_GAP_HOURS`
 (3), `PANORAMAX_SEQUENCER_INTERVAL_S` (300), `PANORAMAX_SEQUENCER_ENABLED`
 (true — set false to run the API without the in-process sequencer),
 `PANORAMAX_INSTANCE_NAME` (Hillview), `PANORAMAX_VIEWER_URL`
@@ -399,7 +370,7 @@ End-to-end against the **real harvester**, fully scripted:
 ./backend/panoramax/scripts/e2e_federation.sh --down     # tear the catalog down
 ```
 
-It brings up the hillview stack, seeds CC photos through the real upload path
+It brings up the hillview stack, seeds opted-in photos through the real upload path
 (`scripts/seed_photos.py`, laid out as N time-gap sessions so the sequencer's
 splitting is asserted), starts the meta-catalog stack from the local checkout
 (`META_CATALOG=`, default `/home/koom/repos/panoramax/server/meta-catalog/0/meta-catalog`),
@@ -485,6 +456,6 @@ Open decisions, in rough priority order:
 2. **WebP** — accept the two client breakages, add `item-preview` links, or
    generate JPEG thumbs (see the WebP section).
 3. **Prod deploy + registration** — Caddy vhost, then the GitLab issue.
-4. **Tigris CORS** — before any CC photo is written to that pool.
+4. **Tigris CORS** — before any federated photo is written to that pool.
 5. Optionally lower `WEBP_QUALITY_SIZES` from 97; it is what makes our
    derivatives heavier than Panoramax's JPEGs.

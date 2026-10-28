@@ -71,6 +71,7 @@ object PhotoTableDump {
     private const val PREF_DELTA_FORMAT = "delta_format"
     private const val PREF_ACTIVE_SHARD = "active_shard"
     private const val PREF_ACTIVE_ROWS = "active_rows"
+    private const val PREF_COLUMNS = "columns"
     private const val PREF_CHANGE_CHECKPOINT = "change_checkpoint"
     private const val PREF_LEGACY_SHARDS = "legacy_shard_count"
 
@@ -169,11 +170,13 @@ object PhotoTableDump {
         if (!force && spaced && now - prefs.getLong(PREF_AT, 0L) < photoDumpIntervalMs(total)) return
 
         val db = database.openHelper.writableDatabase
-        if (force) queueAllPhotosForExport(db)
+        val wasDeltaFormat = prefs.getBoolean(PREF_DELTA_FORMAT, false)
+        val columns = photoTableDeltaHeader()
+        val headerChanged = wasDeltaFormat && prefs.getString(PREF_COLUMNS, null) != columns
+        if (force || headerChanged) queueAllPhotosForExport(db)
 
         val oldUris = prefs.getString(PREF_URIS, "").orEmpty().split(",")
         val outputUris = oldUris.toMutableList()
-        val wasDeltaFormat = prefs.getBoolean(PREF_DELTA_FORMAT, false)
         if (!wasDeltaFormat && total > 0 && pendingPhotoChanges(db, 1).isEmpty()) {
             // Recovery for an install whose preferences or ledger predate the
             // incremental format: establish a baseline once, then stay delta-only.
@@ -211,29 +214,36 @@ object PhotoTableDump {
             acknowledgePhotoChanges(db, checkpoint)
         }
 
+        if (headerChanged) {
+            // Each segment has one header. Seal the old shape and establish a
+            // current-state baseline in a new segment, preserving older logs.
+            shard = maxOf(shard, oldShardCount)
+            activeRows = 0
+        }
+
         // The old snapshot's files become the first log segments. On an upgraded
         // install, the migration queued every existing row; the first write
         // replaces each old segment through a staged, complete replacement.
-        if (!wasDeltaFormat && total == 0) {
-            val firstUri = resolveSegmentUri(app, 0, outputUris)
-            val result = writeCsvAtomic(app, photoDumpFileName(0), firstUri) { out ->
+        if ((!wasDeltaFormat || headerChanged) && total == 0) {
+            val firstUri = resolveSegmentUri(app, shard, outputUris)
+            val result = writeCsvAtomic(app, photoDumpFileName(shard), firstUri) { out ->
                 val writer = out.bufferedWriter(Charsets.UTF_8)
-                writer.write(deltaFilePrefix(0L, 0))
+                writer.write(deltaFilePrefix(checkpoint, 0))
                 writer.write(photoTableDeltaHeader())
                 writer.flush()
             }
             where = result.where
             durable = result.durable
-            while (outputUris.isEmpty()) outputUris += ""
-            outputUris[0] = result.uri.orEmpty()
-            prefs.edit().putBoolean(PREF_DELTA_FORMAT, true)
-                .putInt(PREF_ACTIVE_SHARD, 0).putInt(PREF_ACTIVE_ROWS, 0)
-                .putLong(PREF_CHANGE_CHECKPOINT, 0L).putInt(PREF_SHARDS, 1)
+            while (outputUris.size <= shard) outputUris += ""
+            outputUris[shard] = result.uri.orEmpty()
+            shards = maxOf(shards, shard + 1)
+            prefs.edit().putBoolean(PREF_DELTA_FORMAT, true).putString(PREF_COLUMNS, columns)
+                .putInt(PREF_ACTIVE_SHARD, shard).putInt(PREF_ACTIVE_ROWS, 0)
+                .putLong(PREF_CHANGE_CHECKPOINT, checkpoint).putInt(PREF_SHARDS, shards)
                 .putInt(PREF_LEGACY_SHARDS, legacyShardCount)
                 .putString(PREF_URIS, outputUris.joinToString(","))
                 .putString(PREF_WHERE, where).putBoolean(PREF_DURABLE, durable)
                 .putLong(PREF_AT, now).putInt(PREF_COUNT, total).commit()
-            shards = 1
         }
 
         while (true) {
@@ -291,7 +301,7 @@ object PhotoTableDump {
             while (outputUris.size <= shard) outputUris += ""
             outputUris[shard] = result.uri.orEmpty()
             shards = maxOf(shards, shard + 1)
-            val saved = prefs.edit().putBoolean(PREF_DELTA_FORMAT, true)
+            val saved = prefs.edit().putBoolean(PREF_DELTA_FORMAT, true).putString(PREF_COLUMNS, columns)
                 .putLong(PREF_CHANGE_CHECKPOINT, checkpoint)
                 .putInt(PREF_ACTIVE_SHARD, shard).putInt(PREF_ACTIVE_ROWS, activeRows)
                 .putInt(PREF_SHARDS, shards).putString(PREF_URIS, outputUris.joinToString(","))
@@ -845,18 +855,19 @@ internal fun appendPhotoTableRow(out: StringBuilder, row: PhotoEntity) {
         out.cell(row.fixJson)
         out.cell(row.lensJson)
         out.cell(row.inertialJson)
-        out.cell(row.captureTimingJson, last = true)
+        out.cell(row.captureTimingJson)
+        out.cell(if (row.panoramaxShare) "1" else "0", last = true)
     }
 }
 
-private fun appendPhotoTableDeltaRow(out: StringBuilder, row: PhotoEntity, changeId: Long) {
+internal fun appendPhotoTableDeltaRow(out: StringBuilder, row: PhotoEntity, changeId: Long) {
     appendPhotoTableRow(out, row)
-    out.setLength(out.length - 1) // Replace the row's final newline with two cells.
+    out.setCharAt(out.length - 1, ',') // Separate the final photo cell from the delta fields.
     out.cell(changeId.toString())
     out.cell("upsert", last = true)
 }
 
-private fun appendPhotoTableTombstone(out: StringBuilder, photoId: String, changeId: Long) {
+internal fun appendPhotoTableTombstone(out: StringBuilder, photoId: String, changeId: Long) {
     val row = PhotoEntity(
         id = photoId,
         filename = "",
@@ -872,7 +883,7 @@ private fun appendPhotoTableTombstone(out: StringBuilder, photoId: String, chang
         deleted = true,
     )
     appendPhotoTableRow(out, row)
-    out.setLength(out.length - 1)
+    out.setCharAt(out.length - 1, ',')
     out.cell(changeId.toString())
     out.cell("delete", last = true)
 }
@@ -915,7 +926,7 @@ internal val PHOTO_DUMP_COLUMNS = listOf(
     "fileHash", "serverPhotoId", "deleted", "version", "anonymizationOverride",
     "bearingSource", "locationSource", "locationAgeMs", "exposureJson",
     "stampRefinedAt", "license", "altLocationJson", "attitudeJson",
-    "fixJson", "lensJson", "inertialJson", "captureTimingJson",
+    "fixJson", "lensJson", "inertialJson", "captureTimingJson", "panoramaxShare",
 )
 
 private fun isoUtc(epochMs: Long): String {

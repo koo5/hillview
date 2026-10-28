@@ -25,6 +25,7 @@ class JavaPrefsUploadSettingsRepository(
             hideFromGallery = node.getBoolean("hide_from_gallery", defaults.hideFromGallery),
             autoUploadPromptEnabled = node.getBoolean("auto_upload_prompt_enabled", true),
             writeExif = node.getBoolean("write_exif", false),
+            shareToPanoramax = node.getBoolean("share_to_panoramax", false),
         ).also(::persist)
     )
     override val settings: StateFlow<UploadSettings> = _settings.asStateFlow()
@@ -47,5 +48,6 @@ class JavaPrefsUploadSettingsRepository(
         node.putBoolean("hide_from_gallery", s.hideFromGallery)
         node.putBoolean("auto_upload_prompt_enabled", s.autoUploadPromptEnabled)
         node.putBoolean("write_exif", s.writeExif)
+        node.putBoolean("share_to_panoramax", s.shareToPanoramax)
     }
 }

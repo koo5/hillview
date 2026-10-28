@@ -26,7 +26,7 @@ ygg = "hv.{machine}.example.internal"   # name it is published under elsewhere
 ip = "192.168.1.50"           # LAN address, for the -raw (Android) profile
 ygg_reachable_locally = false # can mybox itself reach its ygg name?
 # Extra api/worker env this machine carries in every profile:
-# env = { PANORAMAX_BASE_URL = "https://hv.mybox.example.internal/geovisio" }
+# env = { PANORAMAX_BASE_URL = "https://hv.mybox.example.internal/geovisio", PANORAMAX_SCOPE = "p1" }
 
 
 # ---- written out: one profile, every key explicit -------------------------

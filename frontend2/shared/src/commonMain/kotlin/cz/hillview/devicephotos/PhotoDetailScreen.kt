@@ -116,6 +116,10 @@ fun PhotoDetailScreen(
                     )
                     scope.launch { browser.setServerDeletion(current.id, wanted) }
                 },
+                onSetPanoramaxShare = { share ->
+                    card = current.copy(panoramaxShare = share)
+                    scope.launch { browser.setPanoramaxShare(current.id, share) }
+                },
                 onChangeLicense = { license ->
                     card = current.copy(license = license)
                     scope.launch { browser.changeLicense(current.id, license) }

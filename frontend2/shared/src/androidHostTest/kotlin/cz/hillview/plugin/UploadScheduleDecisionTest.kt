@@ -31,6 +31,17 @@ class UploadScheduleDecisionTest {
     )
 
     @Test
+    fun metadataAloneSchedulesWithoutOptingIntoFileUploads() {
+        for (gate in listOf(openGate, openGate.copy(autoUploadEnabled = false),
+            openGate.copy(autoUploadEnabled = false, hasLicense = false))) {
+            val action = decideUploadSchedule(gate, UploadQueueSnapshot(waiting = 0, outboxWaiting = 1),
+                nothingScheduled, leadingEdge = true, bypassWifiOnly = false)
+            assertTrue(action is ScheduleAction.Ensure, "got $action")
+            assertEquals(gate.wifiOnly, action.wifiOnly)
+        }
+    }
+
+    @Test
     fun aWaitingQueueWithNoJobIsAlwaysScheduled() {
         // The whole point: photos waiting and nothing enqueued is the state in
         // which "Wi-Fi came back and nothing happened" becomes possible.

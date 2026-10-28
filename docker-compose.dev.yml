@@ -53,6 +53,7 @@ services:
   panoramax:
     network_mode: host
     environment:
+      - PANORAMAX_SCOPE=${PANORAMAX_SCOPE:-p1}
       - DATABASE_URL=postgresql+asyncpg://panoramax_ro:${PANORAMAX_DB_PASSWORD:-}@localhost:${POSTGRES_HOST_PORT:-25432}/${POSTGRES_DB}
     volumes:
       - ./backend/panoramax/app:/app/app

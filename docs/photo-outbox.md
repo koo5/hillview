@@ -5,7 +5,7 @@ survive being offline — or being said before the photo has ever reached the
 server — is a row in `photo_outbox` saying what the client WANTS to be true.
 One row per (account, photo, kind, item), replaced in place.**
 
-Ratings and deletions ride it today. Tags, descriptions and voice notes are
+Ratings, deletions and Panoramax sharing ride it today. Tags, descriptions and voice notes are
 the reason it is shaped this way rather than hard-wired to ratings.
 
 Sibling of [upload-one-funnel.md](upload-one-funnel.md): the file drain sends
@@ -119,3 +119,14 @@ newer version survives a downgrade.
 # only PhotoOutbox may write wishes; only the pusher may clear them
 grep -rn "outboxDao()" frontend2 shared-kt --include=*.kt | grep -v Test
 ```
+
+
+`panoramax_share` carries `{"panoramax_share": true|false}`. Its setter also
+updates the photo's `panoramaxShare` in the same transaction so authorization
+uses the edited value before first upload. `afterUpload` pushes this wish as
+well as deletion; repeating the PATCH does not add a publication-history row.
+
+The upload scheduler counts pushable metadata separately from waiting files.
+Explicit edits therefore drain even with auto-upload off or no global intake
+choice, without enabling the file loop. Pending metadata keeps WorkManager's
+constrained retry alive; unuploaded wishes cannot by themselves schedule work.

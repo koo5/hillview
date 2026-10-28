@@ -73,6 +73,7 @@ class User:
 	camera: tuple
 	quota: int = 0
 	photos: list = field(default_factory=list)
+	panoramax_contributor: bool = True
 
 
 @dataclass
@@ -139,6 +140,7 @@ def make_users(rng: random.Random, n: int, prefix: str) -> list[User]:
 	if n >= 4:
 		users[-1].is_active = False   # everything they have must be excluded
 		users[-2].is_test = True
+		users[-3].panoramax_contributor = False
 	return users
 
 
@@ -219,7 +221,7 @@ def generate(rng: random.Random, users: list[User], total_photos: int, years: fl
 	for p in photos:
 		r = rng.random()
 		if r < 0.03:
-			p.excluded = 'arr'
+			p.excluded = 'cc'
 		elif r < 0.05:
 			p.excluded = 'private'
 		elif r < 0.07:
@@ -230,6 +232,16 @@ def generate(rng: random.Random, users: list[User], total_photos: int, years: fl
 			p.excluded = 'thumbs_down'
 		elif r < 0.10:
 			p.excluded = 'flagged'
+		elif r < 0.12:
+			p.excluded = 'not_shared'
+		elif r < 0.14:
+			p.excluded = 'not_approved'
+		elif r < 0.16:
+			p.excluded = 'doodled'
+		elif r < 0.18:
+			p.excluded = 'manual'
+		if not p.owner.panoramax_contributor:
+			p.excluded = p.excluded or 'non_contributor'
 		if not p.owner.is_active:
 			p.excluded = p.excluded or 'owner_inactive'
 		if p.owner.is_test:
@@ -341,13 +353,14 @@ def insert(db: Db, rng: random.Random, users: list[User], photos: list[Photo], p
 		home_lon=0, home_lat=0, camera=CAMERAS[0])
 	now = datetime.now(timezone.utc)
 	db.copy('users',
-		['id', 'email', 'username', 'is_active', 'is_verified', 'is_test', 'role', 'created_at', 'auto_upload_enabled'],
-		[[u.id, u.email, u.username, u.is_active, True, u.is_test, 'USER', now, False] for u in users + [rater]])
+		['id', 'email', 'username', 'is_active', 'is_verified', 'is_test', 'role', 'created_at', 'auto_upload_enabled', 'panoramax_contributor'],
+		[[u.id, u.email, u.username, u.is_active, True, u.is_test, 'USER', now, False, u.panoramax_contributor] for u in users + [rater]])
 
 	cols = ['id', 'filename', 'original_filename', 'file_md5', 'geometry', 'altitude', 'compass_angle',
 		'width', 'height', 'captured_at', 'effective_at', 'uploaded_at', 'record_created_ts',
 		'processed_at', 'title', 'description', 'is_public', 'processing_status', 'sizes',
-		'legal_rights', 'featured', 'deleted', 'version', 'owner_id']
+		'legal_rights', 'featured', 'deleted', 'version', 'owner_id',
+		'panoramax_owner_share', 'panoramax_moderator_approved', 'detected_objects']
 	rows = []
 	ratings = []
 	flags = []
@@ -370,11 +383,19 @@ def insert(db: Db, rng: random.Random, users: list[User], photos: list[Photo], p
 			p.excluded != 'private',
 			'failed' if failed else 'completed',
 			None if failed else sizes_json(p),
-			'full1' if p.excluded == 'arr' else 'ccbysa4+osm',
+			'ccbysa4+osm' if p.excluded == 'cc' else rng.choice(('full1', 'panoramax_in')),
 			False,
 			p.excluded == 'deleted',
 			1,
 			p.owner.id,
+			p.excluded != 'not_shared',
+			p.excluded != 'not_approved',
+			json.dumps({
+				'model_name': 'load-test-detector',
+				'objects': [{'class_id': 0, 'confidence': 0.9, 'blurred': True}]
+					if p.excluded == 'doodled' else [],
+				**({'manual': True} if p.excluded == 'manual' else {}),
+			}),
 		])
 		if p.excluded == 'thumbs_down':
 			ratings.append([str(uuid.uuid4()), rater.id, 'hillview', p.id, 'THUMBS_DOWN', now])
@@ -426,6 +447,7 @@ def main() -> None:
 	summary = {
 		'prefix': args.prefix, 'seed': args.seed, 'gap_hours': args.gap_hours, 'years': args.years,
 		'users': len(users), 'photos': len(photos), 'eligible': eligible, 'excluded': excluded,
+		'excluded_sample_ids': [next(p.id for p in photos if p.excluded == kind) for kind in sorted(excluded)],
 		'expected_sequences': expect['sequences'], 'expected_singles': expect['singles'],
 		'largest_sequence': expect['largest_sequence'],
 		'heaviest_user': max((v for v in expect['per_user'].values()), key=lambda v: v['eligible'])['username'],

@@ -116,6 +116,7 @@ class PhotoUploadManager(private val context: Context) {
         val dao = PhotoDatabase.getDatabase(context).photoDao()
         val queue = UploadQueueSnapshot(
             waiting = dao.getPendingUploadCount() + dao.getFailedUploadCount(),
+            outboxWaiting = PhotoOutbox(context).pushablePendingCount(),
         )
         val workManager = WorkManager.getInstance(context)
         val existing = readScheduledWork(workManager)

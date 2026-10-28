@@ -34,21 +34,15 @@ MAX_TIMELINE_USERS = int(os.getenv("MAX_HILLVIEW_TIMELINE_USERS", "20"))
 
 from sqlalchemy import or_, and_, func
 
-# Grant identifier (what a client sends, what Photo.legal_rights stores) →
-# the public licence name every read returns.
-#
-# KNOWN DEBT — the name 'arr' undersells its modality. A 'full1' photo is
-# published as all-rights-reserved PLUS the same OpenStreetMap mapping grant
-# that 'ccbysa4+osm' carries: Hillview holds full rights and grants it on the
-# contributor's behalf. A truer name would mirror the other ('arr+osm'), but
-# 'arr' is a public READ value that shipped clients compare against (the
-# web/Tauri app's grantIdForLicense and label table), so renaming it is a
-# compatibility project — enumerated under "Known debt: the public licence
-# name `arr`" in docs/todo/content-license-model-draft.md. Decision
-# 2026-09-07: keep the id; fix the prose wherever the modality is described.
+# Intake grant (Photo.legal_rights) → Hillview's published outflow licence.
+# full1 gives Hillview enough rights to choose its outflow: arr by default,
+# panoramax when the owner shares. panoramax_in always publishes as panoramax.
+# The panoramax wording and declared federation SPDX are placeholders pending
+# the final grant text; these ids deliberately keep intake and outflow distinct.
 LEGAL_RIGHTS_TO_LICENSE = {
 	'full1': 'arr',
 	'ccbysa4+osm': 'ccbysa4+osm',
+	'panoramax_in': 'panoramax',
 }
 
 # The licence identifiers a client may choose — the keys above, since a
@@ -58,14 +52,21 @@ LEGAL_RIGHTS_TO_LICENSE = {
 ALLOWED_LICENSES = frozenset(LEGAL_RIGHTS_TO_LICENSE)
 
 def legal_rights_to_license(legal_rights: Optional[str]) -> str:
-	# Defensive default for a row with no recorded grant. Since 'arr' also
-	# implies the OSM mapping grant (see the note above), this default now
-	# advertises a grant nobody made — acceptable only because migration 016
-	# backfilled every row and uploads require a grant, so a real photo never
-	# gets here.
+	# Missing intake must never imply an open licence.
 	if not legal_rights:
 		return 'arr'
 	return LEGAL_RIGHTS_TO_LICENSE.get(legal_rights, legal_rights)
+
+
+def outflow_license(legal_rights: Optional[str], panoramax_share: bool) -> str:
+	"""The published licence, distinct from the contributor's intake grant.
+
+	Sharing changes full1's outflow even when other federation gates reject
+	the photo. The panoramax_in grant always publishes as panoramax.
+	"""
+	if legal_rights == 'full1' and panoramax_share:
+		return 'panoramax'
+	return legal_rights_to_license(legal_rights)
 
 router = APIRouter(prefix="/api/hillview", tags=["hillview"])
 
@@ -126,7 +127,7 @@ def convert_photo_to_response(photo, username: str, longitude: float, latitude: 
 	if photo.keywords:
 		photo_data['keywords'] = photo.keywords
 
-	photo_data['license'] = legal_rights_to_license(photo.legal_rights)
+	photo_data['license'] = outflow_license(photo.legal_rights, photo.panoramax_owner_share)
 
 
 	return photo_data

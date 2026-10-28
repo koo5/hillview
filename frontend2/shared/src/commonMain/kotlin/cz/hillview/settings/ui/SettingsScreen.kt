@@ -65,6 +65,7 @@ import org.koin.compose.koinInject
 fun SettingsScreen(
     onBack: () -> Unit,
     onOpenLogin: () -> Unit = {},
+    onOpenPanoramaxInfo: () -> Unit = {},
     repository: UploadSettingsRepository = koinInject(),
     compassRepository: CompassSettingsRepository = koinInject(),
     mapRepository: cz.hillview.settings.MapSettingsRepository = koinInject(),
@@ -416,6 +417,10 @@ fun SettingsScreen(
                 onClick = { uriHandler.openUri(settings.webUrl.trimEnd('/') + "/licensing") },
                 modifier = Modifier.testTag("settings-license-info"),
             ) { Text("About these licenses") }
+            TextButton(
+                onClick = onOpenPanoramaxInfo,
+                modifier = Modifier.testTag("settings-panoramax-info"),
+            ) { Text("About contributing to Panoramax") }
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {

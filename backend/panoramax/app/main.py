@@ -145,21 +145,13 @@ async def configuration() -> dict:
 	scope = settings.active_scope()
 	return {
 		'name': settings.instance_name(),
-		# Accuracy matters here — this is not a Panoramax instance. It is
-		# Hillview serving a Panoramax-compatible read API over the subset of
-		# its photos whose owners chose the CC license. Note the OSM grant is
-		# narrower than Panoramax's own CC-BY-SA-4.0 terms (which additionally
-		# permit derived data under LO 2.0 / CC-BY 4.0 / ODbL 1.0); it is
-		# spelled out rather than summarised so reviewers can judge it.
+		# Placeholder declaration until the panoramax outflow wording is final.
 		'description': (
-			'Hillview (https://hillview.cz) is a photo mapping application. This '
-			'endpoint is not a Panoramax server: it is a Panoramax-compatible '
-			'(GeoVisio STAC) read-only API over the Hillview photos whose owners '
-			f'published them under {scope.license}. Photos remain hosted on '
-			'Hillview. Owners additionally grant permission to use their photos as '
-			'reference material for creating, improving or validating OpenStreetMap '
-			'contributions (data so extracted enters OSM under ODbL); that grant '
-			'does not authorise data extraction for other purposes or licenses. '
+			'Hillview (https://hillview.cz) serves a Panoramax-compatible read API. '
+			'Owners opt in per photo under the full1 or panoramax_in intake grant; '
+			'only approved contributions with no anonymization doodles are federated. '
+			'Photos remain hosted on Hillview. The Panoramax outflow licence wording '
+			f'and this {scope.license} declaration are placeholders pending final terms. '
 			'Full terms: https://hillview.cz/licensing'
 		),
 		'license': {'id': scope.license, 'url': scope.license_url},
@@ -223,7 +215,7 @@ async def _fetch_collections_page(
 		if ready_ids:
 			for agg in (await conn.execute(
 				text(_COLLECTION_AGG_SQL),
-				{'seq_ids': ready_ids, 'scope_legal_rights': scope.legal_rights},
+				{'seq_ids': ready_ids, 'scope_legal_rights': list(scope.legal_rights)},
 			)).all():
 				aggs[str(agg[0])] = agg
 
@@ -309,7 +301,7 @@ async def collection(seq_id: str) -> dict:
 		async with get_engine().connect() as conn:
 			agg = (await conn.execute(
 				text(_COLLECTION_AGG_SQL),
-				{'seq_ids': [row[0]], 'scope_legal_rights': scope.legal_rights},
+				{'seq_ids': [row[0]], 'scope_legal_rights': list(scope.legal_rights)},
 			)).first()
 	return collection_json(
 		seq_id=str(row[0]),
@@ -366,7 +358,7 @@ async def items(
 			'seq_id': row[0],
 			'after_rank': page_after_rank,
 			'limit': limit,
-			'scope_legal_rights': scope.legal_rights,
+			'scope_legal_rights': list(scope.legal_rights),
 		})).all()
 
 	base = _base_url()
@@ -426,7 +418,7 @@ async def item(seq_id: str, item_id: str) -> dict:
 			WHERE sp.sequence_id = :seq_id AND p.id = :item_id AND {ELIGIBLE_PHOTO_WHERE}
 		"""), {
 			'seq_id': row[0], 'item_id': item_id,
-			'scope_legal_rights': scope.legal_rights,
+			'scope_legal_rights': list(scope.legal_rights),
 		})).first()
 	if r is None:
 		raise HTTPException(status_code=404, detail='Item not found')

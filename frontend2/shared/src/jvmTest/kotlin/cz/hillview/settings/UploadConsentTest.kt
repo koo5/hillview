@@ -23,6 +23,7 @@ class UploadConsentTest {
         // behalf.
         assertNull(defaults.license)
         assertFalse(defaults.autoUploadEnabled)
+        assertFalse(defaults.shareToPanoramax)
         // But the prompt may ask, until told never.
         assertTrue(defaults.autoUploadPromptEnabled)
     }
@@ -31,6 +32,6 @@ class UploadConsentTest {
     fun theLicenceVocabularyIsTheBackends() {
         // user_routes.ALLOWED_LICENSES — a licence string the backend does
         // not know is an upload rejection later.
-        assertEquals(listOf("ccbysa4+osm", "full1"), ALLOWED_LICENSES)
+        assertEquals(listOf("ccbysa4+osm", "full1", "panoramax_in"), ALLOWED_LICENSES)
     }
 }

@@ -161,7 +161,7 @@ async def run_once(engine: AsyncEngine, scope: Scope | None = None, gap: timedel
 			JOIN users u ON u.id = p.owner_id
 			WHERE {ELIGIBLE_PHOTO_WHERE}
 			ORDER BY p.owner_id, {PHOTO_ORDER_BY}
-		"""), {'scope_legal_rights': scope.legal_rights})).all()
+		"""), {'scope_legal_rights': list(scope.legal_rights)})).all()
 		photos = [PhotoStub(id=r[0], owner_id=r[1], effective_at=r[2]) for r in rows]
 
 		rows = (await conn.execute(text("""

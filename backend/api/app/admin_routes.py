@@ -167,6 +167,7 @@ def _serialize_user(u: User, photo_count: Optional[int] = None) -> dict:
 		"email": u.email,
 		"role": _role_str(u.role),
 		"is_active": u.is_active,
+		"panoramax_contributor": u.panoramax_contributor,
 		"is_verified": u.is_verified,
 		"oauth_provider": u.oauth_provider,
 		"created_at": u.created_at,
@@ -279,6 +280,40 @@ async def update_user(
 	))
 	await db.commit()
 	await db.refresh(target)
+	return _serialize_user(target)
+
+
+class PanoramaxContributorRequest(BaseModel):
+	panoramax_contributor: bool
+	reason: Optional[str] = None
+
+
+@router.put("/users/{user_id}/panoramax-contributor")
+async def set_panoramax_contributor(
+	user_id: str,
+	payload: PanoramaxContributorRequest,
+	current_user: User = Depends(require_moderator()),
+	db: AsyncSession = Depends(get_db),
+):
+	target = await db.get(User, user_id)
+	if target is None:
+		raise HTTPException(status_code=404, detail="User not found")
+	old = target.panoramax_contributor
+	if old != payload.panoramax_contributor:
+		target.panoramax_contributor = payload.panoramax_contributor
+		db.add(UserModeration(
+			action='panoramax_contributor',
+			actor_user_id=current_user.id,
+			actor_username=current_user.username,
+			actor_role=_role_str(current_user.role),
+			target_user_id=target.id,
+			target_username=target.username,
+			old_panoramax_contributor=old,
+			new_panoramax_contributor=target.panoramax_contributor,
+			reason=(payload.reason.strip() if payload.reason and payload.reason.strip() else None),
+		))
+		await db.commit()
+		await db.refresh(target)
 	return _serialize_user(target)
 
 

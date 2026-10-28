@@ -58,13 +58,13 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 
 from push_notifications import send_activity_broadcast_notification, create_notification_for_user
 from common.database import get_db
-from common.models import Photo, User, PhotoRating, UserPublicKey, PhotoAnnotation, PhotoLicenseHistory, PhotoModerationAudit, UserRole
+from common.models import Photo, User, PhotoRating, UserPublicKey, PhotoAnnotation, PhotoLicenseHistory, PhotoOutflowLicenseHistory, PhotoModerationAudit, UserRole
 from common.config import get_write_pool
 from common.utc import format_utc
 from common.detections import blurred_only, normalize_detections
 from auth import get_current_active_user, get_current_user_optional_with_query, get_current_user_optional_ssr
 from hidden_content_filters import apply_hidden_content_filters
-from hillview_routes import ALLOWED_LICENSES, legal_rights_to_license
+from hillview_routes import ALLOWED_LICENSES, legal_rights_to_license, outflow_license
 from common.file_utils import (
 	get_file_size_from_upload
 )
@@ -859,33 +859,29 @@ async def list_license_history(
 		.order_by(PhotoLicenseHistory.created_at.desc())
 	)).scalars().all()
 
+	outflow_rows = (await db.execute(
+		select(PhotoOutflowLicenseHistory)
+		.where(PhotoOutflowLicenseHistory.photo_id == photo_id)
+		.order_by(PhotoOutflowLicenseHistory.created_at.desc())
+	)).scalars().all()
+
+	def serialize_entry(r, *, outflow=False):
+		return {
+			"id": r.id,
+			"old_license": r.old_license if outflow else legal_rights_to_license(r.old_license) if r.old_license else None,
+			"new_license": r.new_license if outflow else legal_rights_to_license(r.new_license) if r.new_license else None,
+			**({"cause": r.cause} if outflow else {}),
+			"actor_was_owner": bool(r.actor_was_owner),
+			"created_at": format_utc(r.created_at),
+			**({"actor_username": r.actor_username, "actor_role": r.actor_role, "reason": r.reason}
+			   if is_owner or is_moderator else {}),
+			**({"ip_address": r.ip_address, "user_agent": r.user_agent} if is_moderator else {}),
+		}
+
 	return {
-		# The licence in force now, so the history reads as a complete story
-		# without a second request. Public name, as everywhere else the API
-		# says "license" on the way out.
-		"current": legal_rights_to_license(photo.legal_rights),
-		"entries": [
-			{
-				"id": r.id,
-				"old_license": legal_rights_to_license(r.old_license) if r.old_license else None,
-				"new_license": legal_rights_to_license(r.new_license) if r.new_license else None,
-				"actor_was_owner": bool(r.actor_was_owner),
-				"created_at": format_utc(r.created_at),
-				**(
-					{
-						"actor_username": r.actor_username,
-						"actor_role": r.actor_role,
-						"reason": r.reason,
-					}
-					if (is_owner or is_moderator) else {}
-				),
-				**(
-					{"ip_address": r.ip_address, "user_agent": r.user_agent}
-					if is_moderator else {}
-				),
-			}
-			for r in rows
-		],
+		"current": outflow_license(photo.legal_rights, photo.panoramax_owner_share),
+		"entries": [serialize_entry(r) for r in rows],
+		"outflow_entries": [serialize_entry(r, outflow=True) for r in outflow_rows],
 	}
 
 
@@ -1252,6 +1248,16 @@ async def delete_photo(
 		)
 
 
+def _license_edit_fields(photo: Photo, viewer: Optional[User]) -> dict:
+	is_moderator = bool(viewer and viewer.role in (UserRole.ADMIN, UserRole.MODERATOR))
+	is_owner = bool(viewer and str(viewer.id) == str(photo.owner_id))
+	return {
+		**({"license_granted": photo.legal_rights, "panoramax_share": photo.panoramax_owner_share}
+		   if is_owner or is_moderator else {}),
+		**({"panoramax_approved": photo.panoramax_moderator_approved} if is_moderator else {}),
+	}
+
+
 class PhotoEditRequest(BaseModel):
 	# None = leave unchanged. An empty/whitespace title or description clears
 	# the field (an owner retitling, or a moderator stripping abusive text).
@@ -1263,6 +1269,8 @@ class PhotoEditRequest(BaseModel):
 	# Licence identifier from ALLOWED_LICENSES (stored as Photo.legal_rights).
 	# Owner-changeable, and every change is recorded — see the handler.
 	license: Optional[str] = None
+	panoramax_share: Optional[bool] = None  # owner-only consent
+	panoramax_approved: Optional[bool] = None  # moderator-only
 	reason: Optional[str] = None
 
 
@@ -1310,6 +1318,12 @@ async def edit_photo(
 
 		is_owner = photo.owner_id == str(current_user.id)
 		is_moderator = current_user.role in (UserRole.ADMIN, UserRole.MODERATOR)
+
+		if payload.panoramax_share is not None and not is_owner:
+			raise HTTPException(status_code=403, detail="Only the owner can change Panoramax sharing")
+		if payload.panoramax_approved is not None and not is_moderator:
+			raise HTTPException(status_code=403, detail="Only moderators can change Panoramax approval")
+		old_outflow = outflow_license(photo.legal_rights, photo.panoramax_owner_share)
 
 		if not is_owner and not is_moderator:
 			# Don't reveal the existence of photos the caller can't act on
@@ -1371,6 +1385,13 @@ async def edit_photo(
 				changes["license"] = {"old": photo.legal_rights, "new": payload.license}
 				photo.legal_rights = payload.license
 
+		if payload.panoramax_share is not None and payload.panoramax_share != photo.panoramax_owner_share:
+			changes["panoramax_share"] = {"old": photo.panoramax_owner_share, "new": payload.panoramax_share}
+			photo.panoramax_owner_share = payload.panoramax_share
+		if payload.panoramax_approved is not None and payload.panoramax_approved != photo.panoramax_moderator_approved:
+			changes["panoramax_approved"] = {"old": photo.panoramax_moderator_approved, "new": payload.panoramax_approved}
+			photo.panoramax_moderator_approved = payload.panoramax_approved
+
 		if payload.bearing is not None:
 			if not math.isfinite(payload.bearing):
 				raise HTTPException(
@@ -1384,7 +1405,7 @@ async def edit_photo(
 
 		if changes:
 			owner_username = None
-			if not is_owner or "license" in changes:
+			if not is_owner or "license" in changes or "panoramax_share" in changes:
 				owner_username = await db.scalar(
 					select(User.username).where(User.id == photo.owner_id)
 				)
@@ -1413,6 +1434,23 @@ async def edit_photo(
 					f"{photo.id} from {changes['license']['old']} to "
 					f"{changes['license']['new']}"
 				)
+
+			new_outflow = outflow_license(photo.legal_rights, photo.panoramax_owner_share)
+			if old_outflow != new_outflow:
+				db.add(PhotoOutflowLicenseHistory(
+					photo_id=photo.id,
+					photo_owner_id=photo.owner_id,
+					photo_owner_username=owner_username,
+					old_license=old_outflow, new_license=new_outflow,
+					cause="grant_change" if "license" in changes else "panoramax_share",
+					actor_user_id=str(current_user.id),
+					actor_username=current_user.username,
+					actor_role=current_user.role.value if current_user.role else None,
+					actor_was_owner=is_owner,
+					reason=payload.reason.strip() if payload.reason and payload.reason.strip() else None,
+					ip_address=get_client_ip(request),
+					user_agent=request.headers.get("user-agent"),
+				))
 
 			if not is_owner:
 				db.add(PhotoModerationAudit(
@@ -1452,7 +1490,8 @@ async def edit_photo(
 			# stored as legal_rights), reads return the public name. This is a
 			# read of the resulting state, so it speaks the read vocabulary —
 			# `changed` is what tells a caller whether their write landed.
-			"license": legal_rights_to_license(photo.legal_rights),
+			"license": outflow_license(photo.legal_rights, photo.panoramax_owner_share),
+			**_license_edit_fields(photo, current_user),
 			"changed": sorted(changes),
 		}
 
@@ -2238,7 +2277,8 @@ async def get_public_photo(
 			"description": photo.description,
 			"keywords": photo.keywords,
 			"place_name": photo.place_name,
-			"license": legal_rights_to_license(photo.legal_rights),
+			"license": outflow_license(photo.legal_rights, photo.panoramax_owner_share),
+			**_license_edit_fields(photo, current_user),
 			"is_public": photo.is_public,
 			"featured": bool(photo.featured),
 			"bestof_eligible": photo.bestof_eligible,

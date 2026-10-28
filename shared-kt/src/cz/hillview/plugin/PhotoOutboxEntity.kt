@@ -120,6 +120,9 @@ data class PhotoOutboxEntity(
 /** A thumbs up/down on a photo: `{"rating":"thumbs_up"}`, or null for none. */
 const val OUTBOX_KIND_RATING = "rating"
 
+/** Owner sharing consent: {"panoramax_share":true|false}. */
+const val OUTBOX_KIND_PANORAMAX_SHARE = "panoramax_share"
+
 /**
  * "Delete this from the server." `{}` means wanted; null means withdrawn.
  *

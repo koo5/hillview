@@ -93,6 +93,7 @@ fun MainScreen(
     onOpenClockVideo: () -> Unit,
     onOpenDevicePhotos: () -> Unit,
     onOpenCaptureGuide: () -> Unit = {},
+    onOpenPanoramaxInfo: () -> Unit = {},
     onOpenUploadStatus: () -> Unit = {},
     onOpenEventLog: () -> Unit = {},
     onOpenLockSettings: () -> Unit = {},
@@ -221,6 +222,7 @@ fun MainScreen(
         // `activity` is passed as a parameter, not captured: a remembered
         // lambda would otherwise keep the value it was created with.
         val currentOnOpenSettings by rememberUpdatedState(onOpenSettings)
+        val currentOnOpenPanoramaxInfo by rememberUpdatedState(onOpenPanoramaxInfo)
         // Same reason as the line above: the panels are movableContentOf and
         // travel between the portrait Column and the landscape Row, so a
         // captured lambda would be frozen at whichever orientation the app
@@ -236,6 +238,7 @@ fun MainScreen(
                 when (activity) {
                     "capture" -> CaptureScreen(
                         onOpenSettings = { currentOnOpenSettings() },
+                        onOpenPanoramaxInfo = { currentOnOpenPanoramaxInfo() },
                         onOpenPhoto = { photoId -> currentOnOpenPhoto(photoId) },
                     )
                     // The external-camera mode: a peer of capture in the same

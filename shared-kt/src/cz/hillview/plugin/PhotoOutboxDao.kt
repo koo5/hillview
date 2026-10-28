@@ -67,6 +67,13 @@ interface PhotoOutboxDao {
     )
     fun getPushable(userId: String, limit: Int): List<PhotoOutboxEntity>
 
+    @Query("""
+        SELECT COUNT(*) FROM photo_outbox o JOIN photos p ON p.id = o.photoId
+        WHERE o.userId = :userId AND o.syncedRevision < o.revision
+          AND p.serverPhotoId IS NOT NULL
+    """)
+    fun pushablePendingCount(userId: String): Int
+
     /**
      * Mark accepted — but only the revision that was actually sent.
      *

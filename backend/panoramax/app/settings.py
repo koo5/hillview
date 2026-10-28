@@ -1,11 +1,8 @@
-"""Configuration for the Panoramax-compatible read API.
+"""Configuration for the p1.geovisio.hillview.cz federation read API.
 
-The instance serves exactly one *scope* — a partition of Hillview's photos by
-license. The federation's meta-catalog accepts only CC-BY-SA-4.0 / Licence
-Ouverte 2.0 instances (enforced by human review at registration, never by
-code), so the single scope declared instance-wide is the CC-BY-SA one. The
-scope object keeps code/data modular: a second "ARR + OSM mapper provision"
-instance later is a new Scope entry + deployment, not a config framework.
+Only intake grants allowing Hillview to publish under a Panoramax-compatible
+licence qualify. Owner consent and moderation further gate participation.
+The SPDX declaration remains a placeholder until the outflow wording is final.
 """
 import os
 from dataclasses import dataclass
@@ -14,17 +11,17 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class Scope:
 	id: str
-	# photos.legal_rights value that selects this scope's photos
-	legal_rights: str
+	# photos.legal_rights values that select this scope's photos
+	legal_rights: tuple[str, ...]
 	# SPDX id declared instance-wide and on every collection/item
 	license: str
 	license_url: str
 
 
 SCOPES = {
-	'cc': Scope(
-		id='cc',
-		legal_rights='ccbysa4+osm',
+	'p1': Scope(
+		id='p1',
+		legal_rights=('full1', 'panoramax_in'),
 		license='CC-BY-SA-4.0',
 		license_url='https://creativecommons.org/licenses/by-sa/4.0/',
 	),
@@ -39,13 +36,13 @@ def _validated_scope_id(value: str) -> str:
 
 
 def active_scope() -> Scope:
-	return SCOPES[_validated_scope_id(os.getenv('PANORAMAX_SCOPE', 'cc'))]
+	return SCOPES[_validated_scope_id(os.getenv('PANORAMAX_SCOPE', 'p1'))]
 
 
 # Fail at import (= container boot), not on the first request: a typo'd scope
 # would otherwise leave a healthy-looking container that 500s every endpoint
 # and dumps a KeyError per sequencer pass.
-_validated_scope_id(os.getenv('PANORAMAX_SCOPE', 'cc'))
+_validated_scope_id(os.getenv('PANORAMAX_SCOPE', 'p1'))
 
 
 def base_url() -> str:
@@ -58,10 +55,7 @@ def base_url() -> str:
 	stripped, which is the intent) — but a path-suffixed URL would need care
 	(".../cc" is fine, ".../cc-osm-map" would be mangled to ".../cc-osm-m").
 
-	Default host is cc.geovisio.hillview.cz: this service speaks the GeoVisio
-	STAC dialect rather than being a Panoramax instance, and the `cc.` prefix
-	leaves room for a second license scope on its own host later. It also
-	keeps panoramax.hillview.cz free for an actual Panoramax deployment.
+	The canonical production host is p1.geovisio.hillview.cz.
 	"""
 	return os.getenv('PANORAMAX_BASE_URL', 'http://localhost:8058').rstrip('/')
 

@@ -10,18 +10,18 @@ from db import _require_password
 class TestScopeValidation:
 	def test_default_scope_is_valid(self, monkeypatch):
 		monkeypatch.delenv('PANORAMAX_SCOPE', raising=False)
-		assert settings.active_scope().id == 'cc'
+		assert settings.active_scope().id == 'p1'
 
 	def test_explicit_valid_scope(self, monkeypatch):
-		monkeypatch.setenv('PANORAMAX_SCOPE', 'cc')
-		assert settings.active_scope().id == 'cc'
+		monkeypatch.setenv('PANORAMAX_SCOPE', 'p1')
+		assert settings.active_scope().id == 'p1'
 
 	def test_unknown_scope_exits_naming_value_and_allowed(self, monkeypatch):
 		monkeypatch.setenv('PANORAMAX_SCOPE', 'arr')
 		with pytest.raises(SystemExit) as e:
 			settings.active_scope()
 		assert "'arr'" in str(e.value)
-		assert 'cc' in str(e.value)
+		assert 'p1' in str(e.value)
 
 
 class TestDbPasswordValidation:

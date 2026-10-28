@@ -1,7 +1,7 @@
 [project]
 name = "hillview-panoramax"
 version = "1.0.0"
-description = "Panoramax/GeoVisio-compatible read API serving Hillview's CC-licensed photos to the Panoramax federation"
+description = "Panoramax/GeoVisio-compatible read API serving Hillview's opted-in photos to the Panoramax federation"
 requires-python = ">=3.12"
 
 dependencies = [

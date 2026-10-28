@@ -76,6 +76,30 @@ class PhotoTableDeltaExportTest {
         .bufferedReader().use { it.readText() }
 
     @Test
+    fun aColumnChangeSealsTheOldSegmentAndExportsACurrentBaseline() {
+        db.photoDao().insertPhoto(photo("sharing").copy(panoramaxShare = true))
+        dump()
+        val originalUri = uri()
+        val original = text(originalUri)
+        // Older builds have no persisted column signature. Treat their segment
+        // as sealed, rather than appending v31 cells beneath its older header.
+        prefs.edit().remove("columns").commit()
+        dump()
+        assertEquals(original, text(originalUri))
+        val current = text(uri(1))
+        val lines = current.lines()
+        val columns = lines[1].removePrefix("#").split(',')
+        val row = lines[2].split(',')
+        assertEquals(columns.size, row.size)
+        assertEquals("1", row[columns.indexOf("panoramaxShare")])
+        assertEquals("sharing", row[columns.indexOf("id")])
+        assertTrue(originalUri != uri(1))
+        val published = prefs.getString("last_shard_uris", null)
+        dump()
+        assertEquals(published, prefs.getString("last_shard_uris", null))
+    }
+
+    @Test
     fun unchangedDumpsDoNotReplaceTheFileAndOnlyEditedRowsAreAppended() {
         db.photoDao().insertPhotos(listOf(photo("p1"), photo("p2")))
         dump()

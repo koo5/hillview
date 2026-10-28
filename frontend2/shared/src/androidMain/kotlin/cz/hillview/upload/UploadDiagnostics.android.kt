@@ -137,13 +137,14 @@ actual suspend fun collectUploadDiagnostics(): UploadDiagnostics = withContext(D
     val dao = PhotoDatabase.getDatabase(context).photoDao()
     val pending = dao.getPendingUploadCount()
     val failed = dao.getFailedUploadCount()
+    val metadataWaiting = cz.hillview.plugin.PhotoOutbox(context).pushablePendingCount()
     rows += DiagRow(
         "Queue",
         "$pending pending · ${dao.getUploadingCount()} uploading · " +
             "${dao.getProcessingCount()} processing · $failed failed · " +
-            "${dao.getCompletedUploadCount()} done",
+            "${dao.getCompletedUploadCount()} done · $metadataWaiting metadata edits",
         if (pending == 0 && failed == 0) DiagVerdict.Info else DiagVerdict.Info,
-        note = if (pending == 0 && failed == 0) "Nothing waiting to go." else null,
+        note = if (pending == 0 && failed == 0 && metadataWaiting == 0) "Nothing waiting to go." else null,
     )
 
     // ---- the invariant, checked ----------------------------------------
@@ -160,7 +161,7 @@ actual suspend fun collectUploadDiagnostics(): UploadDiagnostics = withContext(D
                 hasLicense = licence != null,
                 wifiOnly = wifiOnly,
             ),
-            queue = UploadQueueSnapshot(waiting = pending + failed),
+            queue = UploadQueueSnapshot(waiting = pending + failed, outboxWaiting = metadataWaiting),
             existing = scheduled,
             leadingEdge = true,
             bypassWifiOnly = false,
