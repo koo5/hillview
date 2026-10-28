@@ -89,7 +89,7 @@ class StreamPhotoLoader {
         authToken: String?,
         shouldAbort: () -> Boolean,
         picks: Set<String> = emptySet(),
-        queryOptionsJson: String? = null,  // Pre-serialized analysis filters
+        queryOptionsJson: String? = null,  // Pre-serialized Hillview filters
         /**
          * Called after every `photos` event with what has arrived SO FAR —
          * accumulated, bounds-filtered and capped to [maxPhotos], i.e. the
@@ -115,7 +115,7 @@ class StreamPhotoLoader {
         authToken: String?,
         shouldAbort: () -> Boolean,
         picks: Set<String> = emptySet(),
-        queryOptionsJson: String? = null,  // Pre-serialized analysis filters
+        queryOptionsJson: String? = null,  // Pre-serialized Hillview filters
         onBatch: ((List<PhotoData>) -> Unit)? = null
     ): List<PhotoData> {
         val photos = mutableListOf<PhotoData>()
@@ -339,7 +339,7 @@ class StreamPhotoLoader {
         }
 
         queryOptionsJson?.takeIf { it != "null" }?.let {
-            urlBuilder.addQueryParameter("analysis_filters", it)
+            urlBuilder.addQueryParameter("filters", it)
         }
 
         authToken?.let {

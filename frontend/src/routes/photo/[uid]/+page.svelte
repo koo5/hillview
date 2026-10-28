@@ -326,7 +326,7 @@
 		}
 	}
 
-	// --- Metadata edit form (title/description/bearing, plus mod-only featured) ---
+	// --- Metadata edit form (title/description/bearing, plus moderator curation settings) ---
 	// Owners edit their own photo; moderators edit any. Synced from the photo only
 	// when a different photo loads (guarded by uid), so in-progress edits survive
 	// the reassignments rating clicks make.
@@ -335,6 +335,7 @@
 	let editDescription = '';
 	let editBearing: number | null = null;
 	let editFeatured = false;
+	let editBestofEligible = true;
 	// In the GRANT vocabulary writes take, not the public name reads return.
 	let editLicense = '';
 	let isSavingEdit = false;
@@ -351,6 +352,7 @@
 		editDescription = p.description ?? '';
 		editBearing = p.bearing;
 		editFeatured = p.featured ?? false;
+		editBestofEligible = p.bestof_eligible ?? true;
 		editLicense = grantIdForLicense(p.license) ?? '';
 	}
 
@@ -359,14 +361,14 @@
 
 		isSavingEdit = true;
 		try {
-			// featured is moderator-only; sending it as a plain owner would be
+			// Curation settings are moderator-only; sending them as an owner would be
 			// rejected the moment it differs from what's stored.
 			const response = await http.patch(`/photos/${photo.id}`, {
 				title: editTitle,
 				description: editDescription,
 				bearing: editBearing,
 				...(editLicense ? { license: editLicense } : {}),
-				...($isModerator ? { featured: editFeatured } : {})
+				...($isModerator ? { featured: editFeatured, bestof_eligible: editBestofEligible } : {})
 			});
 			if (!response.ok) {
 				const errorText = await response.text();
@@ -378,6 +380,7 @@
 				title: updated.title,
 				description: updated.description,
 				featured: updated.featured,
+				bestof_eligible: updated.bestof_eligible,
 				bearing: updated.bearing,
 				license: updated.license
 			};
@@ -715,6 +718,14 @@
 									data-testid="photo-edit-featured-checkbox"
 								/>
 								<span>Featured</span>
+							</label>
+							<label class="edit-checkbox">
+								<input
+									type="checkbox"
+									bind:checked={editBestofEligible}
+									data-testid="photo-edit-bestof-eligible-checkbox"
+								/>
+								<span>Eligible for Best of</span>
 							</label>
 						{/if}
 						<button

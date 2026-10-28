@@ -1,5 +1,33 @@
-import { describe, it, expect } from 'vitest';
-import { convertStreamPhoto } from './StreamSourceLoader';
+import { describe, it, expect, vi } from 'vitest';
+import { convertStreamPhoto, StreamSourceLoader } from './StreamSourceLoader';
+
+it('sends the analysis and properties envelope to the Hillview stream', async () => {
+    const queryOptionsJson = JSON.stringify({
+        analysis: { time_of_day: 'day' }, properties: { min_width: 3000 }
+    });
+    const eventSource = vi.fn(function (_url: string) {
+        return { close: vi.fn(), readyState: 0 };
+    });
+    vi.stubGlobal('EventSource', eventSource);
+    const loader = new StreamSourceLoader(
+        { id: 'hillview', type: 'stream', url: 'https://example.com/api/hillview' },
+        { enqueueMessage: vi.fn(), getValidToken: async () => null },
+        { queryOptionsJson }
+    );
+    try {
+        const completion = loader.start({
+            top_left: { lat: 51, lng: 14 }, bottom_right: { lat: 50, lng: 15 }
+        });
+        await vi.waitFor(() => expect(eventSource).toHaveBeenCalledOnce());
+        const url = new URL(eventSource.mock.calls[0][0]);
+        expect(url.searchParams.get('filters')).toBe(queryOptionsJson);
+        loader.cancel();
+        await completion;
+    } finally {
+        loader.cancel();
+        vi.unstubAllGlobals();
+    }
+});
 
 describe('convertStreamPhoto', () => {
     const sampleSource = { id: 'hillview', type: 'stream' };

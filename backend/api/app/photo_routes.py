@@ -1258,6 +1258,7 @@ class PhotoEditRequest(BaseModel):
 	title: Optional[str] = None
 	description: Optional[str] = None
 	featured: Optional[bool] = None  # moderator-only; see the gate below
+	bestof_eligible: Optional[bool] = None  # moderator-only curation switch
 	bearing: Optional[float] = None  # degrees; normalized into [0, 360)
 	# Licence identifier from ALLOWED_LICENSES (stored as Photo.legal_rights).
 	# Owner-changeable, and every change is recorded — see the handler.
@@ -1273,12 +1274,12 @@ async def edit_photo(
 	current_user: User = Depends(get_current_active_user),
 	db: AsyncSession = Depends(get_db)
 ):
-	"""Edit a photo's title, description, bearing, licence, or featured flag.
+	"""Edit a photo's metadata and curation settings.
 
 	Owners may edit their own photo's title/description/bearing; admins and
-	moderators may edit any photo. ``featured`` is a curation flag, so only
-	admins/moderators may *change* it (403) — an owner re-submitting the value
-	it already has is a no-op, which keeps a full-form save working for them.
+	moderators may edit any photo. Only admins/moderators may change the
+	curation settings ``featured`` and ``bestof_eligible`` (403). An owner
+	re-submitting their current values is a no-op, keeping full-form saves working.
 
 	Fields left null are unchanged; an empty/whitespace title or description
 	clears the field. When the actor doesn't own the photo, the change is
@@ -1329,6 +1330,15 @@ async def edit_photo(
 				status_code=status.HTTP_403_FORBIDDEN,
 				detail="Only moderators can change the featured flag"
 			)
+		if (
+			payload.bestof_eligible is not None
+			and payload.bestof_eligible != photo.bestof_eligible
+			and not is_moderator
+		):
+			raise HTTPException(
+				status_code=status.HTTP_403_FORBIDDEN,
+				detail="Only moderators can change Best of eligibility"
+			)
 
 		changes = {}
 		# Blank is compared as blank on both sides: rows authorized before
@@ -1348,6 +1358,9 @@ async def edit_photo(
 		if payload.featured is not None and payload.featured != bool(photo.featured):
 			changes["featured"] = {"old": bool(photo.featured), "new": payload.featured}
 			photo.featured = payload.featured
+		if payload.bestof_eligible is not None and payload.bestof_eligible != photo.bestof_eligible:
+			changes["bestof_eligible"] = {"old": photo.bestof_eligible, "new": payload.bestof_eligible}
+			photo.bestof_eligible = payload.bestof_eligible
 		if payload.license is not None:
 			if payload.license not in ALLOWED_LICENSES:
 				raise HTTPException(
@@ -1432,6 +1445,7 @@ async def edit_photo(
 			"title": photo.title,
 			"description": photo.description,
 			"featured": bool(photo.featured),
+			"bestof_eligible": photo.bestof_eligible,
 			"bearing": photo.compass_angle,
 			# The API has two licence vocabularies: writes take the GRANT
 			# identifier (the same ones the upload authorization accepts,
@@ -2227,6 +2241,7 @@ async def get_public_photo(
 			"license": legal_rights_to_license(photo.legal_rights),
 			"is_public": photo.is_public,
 			"featured": bool(photo.featured),
+			"bestof_eligible": photo.bestof_eligible,
 			"latitude": latitude,
 			"longitude": longitude,
 			"bearing": photo.compass_angle,

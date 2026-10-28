@@ -87,6 +87,7 @@ def ranked(query, thumbs_up_sub, annotation_sub, score_raw):
 		.outerjoin(thumbs_up_sub, Photo.id == thumbs_up_sub.c.photo_id)
 		.outerjoin(annotation_sub, Photo.id == annotation_sub.c.photo_id)
 		.where(Photo.deleted == False)
+		.where(Photo.bestof_eligible == True)
 		# A photo earns its place here — one like, one annotation, or being a
 		# large panorama is enough, but zero is not. Without this the "best of"
 		# was the whole collection: on a 52k-photo dump 98% scored zero and

@@ -207,7 +207,7 @@ async function fetchTimeline(userIds: string[], anchorId: string, before: number
 	});
 	// Same content filters as the map, so the walk only steps through matching photos.
 	const fp = buildFiltersQueryParam();
-	if (fp) params.set('analysis_filters', fp);
+	if (fp) params.set('filters', fp);
 	const res = await http.get(`/hillview/timeline?${params.toString()}`);
 	if (!res.ok) throw new Error(`timeline request failed: ${res.status}`);
 	return res.json();
