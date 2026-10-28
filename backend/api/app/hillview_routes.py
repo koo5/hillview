@@ -8,12 +8,13 @@ from pydantic import BaseModel
 from fastapi import APIRouter, Query, HTTPException, status, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, Float, case, literal, case, literal
+from sqlalchemy import select
 from geoalchemy2.functions import ST_MakeEnvelope, ST_Within, ST_X, ST_Y
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db, SessionLocal
 from common.models import Photo, User
+from photo_filters import PhotoFilters, parse_photo_filters, apply_photo_filters, build_filter_expressions
 from common.utc import format_utc
 from hidden_content_filters import apply_hidden_content_filters
 from auth import get_current_user_optional_with_query
@@ -69,124 +70,11 @@ def legal_rights_to_license(legal_rights: Optional[str]) -> str:
 router = APIRouter(prefix="/api/hillview", tags=["hillview"])
 
 
-class AnalysisFilters(BaseModel):
-	"""Filters based on photo analysis data"""
-	time_of_day: Optional[str] = None  # day, night, dawn_dusk
-	location_type: Optional[str] = None  # indoors, outdoors, mixed
-	min_farthest_distance: Optional[float] = None  # farthest object must be at least X meters away
-	max_closest_distance: Optional[float] = None  # closest object must be at most X meters away
-	min_scenic_score: Optional[int] = None  # 1-5, minimum scenic beauty score
-	visibility_distance: Optional[str] = None  # near, medium, far, panoramic
-	tallest_building: Optional[str] = None  # none, low_rise, mid_rise, high_rise, skyscraper
-	features: Optional[List[str]] = None  # any of these features (OR logic)
-	show_unanalyzed: bool = True  # include photos without analysis data
-
-
 class SetAnalysisRequest(BaseModel):
 	"""Request to set analysis data for a photo"""
 	file_md5: Optional[str] = None  # identify by MD5 hash
 	photo_id: Optional[str] = None  # identify by photo UID
 	analysis: Dict[str, Any]  # the analysis data to set
-
-
-def parse_analysis_filters(
-	analysis_filters: str = Query(None, description="JSON object with analysis filters")
-) -> Optional[AnalysisFilters]:
-	if not analysis_filters or analysis_filters == 'null':
-		return None
-	try:
-		return AnalysisFilters.model_validate_json(analysis_filters)
-	except Exception as e:
-		log.error(f"Invalid analysis_filters value: {analysis_filters!r} — error: {e}")
-		raise HTTPException(status_code=400, detail=f"Invalid analysis_filters: {e}")
-
-
-def _build_analysis_conditions(filters: AnalysisFilters) -> list:
-	"""Build a list of SQLAlchemy conditions from analysis filter fields."""
-	conditions = []
-
-	if filters.time_of_day:
-		conditions.append(Photo.analysis['time_of_day'].astext == filters.time_of_day)
-
-	if filters.location_type:
-		conditions.append(Photo.analysis['location_type'].astext == filters.location_type)
-
-	if filters.min_farthest_distance is not None:
-		conditions.append(
-			Photo.analysis['farthest_object_distance'].astext.cast(Float) >= filters.min_farthest_distance
-		)
-
-	if filters.max_closest_distance is not None:
-		conditions.append(
-			Photo.analysis['closest_object_distance'].astext.cast(Float) <= filters.max_closest_distance
-		)
-
-	if filters.min_scenic_score is not None:
-		conditions.append(
-			Photo.analysis['scenic_score'].astext.cast(Float) >= filters.min_scenic_score
-		)
-
-	if filters.visibility_distance:
-		conditions.append(Photo.analysis['visibility_distance'].astext == filters.visibility_distance)
-
-	if filters.tallest_building:
-		conditions.append(Photo.analysis['tallest_building'].astext == filters.tallest_building)
-
-	if filters.features:
-		# OR logic: any of the features matches
-		feature_conditions = [Photo.analysis['features'].contains([f]) for f in filters.features]
-		conditions.append(or_(*feature_conditions))
-
-	return conditions
-
-
-def apply_analysis_filters(query, filters: AnalysisFilters):
-	"""Apply analysis-based filters to a photo query (WHERE-clause exclusion)."""
-	conditions = _build_analysis_conditions(filters)
-
-	if conditions:
-		if filters.show_unanalyzed:
-			query = query.where(or_(
-				Photo.analysis.is_(None),
-				and_(*conditions)
-			))
-		else:
-			query = query.where(and_(*conditions))
-
-	return query
-
-
-def build_filter_expressions(filters: AnalysisFilters):
-	"""Build SQL expressions for the filtered flag and 4-tier sort priority.
-
-	Returns (filtered_expr, sort_priority_expr) or (None, None) when
-	no filter conditions are active.
-
-	Sort tiers: 0=featured, 1=passes filter, 2=unanalyzed, 3=filtered out.
-	"""
-	conditions = _build_analysis_conditions(filters)
-
-	if not conditions and filters.show_unanalyzed:
-		return None, None
-
-	# "passes_filter" = all analysis conditions met (requires non-null analysis)
-	passes_filter = and_(*conditions) if conditions else literal(True)
-
-	if filters.show_unanalyzed:
-		passes = or_(Photo.analysis.is_(None), passes_filter)
-	else:
-		passes = and_(Photo.analysis.isnot(None), passes_filter)
-
-	filtered_expr = case((passes, False), else_=True).label('filtered')
-
-	sort_priority_expr = case(
-		(Photo.featured == True, literal(0)),
-		(and_(Photo.analysis.isnot(None), passes_filter), literal(1)),
-		(Photo.analysis.is_(None), literal(2)),
-		else_=literal(3)
-	).label('sort_priority')
-
-	return filtered_expr, sort_priority_expr
 
 
 def convert_photo_to_response(photo, username: str, longitude: float, latitude: float) -> Dict[str, Any]:
@@ -250,18 +138,18 @@ async def query_photos_in_bounds(
 	current_user_id: Optional[str],
 	exclude_ids: Optional[List[str]] = None,
 	limit: Optional[int] = None,
-	analysis_filters: Optional[AnalysisFilters] = None
+	filters: Optional[PhotoFilters] = None
 ) -> List[Dict[str, Any]]:
 	"""Query photos within bounds, with optional exclusions and limit.
 
-	When analysis_filters are active, ALL photos are returned with a
+	When filters are active, ALL photos are returned with a
 	'filtered' flag on non-matching ones, ordered by:
-	featured → passes filter → unanalyzed → filtered out.
+	matching featured → passes filter → included unanalyzed → filtered out.
 	"""
 	# Build filter expressions if filters are active
 	filtered_expr, sort_priority_expr = (None, None)
-	if analysis_filters:
-		filtered_expr, sort_priority_expr = build_filter_expressions(analysis_filters)
+	if filters:
+		filtered_expr, sort_priority_expr = build_filter_expressions(filters)
 
 	columns = [
 		Photo,
@@ -395,7 +283,7 @@ def _timeline_photo_index(photo, username: str, longitude: float, latitude: floa
 
 
 def _timeline_base_query(owner_ids: List[str], current_user_id: Optional[str],
-                         analysis_filters: Optional[AnalysisFilters] = None):
+                         filters: Optional[PhotoFilters] = None):
 	"""Visible, completed, geolocated, time-stamped photos for the given owners.
 
 	Same visibility rules as the map: public photos for everyone, plus the
@@ -423,8 +311,8 @@ def _timeline_base_query(owner_ids: List[str], current_user_id: Optional[str],
 		visibility
 	)
 
-	if analysis_filters:
-		query = apply_analysis_filters(query, analysis_filters)
+	if filters:
+		query = apply_photo_filters(query, filters)
 
 	return apply_hidden_content_filters(query, current_user_id, 'hillview')
 
@@ -436,7 +324,7 @@ async def get_photo_timeline(
 	anchor_id: str = Query(..., description="Photo ID to center the timeline on"),
 	before: int = Query(100, ge=0, description="How many older photos to return"),
 	after: int = Query(100, ge=0, description="How many newer photos to return"),
-	analysis_filters: Optional[AnalysisFilters] = Depends(parse_analysis_filters),
+	filters: Optional[PhotoFilters] = Depends(parse_photo_filters),
 	db: AsyncSession = Depends(get_db),
 	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
@@ -503,7 +391,7 @@ async def get_photo_timeline(
 
 	# Older: walk back from the anchor, then flip to ascending for the response.
 	before_result = await db.execute(
-		_timeline_base_query(owner_ids, current_user_id, analysis_filters)
+		_timeline_base_query(owner_ids, current_user_id, filters)
 		.where(older_cond)
 		.order_by(effective_ts.desc(), name_key.desc(), Photo.id.desc())
 		.limit(before + 1)
@@ -514,7 +402,7 @@ async def get_photo_timeline(
 
 	# Newer.
 	after_result = await db.execute(
-		_timeline_base_query(owner_ids, current_user_id, analysis_filters)
+		_timeline_base_query(owner_ids, current_user_id, filters)
 		.where(newer_cond)
 		.order_by(effective_ts.asc(), name_key.asc(), Photo.id.asc())
 		.limit(after + 1)
@@ -526,7 +414,7 @@ async def get_photo_timeline(
 	# The anchor itself, only if it passes the same visibility filters and is in
 	# the requested owner set (it usually is — it's the photo you started on).
 	anchor_match = (await db.execute(
-		_timeline_base_query(owner_ids, current_user_id, analysis_filters).where(Photo.id == anchor_pk)
+		_timeline_base_query(owner_ids, current_user_id, filters).where(Photo.id == anchor_pk)
 	)).first()
 
 	ordered_rows = list(before_rows)
@@ -558,7 +446,7 @@ async def get_hillview_images(
 	client_id: str = Query(..., description="Client ID"),
 	picks: str = Query(None, description="Comma-separated list of picked photo IDs"),
 	max_photos: int = Query(400, description="Maximum number of photos to return", ge=1),
-	analysis_filters: Optional[AnalysisFilters] = Depends(parse_analysis_filters),
+	filters: Optional[PhotoFilters] = Depends(parse_photo_filters),
 	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
 	"""Get Hillview images from database filtered by bounding box area"""
@@ -601,7 +489,7 @@ async def get_hillview_images(
 					db, bbox, current_user_id,
 					exclude_ids=picked_ids,
 					limit=remaining_limit,
-					analysis_filters=analysis_filters
+					filters=filters
 				)
 				log.info(f"Found {len(regular_photos)} regular photos")
 

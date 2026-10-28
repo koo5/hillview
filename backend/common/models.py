@@ -156,6 +156,8 @@ class Photo(Base):
 
 	# Featured photo flag
 	featured: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
+	# Independent curation switch for /bestof, with no classification or reason.
+	bestof_eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default='true')
 
 	# Soft delete
 	deleted: Mapped[bool] = mapped_column(Boolean, default=False)
