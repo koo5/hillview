@@ -1,10 +1,22 @@
 # Migrate `Photo.detected_objects` to one format (prod)
 
-**Status, 2026-10-27:** archaeology, inventory, backed-up batch migration and
-local production-dump rehearsal complete. The local dump now has explicit flags
-on every stored object, with unchanged reader verdicts. Worker precomputed
-payloads and API worker-result requests normalize missing flags before storage.
-Production deployment/execution and consumer fallback removal remain.
+**Status, 2026-10-28:** archaeology, inventory, backed-up batch migration and
+local production-dump rehearsal complete. The operator applied the separate
+size-metadata SQL to production and refreshed the dump; all 381 repaired photos
+verify against their production backups. The operator approved the regenerated
+detections report and confirmed applying the detections-format SQL to production
+on 2026-10-28: **10,517 photos / 91,863 objects**, with original JSON retained in
+`public.detections_fix_270aa7396d26a976`. The subsequent production redump is
+verified: **all 185,765 objects have explicit flags, zero legacy objects remain,
+all 10,517 backed-up rows match their targets and behavior/geometry invariants,
+and a full migration dry run proposes zero changes**. The 381 size repairs also
+still match their backups. Pre-apply inventories below remain historical evidence.
+Worker precomputed payloads and API worker-result requests normalize missing
+flags in the prepared code. Deployment confirmation and consumer fallback removal
+remain.
+Standalone apply/verify/restore SQL is generated as
+`oneoff/detections-format*.sql`; see the
+[SQL rollout instructions](../detections-format-sql.md).
 Originally parked on 2026-09-20 at the operator's request to migrate after
 some eyeballing.
 
@@ -116,6 +128,69 @@ swapped dimensions, suggesting an orientation issue; this is not yet a verified
 explanation. Keep coordinates untouched and review these photos separately.
 An empty container or array does not prove that the detector ran successfully.
 
+**Follow-up audit:** [Photo dimension audit](../photo-dimensions-audit.md) scanned
+all 102,425 rows of the restored dump and checked image headers for 382 suspect
+photos. It finds 189 reversed photo rows (188 confirmed, one missing files),
+192 separate smaller-rendition metadata errors, and one panorama source-size
+mismatch. All 135 bounds warnings resolve against the full-image dimensions;
+do not repair their boxes. The old `fix_sizes.py` would select zero current rows
+and can leave photo-row dimensions unswapped. The operator subsequently applied
+the reviewed size SQL in production; the post-repair redump is verified below.
+
+### Refreshed production dump and HTML report, 2026-10-28
+
+The operator confirmed production application of the size-metadata SQL and
+restored a new dump locally. It contains **102,448 photos / 185,765 objects**.
+All **381 size-repaired photos / 957 dimension pairs** match the reviewed plan,
+with zero conflicts against the retained production backup table. The all-row
+audit finds no dimension mismatch on non-deleted photos. The only two remaining
+`bbox-exceeds-image` warnings belong to the intentionally excluded deleted photo
+`a1600126-f947-416a-960f-ced19d371eb3`.
+
+The detections backfill still proposes **10,517 photos / 91,863 objects**:
+91,364 true flags and 499 false flags. The existing 93,902 explicit objects are
+unchanged. Current reader totals are 162,844 blurred / 22,921 visible.
+
+`oneoff/detections-review.html` has been regenerated from this redump, showing
+**34 photos: 30 proposed changes and four already-explicit controls**, covering
+the same processing-date transitions and six sub-threshold examples. There are
+no non-deleted dimension exceptions left to sample. Object lists remain expanded
+and overlays remain enabled. The older 40-photo gallery described below was the
+pre-size-repair report. No detections were written during regeneration.
+
+- [Fresh inventory](../reports/detections-inventory-2026-10-28-post-size-repair.json).
+- [Fresh migration dry run](../reports/detections-migration-dry-run-2026-10-28.json).
+- [Size repair verification](../reports/photo-size-repair-verified-2026-10-28.json).
+- [Post-repair dimension audit](../reports/photo-dimensions-audit-2026-10-28-post-repair.json).
+- [Reviewed backfill SQL export](../reports/detections-migration-sql-export-2026-10-28.json).
+
+### Verified post-backfill production redump, 2026-10-28
+
+After production application the operator restored another dump locally.
+Verification used a repeatable-read, read-only snapshot of **102,448 photos**:
+
+- All **10,517 production backup rows** are present, match their exact saved
+  targets and source identities, and cover precisely the exported ID set.
+- Independent verification against backed-up original JSON confirms unchanged
+  preexisting fields, geometry, object order and reader decisions for all
+  **91,863 migrated objects** (91,364 true flags / 499 false flags).
+- All **185,765 stored objects** now have explicit boolean flags; no legacy
+  objects remain. Reader totals stay **162,844 blurred / 22,921 visible**.
+- The full migration dry run proposes **zero changes**.
+- All **381 size-repaired photos** still match their production size backups.
+- The only two bounds warnings remain on the intentionally excluded deleted
+  photo. The 863 missing-objects containers and 164 SQL NULLs remain untouched.
+
+Evidence:
+
+- [Production backfill verification](../reports/detections-migration-production-verified-2026-10-28.json).
+- [Post-backfill inventory](../reports/detections-inventory-post-backfill-2026-10-28.json).
+- [Post-backfill idempotence](../reports/detections-migration-post-backfill-dry-run-2026-10-28.json).
+
+The reviewed HTML is retained as pre-apply old/new evidence. This verification
+did not modify the dump. Writer deployment still needs confirmation before
+removing consumer compatibility behavior.
+
 Run the inventory again with an explicitly supplied database URL environment
 variable (no implicit dotenv or default database target):
 
@@ -183,6 +258,42 @@ backend/.venv/bin/python scripts/migrate_detections.py restore \
   --database-url-env DATABASE_URL --backup-dir oneoff/detections-backup --dry-run
 ```
 
+### Spot-check before applying
+
+After restoring a production dump, generate a static review gallery in the same
+read-only snapshot as the migration dry run, with no backup directory required:
+
+```sh
+backend/.venv/bin/python scripts/migrate_detections.py migrate \
+  --database-url-env DATABASE_URL --source 'restored production dump' --dry-run \
+  --review-html oneoff/detections-review.html
+```
+
+Open that file in a browser. It shows an ordinary approximately 1024-pixel
+rendition, optional numbered overlays, and stored/proposed JSON side by side.
+Samples cover both sides of the February 22 fill/doodle change and the June
+12/13/24 confidence/threshold/flag changes, using **processing timestamps**.
+The default is four photos per side within seven days (two nearest and two
+deterministically spread), plus six each with visible legacy detections and
+dimension exceptions; use `--per-side` and `--extras` to adjust. Overlapping
+samples are deduplicated. Already-explicit rows are labeled unchanged controls.
+Deleted rows are excluded from the gallery but remain in the migration counts.
+
+Boxes can be hidden to inspect the pixels, then enabled to check alignment.
+Green means blurred, orange dashed means deliberately visible; overlays and
+the object list are shown by default. The list shows original boxes, boxes
+scaled to the rendition, and bounds in the selected coordinate basis. Both
+photo-row and full-image dimensions are shown; the basis selector changes
+only the overlay and scaled coordinates, never stored data. If the photo-row
+dimensions are exactly the reverse of the full-image dimensions, the viewer
+defaults to the full-image basis and explicitly flags the metadata discrepancy.
+The first two samples have this problem: their row says 1440 × 2560, while
+sizes.full says 2560 × 1440 and the loaded rendition is 1024 × 576. All their
+boxes fit the full-image basis; the original inventory checked photo-row bounds.
+Review notes stay in browser storage when supported and can be exported as JSON.
+The HTML is static; photos load from their stored URLs. `--review-html` is
+rejected with `--apply`, and gallery generation never updates the database.
+
 The 2026-10-27 local rehearsal changed **10,517 photos / 91,863 objects**, adding
 91,364 true flags and 499 false flags. All **185,549 objects** are now explicit.
 All backed-up rows match the saved targets; a second full dry run proposes zero
@@ -210,13 +321,38 @@ The API scope/write-boundary tests use mocked DB sessions. Four additional
 checks of the real worker override model passed inside its container using
 stdlib unittest (the image does not include pytest). No database-clearing
 integration tests were run. Actual restore was tested in disposable databases;
-the full local production dump remains migrated.
+the full local production dump was migrated for that rehearsal, then replaced
+by the operator's fresh production dump. The current state is recorded above.
 
 ## Production rollout and remaining cleanup
 
-The batch implementation, backup/restore path, writer normalization and local
-rehearsal above complete the preparation. Remaining production steps follow;
-do not equate this local dump with a fresh live-production query.
+**Production application is complete, confirmed by the operator on 2026-10-28.**
+The reviewed SQL backs up original JSON and checks every target before committing.
+The operator's subsequent production redump has been independently verified as
+recorded above: zero legacy objects, stable verdicts, exact backup targets and
+zero proposed changes on a full dry run. This confirms the redump's snapshot,
+not continuing live-production state after that dump.
+
+Remaining steps:
+
+1. Retain the production backup table and before/after evidence. Post-backfill
+   inventory, target checks and idempotence are complete on the refreshed dump.
+   New legacy writes after that snapshot would not be covered by this check.
+2. Confirm deployment of the normalized API/worker write boundaries, including
+   older workers sending legacy payloads, precomputed inputs and direct-SQL
+   importers. The prepared source implements normalization; production deployment
+   has not been established by this investigation.
+3. Remove consumer fallbacks only after those checks pass. Update `is_blurred()`
+   and the worker's precomputed/pyramid/blackout consumers. Retain confidence
+   threshold logic for new model decisions. Check the separate workbench
+   repository for its old copies as well. The operator identified its checkout
+   as `/home/koom/repos/koo5/hillview/0/recon`; inspect/refactor code there without
+   standing up that service locally.
+
+### Completed migration design and review requirements
+
+The following requirements describe the implemented and rehearsed migration;
+the operator subsequently used the generated SQL for production application.
 
 1. **Resolve pixel questions from history first.** The source establishes that
    writers attempted to paint all no-confidence boxes. If pixel checks are
@@ -252,8 +388,9 @@ do not equate this local dump with a fresh live-production query.
 5. **Deploy the normalized write boundaries before reader cleanup.** The API
    covers older workers as well as new worker precomputed payloads. Account for
    direct-SQL importers and confirm the deployed API version. The local rehearsal
-   is complete; a fresh live-prod inventory and backup are still needed for
-   production execution.
+   is complete, production backfill is applied, and a fresh production redump
+   verifies zero legacy objects. Deployment confirmation is still needed before
+   consumer cleanup.
 6. **Remove consumer fallbacks only after rollout is complete.** Update
    `is_blurred()` and the worker's precomputed/pyramid/blackout consumers. Retain
    confidence threshold logic for **new model decisions** in the writer. Check

@@ -1,0 +1,958 @@
+{
+  "database_snapshot": {
+    "column_type": "json",
+    "database": "hillview",
+    "isolation": "repeatable read",
+    "read_only": "on",
+    "snapshot_at": "2026-10-28 10:18:19.564207+00:00"
+  },
+  "generated_at": "2026-10-28T10:18:27.502815+00:00",
+  "groups": {
+    "captured_at_month": [
+      {
+        "objects_by_format": {},
+        "photos": 13,
+        "photos_by_format": {},
+        "states": {
+          "missing-objects": 13
+        },
+        "value": "2025-07"
+      },
+      {
+        "objects_by_format": {},
+        "photos": 1,
+        "photos_by_format": {},
+        "states": {
+          "missing-objects": 1
+        },
+        "value": "2025-08"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 29
+        },
+        "photos": 29,
+        "photos_by_format": {
+          "legacy-no-confidence": 6
+        },
+        "states": {
+          "empty": 23,
+          "nonempty": 6
+        },
+        "value": "2025-09"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 451
+        },
+        "photos": 470,
+        "photos_by_format": {
+          "legacy-no-confidence": 133
+        },
+        "states": {
+          "empty": 337,
+          "nonempty": 133
+        },
+        "value": "2025-10"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 1325
+        },
+        "photos": 808,
+        "photos_by_format": {
+          "legacy-no-confidence": 337
+        },
+        "states": {
+          "empty": 471,
+          "nonempty": 337
+        },
+        "value": "2025-11"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 702
+        },
+        "photos": 537,
+        "photos_by_format": {
+          "legacy-no-confidence": 195
+        },
+        "states": {
+          "empty": 342,
+          "nonempty": 195
+        },
+        "value": "2025-12"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 1256
+        },
+        "photos": 923,
+        "photos_by_format": {
+          "legacy-no-confidence": 339
+        },
+        "states": {
+          "empty": 584,
+          "nonempty": 339
+        },
+        "value": "2026-01"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 10225
+        },
+        "photos": 2374,
+        "photos_by_format": {
+          "legacy-no-confidence": 875
+        },
+        "states": {
+          "empty": 1479,
+          "nonempty": 875,
+          "sql-null": 20
+        },
+        "value": "2026-02"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 35035
+        },
+        "photos": 4525,
+        "photos_by_format": {
+          "legacy-no-confidence": 2087
+        },
+        "states": {
+          "empty": 2435,
+          "nonempty": 2087,
+          "sql-null": 3
+        },
+        "value": "2026-03"
+      },
+      {
+        "objects_by_format": {
+          "explicit": 18,
+          "legacy-no-confidence": 20193
+        },
+        "photos": 5998,
+        "photos_by_format": {
+          "explicit": 5,
+          "legacy-no-confidence": 2837
+        },
+        "states": {
+          "empty": 3153,
+          "nonempty": 2842,
+          "sql-null": 3
+        },
+        "value": "2026-04"
+      },
+      {
+        "objects_by_format": {
+          "explicit": 41,
+          "legacy-confidence": 4255,
+          "legacy-no-confidence": 8554
+        },
+        "photos": 3070,
+        "photos_by_format": {
+          "explicit": 3,
+          "legacy-confidence": 279,
+          "legacy-no-confidence": 1069
+        },
+        "states": {
+          "empty": 1718,
+          "nonempty": 1351,
+          "sql-null": 1
+        },
+        "value": "2026-05"
+      },
+      {
+        "objects_by_format": {
+          "explicit": 5031,
+          "legacy-confidence": 3873,
+          "legacy-no-confidence": 2055
+        },
+        "photos": 9126,
+        "photos_by_format": {
+          "explicit": 721,
+          "legacy-confidence": 660,
+          "legacy-no-confidence": 505
+        },
+        "states": {
+          "empty": 7225,
+          "nonempty": 1886,
+          "sql-null": 15
+        },
+        "value": "2026-06"
+      },
+      {
+        "objects_by_format": {
+          "explicit": 11518
+        },
+        "photos": 12843,
+        "photos_by_format": {
+          "explicit": 3352
+        },
+        "states": {
+          "empty": 9388,
+          "nonempty": 3352,
+          "sql-null": 103
+        },
+        "value": "2026-07"
+      },
+      {
+        "objects_by_format": {
+          "explicit": 12550
+        },
+        "photos": 21097,
+        "photos_by_format": {
+          "explicit": 3443
+        },
+        "states": {
+          "empty": 17654,
+          "nonempty": 3443
+        },
+        "value": "2026-08"
+      },
+      {
+        "objects_by_format": {
+          "explicit": 49656
+        },
+        "photos": 24577,
+        "photos_by_format": {
+          "explicit": 9618
+        },
+        "states": {
+          "empty": 14959,
+          "nonempty": 9618
+        },
+        "value": "2026-09"
+      },
+      {
+        "objects_by_format": {
+          "explicit": 15088
+        },
+        "photos": 9658,
+        "photos_by_format": {
+          "explicit": 3225
+        },
+        "states": {
+          "empty": 6431,
+          "nonempty": 3225,
+          "sql-null": 2
+        },
+        "value": "2026-10"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 3910
+        },
+        "photos": 6399,
+        "photos_by_format": {
+          "legacy-no-confidence": 1195
+        },
+        "states": {
+          "empty": 4338,
+          "missing-objects": 849,
+          "nonempty": 1195,
+          "sql-null": 17
+        },
+        "value": null
+      }
+    ],
+    "deleted": [
+      {
+        "objects_by_format": {
+          "explicit": 92872,
+          "legacy-confidence": 8091,
+          "legacy-no-confidence": 83349
+        },
+        "photos": 101933,
+        "photos_by_format": {
+          "explicit": 20233,
+          "legacy-confidence": 926,
+          "legacy-no-confidence": 9505
+        },
+        "states": {
+          "empty": 70273,
+          "missing-objects": 858,
+          "nonempty": 30664,
+          "sql-null": 138
+        },
+        "value": false
+      },
+      {
+        "objects_by_format": {
+          "explicit": 1030,
+          "legacy-confidence": 37,
+          "legacy-no-confidence": 386
+        },
+        "photos": 515,
+        "photos_by_format": {
+          "explicit": 134,
+          "legacy-confidence": 13,
+          "legacy-no-confidence": 73
+        },
+        "states": {
+          "empty": 264,
+          "missing-objects": 5,
+          "nonempty": 220,
+          "sql-null": 26
+        },
+        "value": true
+      }
+    ],
+    "manual": [
+      {
+        "objects_by_format": {
+          "explicit": 93902,
+          "legacy-confidence": 8128,
+          "legacy-no-confidence": 83735
+        },
+        "photos": 102179,
+        "photos_by_format": {
+          "explicit": 20367,
+          "legacy-confidence": 939,
+          "legacy-no-confidence": 9578
+        },
+        "states": {
+          "empty": 70268,
+          "missing-objects": 863,
+          "nonempty": 30884,
+          "sql-null": 164
+        },
+        "value": null
+      },
+      {
+        "objects_by_format": {},
+        "photos": 269,
+        "photos_by_format": {},
+        "states": {
+          "empty": 269
+        },
+        "value": true
+      }
+    ],
+    "model_name": [
+      {
+        "objects_by_format": {
+          "explicit": 93902,
+          "legacy-confidence": 8128,
+          "legacy-no-confidence": 72683
+        },
+        "photos": 90374,
+        "photos_by_format": {
+          "explicit": 20367,
+          "legacy-confidence": 939,
+          "legacy-no-confidence": 6470
+        },
+        "states": {
+          "empty": 62598,
+          "nonempty": 27776
+        },
+        "value": "yolov5s6u.pt"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 11052
+        },
+        "photos": 10778,
+        "photos_by_format": {
+          "legacy-no-confidence": 3108
+        },
+        "states": {
+          "empty": 7670,
+          "nonempty": 3108
+        },
+        "value": "yolov5su.pt"
+      },
+      {
+        "objects_by_format": {},
+        "photos": 1296,
+        "photos_by_format": {},
+        "states": {
+          "empty": 269,
+          "missing-objects": 863,
+          "sql-null": 164
+        },
+        "value": null
+      }
+    ],
+    "processed_at_month": [
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 3688
+        },
+        "photos": 6397,
+        "photos_by_format": {
+          "legacy-no-confidence": 1190
+        },
+        "states": {
+          "empty": 4344,
+          "missing-objects": 863,
+          "nonempty": 1190
+        },
+        "value": "2025-09"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 424
+        },
+        "photos": 336,
+        "photos_by_format": {
+          "legacy-no-confidence": 116
+        },
+        "states": {
+          "empty": 220,
+          "nonempty": 116
+        },
+        "value": "2025-10"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 708
+        },
+        "photos": 644,
+        "photos_by_format": {
+          "legacy-no-confidence": 203
+        },
+        "states": {
+          "empty": 441,
+          "nonempty": 203
+        },
+        "value": "2025-11"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 1334
+        },
+        "photos": 836,
+        "photos_by_format": {
+          "legacy-no-confidence": 346
+        },
+        "states": {
+          "empty": 490,
+          "nonempty": 346
+        },
+        "value": "2025-12"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 1237
+        },
+        "photos": 900,
+        "photos_by_format": {
+          "legacy-no-confidence": 326
+        },
+        "states": {
+          "empty": 574,
+          "nonempty": 326
+        },
+        "value": "2026-01"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 3216
+        },
+        "photos": 2210,
+        "photos_by_format": {
+          "legacy-no-confidence": 789
+        },
+        "states": {
+          "empty": 1416,
+          "nonempty": 789,
+          "sql-null": 5
+        },
+        "value": "2026-02"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 23042
+        },
+        "photos": 4529,
+        "photos_by_format": {
+          "legacy-no-confidence": 2027
+        },
+        "states": {
+          "empty": 2498,
+          "nonempty": 2027,
+          "sql-null": 4
+        },
+        "value": "2026-03"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 20060
+        },
+        "photos": 5944,
+        "photos_by_format": {
+          "legacy-no-confidence": 2805
+        },
+        "states": {
+          "empty": 3139,
+          "nonempty": 2805
+        },
+        "value": "2026-04"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 24227
+        },
+        "photos": 2325,
+        "photos_by_format": {
+          "legacy-no-confidence": 1074
+        },
+        "states": {
+          "empty": 1251,
+          "nonempty": 1074
+        },
+        "value": "2026-05"
+      },
+      {
+        "objects_by_format": {
+          "explicit": 1873,
+          "legacy-confidence": 8128,
+          "legacy-no-confidence": 5799
+        },
+        "photos": 8612,
+        "photos_by_format": {
+          "explicit": 363,
+          "legacy-confidence": 939,
+          "legacy-no-confidence": 702
+        },
+        "states": {
+          "empty": 6608,
+          "nonempty": 2004
+        },
+        "value": "2026-06"
+      },
+      {
+        "objects_by_format": {
+          "explicit": 12942
+        },
+        "photos": 14160,
+        "photos_by_format": {
+          "explicit": 3654
+        },
+        "states": {
+          "empty": 10506,
+          "nonempty": 3654
+        },
+        "value": "2026-07"
+      },
+      {
+        "objects_by_format": {
+          "explicit": 13782
+        },
+        "photos": 20505,
+        "photos_by_format": {
+          "explicit": 3402
+        },
+        "states": {
+          "empty": 17103,
+          "nonempty": 3402
+        },
+        "value": "2026-08"
+      },
+      {
+        "objects_by_format": {
+          "explicit": 50217
+        },
+        "photos": 25239,
+        "photos_by_format": {
+          "explicit": 9723
+        },
+        "states": {
+          "empty": 15516,
+          "nonempty": 9723
+        },
+        "value": "2026-09"
+      },
+      {
+        "objects_by_format": {
+          "explicit": 15088
+        },
+        "photos": 9656,
+        "photos_by_format": {
+          "explicit": 3225
+        },
+        "states": {
+          "empty": 6431,
+          "nonempty": 3225
+        },
+        "value": "2026-10"
+      },
+      {
+        "objects_by_format": {},
+        "photos": 155,
+        "photos_by_format": {},
+        "states": {
+          "sql-null": 155
+        },
+        "value": null
+      }
+    ],
+    "processing_status": [
+      {
+        "objects_by_format": {},
+        "photos": 155,
+        "photos_by_format": {},
+        "states": {
+          "sql-null": 155
+        },
+        "value": "authorized"
+      },
+      {
+        "objects_by_format": {
+          "explicit": 93902,
+          "legacy-confidence": 8128,
+          "legacy-no-confidence": 83735
+        },
+        "photos": 102284,
+        "photos_by_format": {
+          "explicit": 20367,
+          "legacy-confidence": 939,
+          "legacy-no-confidence": 9578
+        },
+        "states": {
+          "empty": 70537,
+          "missing-objects": 863,
+          "nonempty": 30884
+        },
+        "value": "completed"
+      },
+      {
+        "objects_by_format": {},
+        "photos": 9,
+        "photos_by_format": {},
+        "states": {
+          "sql-null": 9
+        },
+        "value": "error"
+      }
+    ],
+    "uploaded_at_month": [
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 3688
+        },
+        "photos": 6397,
+        "photos_by_format": {
+          "legacy-no-confidence": 1190
+        },
+        "states": {
+          "empty": 4344,
+          "missing-objects": 863,
+          "nonempty": 1190
+        },
+        "value": "2025-09"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 424
+        },
+        "photos": 336,
+        "photos_by_format": {
+          "legacy-no-confidence": 116
+        },
+        "states": {
+          "empty": 220,
+          "nonempty": 116
+        },
+        "value": "2025-10"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 708
+        },
+        "photos": 644,
+        "photos_by_format": {
+          "legacy-no-confidence": 203
+        },
+        "states": {
+          "empty": 441,
+          "nonempty": 203
+        },
+        "value": "2025-11"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 1334
+        },
+        "photos": 836,
+        "photos_by_format": {
+          "legacy-no-confidence": 346
+        },
+        "states": {
+          "empty": 490,
+          "nonempty": 346
+        },
+        "value": "2025-12"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 1237
+        },
+        "photos": 900,
+        "photos_by_format": {
+          "legacy-no-confidence": 326
+        },
+        "states": {
+          "empty": 574,
+          "nonempty": 326
+        },
+        "value": "2026-01"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 3216
+        },
+        "photos": 2228,
+        "photos_by_format": {
+          "legacy-no-confidence": 789
+        },
+        "states": {
+          "empty": 1416,
+          "nonempty": 789,
+          "sql-null": 23
+        },
+        "value": "2026-02"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 23042
+        },
+        "photos": 4532,
+        "photos_by_format": {
+          "legacy-no-confidence": 2027
+        },
+        "states": {
+          "empty": 2498,
+          "nonempty": 2027,
+          "sql-null": 7
+        },
+        "value": "2026-03"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 20060
+        },
+        "photos": 5947,
+        "photos_by_format": {
+          "legacy-no-confidence": 2805
+        },
+        "states": {
+          "empty": 3139,
+          "nonempty": 2805,
+          "sql-null": 3
+        },
+        "value": "2026-04"
+      },
+      {
+        "objects_by_format": {
+          "legacy-no-confidence": 24227
+        },
+        "photos": 2336,
+        "photos_by_format": {
+          "legacy-no-confidence": 1074
+        },
+        "states": {
+          "empty": 1252,
+          "nonempty": 1074,
+          "sql-null": 10
+        },
+        "value": "2026-05"
+      },
+      {
+        "objects_by_format": {
+          "explicit": 1873,
+          "legacy-confidence": 8128,
+          "legacy-no-confidence": 5799
+        },
+        "photos": 8627,
+        "photos_by_format": {
+          "explicit": 363,
+          "legacy-confidence": 939,
+          "legacy-no-confidence": 702
+        },
+        "states": {
+          "empty": 6607,
+          "nonempty": 2004,
+          "sql-null": 16
+        },
+        "value": "2026-06"
+      },
+      {
+        "objects_by_format": {
+          "explicit": 12942
+        },
+        "photos": 14263,
+        "photos_by_format": {
+          "explicit": 3654
+        },
+        "states": {
+          "empty": 10506,
+          "nonempty": 3654,
+          "sql-null": 103
+        },
+        "value": "2026-07"
+      },
+      {
+        "objects_by_format": {
+          "explicit": 13782
+        },
+        "photos": 20505,
+        "photos_by_format": {
+          "explicit": 3402
+        },
+        "states": {
+          "empty": 17103,
+          "nonempty": 3402
+        },
+        "value": "2026-08"
+      },
+      {
+        "objects_by_format": {
+          "explicit": 50217
+        },
+        "photos": 25239,
+        "photos_by_format": {
+          "explicit": 9723
+        },
+        "states": {
+          "empty": 15516,
+          "nonempty": 9723
+        },
+        "value": "2026-09"
+      },
+      {
+        "objects_by_format": {
+          "explicit": 15088
+        },
+        "photos": 9658,
+        "photos_by_format": {
+          "explicit": 3225
+        },
+        "states": {
+          "empty": 6431,
+          "nonempty": 3225,
+          "sql-null": 2
+        },
+        "value": "2026-10"
+      }
+    ]
+  },
+  "issues": {
+    "bbox-exceeds-image": {
+      "examples": [
+        {
+          "object_index": 0,
+          "photo_id": "a1600126-f947-416a-960f-ced19d371eb3"
+        },
+        {
+          "object_index": 1,
+          "photo_id": "a1600126-f947-416a-960f-ced19d371eb3"
+        }
+      ],
+      "objects_by_format": {
+        "legacy-no-confidence": 2
+      },
+      "occurrences": 2,
+      "photos": 1
+    },
+    "missing-objects": {
+      "examples": [
+        {
+          "object_index": null,
+          "photo_id": "0006835c-4c98-40ae-b545-47e2fdf28f3e"
+        },
+        {
+          "object_index": null,
+          "photo_id": "003bc008-34de-4f9e-bb25-a89b1529aecc"
+        },
+        {
+          "object_index": null,
+          "photo_id": "006feba6-b034-4a27-aa5f-a5706a2f8b15"
+        },
+        {
+          "object_index": null,
+          "photo_id": "00f456cb-ecc8-4d67-bf6e-787a78138833"
+        },
+        {
+          "object_index": null,
+          "photo_id": "0137afd2-6ae6-4465-91aa-71d8ee1966f7"
+        },
+        {
+          "object_index": null,
+          "photo_id": "01673b64-9d39-4b7f-b65e-40c68e020e5f"
+        },
+        {
+          "object_index": null,
+          "photo_id": "0170512d-8c81-480d-81e9-9fee4fb966fc"
+        },
+        {
+          "object_index": null,
+          "photo_id": "0183f58f-95f1-437b-a3b7-85256fec2aff"
+        },
+        {
+          "object_index": null,
+          "photo_id": "0208bca0-a047-40f7-b41b-6350af82cd84"
+        },
+        {
+          "object_index": null,
+          "photo_id": "02146c6f-cf2d-44ac-ba8e-5224fdf95626"
+        }
+      ],
+      "objects_by_format": {},
+      "occurrences": 863,
+      "photos": 863
+    }
+  },
+  "objects_by_consumer_verdict": {
+    "blurred": 162844,
+    "visible": 22921
+  },
+  "objects_by_format": {
+    "explicit": 93902,
+    "legacy-confidence": 8128,
+    "legacy-no-confidence": 83735
+  },
+  "objects_by_format_and_consumer_verdict": {
+    "explicit": {
+      "blurred": 71480,
+      "visible": 22422
+    },
+    "legacy-confidence": {
+      "blurred": 7629,
+      "visible": 499
+    },
+    "legacy-no-confidence": {
+      "blurred": 83735
+    }
+  },
+  "photos": {
+    "empty": 70537,
+    "missing-objects": 863,
+    "nonempty": 30884,
+    "sql-null": 164,
+    "total": 102448,
+    "with-legacy-objects": 10517
+  },
+  "photos_by_format": {
+    "explicit": 20367,
+    "legacy-confidence": 939,
+    "legacy-no-confidence": 9578
+  },
+  "processed_at_range_by_format": {
+    "explicit": {
+      "max": "2026-10-27T23:05:19.921711+00:00",
+      "min": "2026-06-25T08:14:49.447869+00:00"
+    },
+    "legacy-confidence": {
+      "max": "2026-06-23T05:57:56.647739+00:00",
+      "min": "2026-06-12T21:17:01.054392+00:00"
+    },
+    "legacy-no-confidence": {
+      "max": "2026-06-11T05:55:36.564365+00:00",
+      "min": "2025-09-24T16:00:29.689729+00:00"
+    }
+  },
+  "source": "production redump after operator-applied photo size SQL, 2026-10-28"
+}

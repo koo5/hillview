@@ -1,0 +1,39 @@
+{
+  "backup_comparison": {
+    "backed_up_photos": 381,
+    "conflicts": 0
+  },
+  "excluded_deleted_photo": {
+    "deleted": true,
+    "height": 3840,
+    "id": "a1600126-f947-416a-960f-ced19d371eb3",
+    "width": 2880
+  },
+  "generated_at": "2026-10-28T10:18:09.760305+00:00",
+  "panorama": {
+    "detected_objects": "{\"objects\": [], \"manual\": true}",
+    "file_md5": "5a880e0b0c8f0eef7eb92b5e25d1509f",
+    "height": 10646,
+    "id": "42b675fc-a4ef-4ed7-a69f-d62a2d778bfc",
+    "pyramid_height": "10646",
+    "pyramid_width": "157180",
+    "width": 157180
+  },
+  "plan_comparison": {
+    "already_matching": 381,
+    "artifact_headers_rechecked": 0,
+    "database": {
+      "database": "hillview",
+      "server_address": "172.19.0.2/32",
+      "server_port": 5432,
+      "sizes_type": "json"
+    },
+    "field_pairs": 957,
+    "mode": "dry-run",
+    "photos_would_change": 0,
+    "selected_photos": 381,
+    "skipped_photos": 1
+  },
+  "production_backup_table": "public.photo_size_fix_f28e4b89a344ddce",
+  "source": "production redump after operator-applied photo size SQL, 2026-10-28"
+}

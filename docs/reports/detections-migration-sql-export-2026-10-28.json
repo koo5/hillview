@@ -1,0 +1,28 @@
+{
+  "after_id": null,
+  "apply": false,
+  "batches_scanned": 205,
+  "blurred_false": 499,
+  "blurred_true": 91364,
+  "command": "migrate",
+  "last_id": "ffff3860-adbf-45c4-82f7-76c23ba07064",
+  "legacy_confidence": 8128,
+  "legacy_no_confidence": 83735,
+  "objects_added": 91863,
+  "photos_scanned": 102448,
+  "photos_verified": 10517,
+  "photos_would_change": 10517,
+  "source": "reviewed production redump after size metadata repair, 2026-10-28",
+  "sql": {
+    "backup_table": "public.detections_fix_270aa7396d26a976",
+    "files": {
+      "apply": "oneoff/detections-format.sql",
+      "evidence": "oneoff/detections-format.evidence.json",
+      "restore": "oneoff/detections-format.restore.sql",
+      "verify": "oneoff/detections-format.verify.sql"
+    },
+    "photos": 10517,
+    "plan_sha256": "270aa7396d26a9768da81aa6ef2ef3bf846b7ba6071841f874e827c2e1049410"
+  },
+  "through_id": "ffff3860-adbf-45c4-82f7-76c23ba07064"
+}

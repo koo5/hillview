@@ -1,0 +1,34 @@
+{
+  "after_id": null,
+  "apply": false,
+  "batches_scanned": 205,
+  "blurred_false": 499,
+  "blurred_true": 91364,
+  "command": "migrate",
+  "last_id": "ffff3860-adbf-45c4-82f7-76c23ba07064",
+  "legacy_confidence": 8128,
+  "legacy_no_confidence": 83735,
+  "objects_added": 91863,
+  "photos_scanned": 102448,
+  "photos_verified": 10517,
+  "photos_would_change": 10517,
+  "review": {
+    "controls": 4,
+    "groups": {
+      "Confidence stored \u00b7 Jun 12 / after": 4,
+      "Confidence stored \u00b7 Jun 12 / before": 4,
+      "Explicit flags \u00b7 Jun 24 / after": 4,
+      "Explicit flags \u00b7 Jun 24 / before": 4,
+      "Separate painting threshold \u00b7 Jun 13 / after": 4,
+      "Separate painting threshold \u00b7 Jun 13 / before": 4,
+      "Solid fills and doodles \u00b7 Feb 22 / after": 4,
+      "Solid fills and doodles \u00b7 Feb 22 / before": 4,
+      "Visible legacy detections (< 0.4)": 6
+    },
+    "output": "/home/koom/repos/koo5/hillview/0/hillview/oneoff/detections-review.html",
+    "photos": 34,
+    "would_change": 30
+  },
+  "source": "production redump after applied size metadata SQL, 2026-10-28",
+  "through_id": "ffff3860-adbf-45c4-82f7-76c23ba07064"
+}
