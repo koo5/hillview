@@ -6,6 +6,7 @@ run. Apply requires a private backup directory; resume rescans the original ID
 range, skipping already-normalized rows. A batch's raw before/after JSON texts
 are fsynced before UPDATE, including batches whose transaction later rolls back.
 Only detected_objects is updated. Reader fallbacks remain until prod rollout.
+--sql-output during dry run writes standalone apply/verify/restore SQL files.
 """
 
 import argparse
@@ -23,13 +24,14 @@ import time
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend'))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common.detections import (  # noqa: E402
 	BLUR_CONFIDENCE, normalize_detections, verify_detection_migration,
 )
 
 VERSION = 1
 SELECT_BATCH = """
-SELECT id, detected_objects::text AS before_text FROM public.photos
+SELECT {columns} FROM public.photos
 WHERE ($1::text IS NULL OR id > $1) AND id <= $2
 ORDER BY id LIMIT $3
 """
@@ -137,7 +139,24 @@ def plan_row(row):
 
 
 async def migrate(conn, *, apply=False, backup_dir=None, resume=False, source,
-                  batch_size=500, after_id=None, through_id=None):
+                  batch_size=500, after_id=None, through_id=None,
+                  review_html=None, per_side=4, extras=6, sql_output=None):
+	if review_html is not None and apply:
+		raise ValueError('--review-html requires dry-run mode')
+	if sql_output is not None and apply:
+		raise ValueError('--sql-output requires dry-run mode')
+	if review_html is not None:
+		from detections_review import review_candidate, write_review
+
+	review_rows = []
+	sql_rows = []
+	columns = 'id, detected_objects::text AS before_text'
+	if review_html is not None:
+		columns += ', captured_at, processed_at, width, height, sizes, deleted'
+	if sql_output is not None:
+		columns += ', file_md5, filename, processing_status'
+		if review_html is None:
+			columns += ', processed_at, deleted'
 	db_identity = await identity(conn)
 	if db_identity['column_type'] != 'json':
 		raise ValueError('Expected public.photos.detected_objects to be json')
@@ -165,13 +184,21 @@ async def migrate(conn, *, apply=False, backup_dir=None, resume=False, source,
 	cursor = after_id
 	while through_id is not None:
 		async with conn.transaction(readonly=not apply):
-			rows = await conn.fetch(SELECT_BATCH + (' FOR UPDATE' if apply else ''), cursor, through_id, batch_size)
+			rows = await conn.fetch(SELECT_BATCH.format(columns=columns) + (' FOR UPDATE' if apply else ''), cursor, through_id, batch_size)
 			if not rows:
 				break
 			planned, additions = [], Counter()
 			for row in rows:
 				change, row_counts = plan_row(row)
+				if review_html is not None:
+					candidate = review_candidate(row, change)
+					if candidate is not None:
+						review_rows.append(candidate)
 				if change is not None:
+					if sql_output is not None:
+						sql_rows.append({**change, 'context': {
+							key: row[key].isoformat() if key == 'processed_at' and row[key] is not None else row[key]
+							for key in ('file_md5', 'filename', 'processed_at', 'processing_status', 'deleted')}})
 					if change['id'] in previous and previous[change['id']] != change:
 						raise ValueError(f'Photo {change["id"]} changed since its backup; use a new backup directory')
 					planned.append(change)
@@ -191,8 +218,16 @@ async def migrate(conn, *, apply=False, backup_dir=None, resume=False, source,
 		counts['batches_scanned'] += 1
 		if planned and (counts['batches_scanned'] == 1 or counts['batches_scanned'] % 10 == 0):
 			print(encode({'last_id': cursor, **counts}), file=sys.stderr, flush=True)
-	return {'command': 'migrate', 'apply': apply, 'source': source,
-	        'after_id': after_id, 'through_id': through_id, 'last_id': cursor, **counts}
+	result = {'command': 'migrate', 'apply': apply, 'source': source,
+	          'after_id': after_id, 'through_id': through_id, 'last_id': cursor, **counts}
+	if review_html is not None:
+		result['review'] = write_review(review_rows, source=source, output=review_html, per_side=per_side, extras=extras)
+	if sql_output is not None:
+		from detections_sql import write_export
+		result['sql'] = write_export(sql_rows, source=source, blur_confidence=BLUR_CONFIDENCE,
+		                            output=sql_output, summary={'source': source, 'generated_at': now(),
+		                                'database': db_identity, 'blur_confidence': BLUR_CONFIDENCE, **counts})
+	return result
 
 
 async def restore_or_verify(conn, *, backup_dir, command, apply=False, batch_size=500):
@@ -242,7 +277,8 @@ async def run(args):
 	try:
 		if args.command == 'migrate':
 			kwargs = {key: getattr(args, key) for key in
-			          ('apply', 'backup_dir', 'resume', 'source', 'batch_size', 'after_id', 'through_id')}
+			          ('apply', 'backup_dir', 'resume', 'source', 'batch_size', 'after_id', 'through_id',
+			           'review_html', 'per_side', 'extras', 'sql_output')}
 			if args.apply:
 				with backup_lock(args.backup_dir):
 					return await migrate(conn, **kwargs)
@@ -265,21 +301,32 @@ def main():
 		sub.add_argument('--batch-size', type=int, default=500)
 		mode = sub.add_mutually_exclusive_group()
 		mode.add_argument('--dry-run', action='store_true', help='Default: read only')
-		if name != 'verify':
+		if name in ('migrate', 'restore'):
 			mode.add_argument('--apply', action='store_true')
 		sub.set_defaults(apply=False)
 		sub.add_argument('--backup-dir', type=Path, required=name != 'migrate')
 		if name == 'migrate':
+			sub.add_argument('--sql-output', type=Path, help='Write standalone apply/verify/restore SQL during dry run')
 			sub.add_argument('--source', required=True)
 			sub.add_argument('--resume', action='store_true', help='Reuse backup directory; rescan original range')
 			sub.add_argument('--after-id')
 			sub.add_argument('--through-id')
+		if name == 'migrate':
+			sub.add_argument('--review-html', type=Path, help='Generate a static gallery of stored/proposed JSON during dry run')
+			sub.add_argument('--per-side', type=int, default=4, help='Photos per side of each transition, within seven days')
+			sub.add_argument('--extras', type=int, default=6, help='Extra photos each for visible detections and bounds exceptions')
 	args = parser.parse_args()
 	if not os.environ.get(args.database_url_env):
 		parser.error('Specified database URL environment variable is empty')
 	if not 1 <= args.batch_size <= 5000:
 		parser.error('--batch-size must be in [1, 5000]')
 	if args.command == 'migrate':
+		if not (1 <= args.per_side <= 30 and 0 <= args.extras <= 100):
+			parser.error('--per-side must be in [1, 30] and --extras in [0, 100]')
+		if args.review_html is not None and args.apply:
+			parser.error('--review-html requires dry-run mode')
+		if args.sql_output is not None and args.apply:
+			parser.error('--sql-output requires dry-run mode')
 		if args.apply and args.backup_dir is None:
 			parser.error('--apply requires --backup-dir')
 		if args.resume and not args.apply:

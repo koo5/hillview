@@ -272,3 +272,43 @@ async def test_row_locks_hold_across_backup_and_write(database, tmp_path, monkey
 		if writer is not None:
 			await writer
 		await other.close()
+
+
+@pytest.mark.asyncio
+async def test_dry_run_gallery_uses_stored_and_proposed_values_without_writes(database, tmp_path):
+	conn, original = database
+	await conn.execute('''ALTER TABLE photos ADD captured_at timestamp, ADD processed_at timestamptz,
+	    ADD width integer DEFAULT 100, ADD height integer DEFAULT 80,
+	    ADD sizes json DEFAULT '{"1024":{"url":"https://pics.example/1024.webp"}}',
+	    ADD deleted boolean DEFAULT false''')
+	await conn.execute("""UPDATE photos SET processed_at = CASE id
+	    WHEN '3' THEN '2026-06-11'::timestamptz WHEN '4' THEN '2026-06-13'::timestamptz
+	    WHEN '5' THEN '2026-06-25'::timestamptz ELSE '2026-02-23'::timestamptz END""")
+	output = tmp_path / 'review.html'
+	async with conn.transaction(isolation='repeatable_read', readonly=True):
+		result = await migration.migrate(conn, source='dry-run test', review_html=output, batch_size=2)
+		assert await conn.fetchval('SHOW transaction_read_only') == 'on'
+	assert await snapshot(conn) == original
+	assert result['photos_would_change'] == 3
+	assert result['review']['would_change'] == 3
+	assert result['review']['controls'] == 1
+	html = output.read_text()
+	assert 'Dry run: no database rows were changed.' in html
+	assert 'Old detections · stored in database' in html
+	assert 'New detections · proposed by dry run' in html
+	assert 'already explicit control' in html
+	assert 'legacy-confidence-0.4' in html
+	assert 'Visible legacy detections' in html
+	assert not list(tmp_path.glob('batch-*.json'))
+
+
+def test_cli_rejects_apply_with_review_before_creating_a_backup(tmp_path, monkeypatch):
+	backup = tmp_path / 'backup'
+	monkeypatch.setenv('REVIEW_TEST_DB', 'postgresql://localhost/example')
+	monkeypatch.setattr(migration.sys, 'argv', ['migrate_detections.py', 'migrate', '--apply',
+	    '--database-url-env', 'REVIEW_TEST_DB', '--source', 'test', '--backup-dir', str(backup),
+	    '--review-html', str(tmp_path / 'review.html')])
+	with pytest.raises(SystemExit) as exc:
+		migration.main()
+	assert exc.value.code == 2
+	assert not backup.exists()

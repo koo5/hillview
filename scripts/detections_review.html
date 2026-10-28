@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Detections migration dry-run spot-check</title>
+<style>
+:root { color-scheme: dark; font-family: system-ui, sans-serif; background: #101820; color: #e9eef2; }
+body { margin: 0; padding: 6px; } h1 { font-size: 1.1rem; margin: 0; } h2 { font-size: .9rem; overflow-wrap: anywhere; margin: 0 0 4px; }
+h3 { font-size: .75rem; margin: 0 0 3px; } p { line-height: 1.3; margin: 4px 0; } a { color: #99ccff; }
+header { max-width: 1800px; margin: auto; } .intro, .metadata { color: #acbecb; font-size: .75rem; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 4px 0; border-bottom: 1px solid #385061; }
+button, select, textarea { font: inherit; font-size: 12px; color: inherit; background: #253847; border: 1px solid #587083; border-radius: 2px; padding: 3px 5px; }
+button { cursor: pointer; } button:disabled { opacity: .4; cursor: default; } select { max-width: 100%; }
+label { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; }
+#position { min-width: 52px; text-align: center; } #review-summary { font-size: 11px; color: #b5c8d4; }
+.photo-card { max-width: 1800px; margin: 6px auto; border: 1px solid #385061; border-radius: 2px; padding: 6px; }
+.badges { display: flex; flex-wrap: wrap; gap: 3px; } .badge { font-size: 11px; background: #263e50; border-radius: 2px; padding: 2px 4px; }
+.review-layout { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 8px; align-items: start; }
+.photo-frame { position: relative; width: 100%; background: #080e13; }
+.photo-frame img { width: 100%; max-height: 30vh; object-fit: contain; display: block; }
+/* The frame must match the displayed raster, including portrait images. */
+.photo-frame { width: fit-content; max-width: 100%; margin: 0 auto; }
+.photo-frame img { width: auto; height: auto; max-width: 100%; }
+.photo-frame svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+svg rect { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; }
+svg text { font-size: 26px; font-weight: bold; fill: white; stroke: #101820; stroke-width: 4px; paint-order: stroke; }
+svg .blurred rect { stroke: #72e6a2; } svg .visible rect { stroke: #ffbc69; stroke-dasharray: 6 4; }
+.photo-card.hide-boxes svg { display: none; } .blurred { color: #72e6a2; } .visible { color: #ffbc69; }
+.photo-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-bottom: 4px; }
+.json-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; }
+pre { margin: 0; padding: 5px; background: #0a121a; border: 1px solid #314959; border-radius: 2px; max-height: calc(100vh - 210px); overflow: auto; font-size: 11px; line-height: 1.35; }
+.warning { color: #ffd38e; background: #49351d; padding: 4px 6px; border-radius: 2px; }
+.image-status, .legend, .coordinate-summary { font-size: 11px; color: #b5c8d4; margin: 4px 0; } .missing { padding: 20px 8px; }
+.review-inputs { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; } .review-inputs label { align-items: start; }
+.review-inputs label:last-child { flex: 1; }
+.review-notes { flex: 1; min-width: 0; } table { border-collapse: collapse; font-size: .72rem; width: 100%; } td, th { padding: 3px; border-bottom: 1px solid #314959; text-align: left; }
+.original-bbox, .scaled-bbox { font-family: ui-monospace, monospace; white-space: nowrap; font-size: .67rem; }
+.table-scroll { overflow: auto; } details { margin-top: 5px; } summary { cursor: pointer; font-size: 12px; }
+[hidden] { display: none !important; } #empty { text-align: center; padding: 40px; }
+@media (max-width: 1000px) { .review-layout { grid-template-columns: 1fr; } pre { max-height: 400px; } }
+@media print { .toolbar, .review-inputs { display: none; } .review-layout { display: block; } }
+</style>
+<header>
+  <h1>Detections migration dry-run spot-check</h1>
+  <p class="intro">__REPORT_SUMMARY__</p>
+  <p class="intro"><strong>Dry run: no database rows were changed.</strong> Samples use processing dates around the git transitions; deployment dates may differ.
+  Old = stored JSON; new = proposed JSON. Photos load from stored URLs.</p>
+  <div class="toolbar">
+    <select id="group" aria-label="Sample group"><option value="">All samples</option>__FILTER_OPTIONS__</select>
+    <button id="previous">← Previous</button><span id="position"></span><button id="next">Next →</button>
+    <label><input type="checkbox" id="unreviewed">Only unreviewed</label>
+    <button id="export">Export review notes</button>
+    <span id="review-summary"></span>
+  </div>
+  <p class="intro">← / → navigates. Box overlays and scaled coordinates use the selected coordinate basis. Notes save in this browser and can be exported.</p>
+</header>
+<main>__PHOTO_CARDS__<p id="empty" hidden>No photos in this filter.</p></main>
+<script>
+(() => {
+  const cards = Array.from(document.querySelectorAll('.photo-card'));
+  const group = document.querySelector('#group'), unreviewed = document.querySelector('#unreviewed');
+  const storageKey = 'hillview-detections-review-v1:' + cards.map(c => c.dataset.id).join(',');
+  let notes = {}, visible = cards, index = 0;
+  const updateDimensions = [];
+  try { notes = JSON.parse(localStorage.getItem(storageKey) || '{}'); } catch (_) {}
+  function store() { try { localStorage.setItem(storageKey, JSON.stringify(notes)); } catch (_) {} }
+  function show() {
+    index = Math.max(0, Math.min(index, visible.length - 1));
+    cards.forEach(card => { card.hidden = card !== visible[index]; });
+    updateDimensions.forEach(update => update());
+    document.querySelector('#position').textContent = visible.length ? `${index + 1} / ${visible.length}` : '0 / 0';
+    document.querySelector('#previous').disabled = !visible.length || index === 0;
+    document.querySelector('#next').disabled = !visible.length || index >= visible.length - 1;
+    document.querySelector('#empty').hidden = visible.length > 0;
+    document.querySelector('#review-summary').textContent = `${cards.filter(c => notes[c.dataset.id]?.status).length} / ${cards.length} reviewed`;
+  }
+  function filter() {
+    visible = cards.filter(card => (!group.value || JSON.parse(card.dataset.groups).includes(group.value))
+      && (!unreviewed.checked || !notes[card.dataset.id]?.status));
+    index = 0; show();
+  }
+  cards.forEach(card => {
+    const id = card.dataset.id, status = card.querySelector('.review-status'), text = card.querySelector('.review-notes');
+    status.value = notes[id]?.status || ''; text.value = notes[id]?.notes || '';
+    const save = () => { notes[id] = {status: status.value, notes: text.value}; store(); show(); };
+    status.addEventListener('change', () => { save(); if (unreviewed.checked) filter(); });
+    text.addEventListener('input', save);
+    const image = card.querySelector('img'), svg = card.querySelector('svg');
+    function dimensions() {
+      if (!image || !image.naturalWidth) return;
+      const basis = card.querySelector('.coordinate-basis');
+      const [w, h] = basis.value.split(',').map(Number);
+      if (svg) svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+      if (svg && image.getBoundingClientRect().width > 0) {
+        const fontSize = h / image.getBoundingClientRect().height * 12;
+        svg.querySelectorAll('text').forEach(text => {
+          text.style.fontSize = `${fontSize}px`; text.style.strokeWidth = `${fontSize / 5}px`;
+        });
+      }
+      const ratio = w / h, actual = image.naturalWidth / image.naturalHeight;
+      const mismatch = w > 0 && h > 0 && Math.abs(ratio / actual - 1) > .02;
+      const hint = card.querySelector('.image-status');
+      hint.textContent = `Rendition: ${image.naturalWidth} × ${image.naturalHeight}. ` +
+        (!(w > 0 && h > 0) ? 'No stored coordinate dimensions; overlay unavailable.' :
+          mismatch ? 'Aspect differs from overlay coordinate space; check orientation/dimensions.' : 'Image and overlay aspect ratios agree.') +
+        ` Coordinate basis: ${basis.selectedOptions[0].textContent}.`;
+      hint.classList.toggle('warning', mismatch);
+      const sx = image.naturalWidth / w, sy = image.naturalHeight / h;
+      card.querySelector('.coordinate-summary').textContent = w > 0 && h > 0 ?
+        `Stored → rendition: x × ${sx.toFixed(6)}, y × ${sy.toFixed(6)}. Rendition bounds: x 0…${image.naturalWidth}, y 0…${image.naturalHeight}. Coordinates below are not clipped.` :
+        'No valid coordinate basis; scaled coordinates unavailable.';
+      const n = value => Number.isInteger(value) ? String(value) : value.toFixed(1);
+      card.querySelectorAll('tr[data-bbox]').forEach(row => {
+        const box = JSON.parse(row.dataset.bbox);
+        const valid = box.every(value => typeof value === 'number' && Number.isFinite(value));
+        if (!valid || !(w > 0 && h > 0)) {
+          row.querySelector('.scaled-bbox').textContent = 'Unavailable';
+          row.querySelector('.basis-bounds').textContent = 'Invalid coordinates or basis';
+          return;
+        }
+        const [x1, y1, x2, y2] = box;
+        row.querySelector('.scaled-bbox').textContent = `(${n(x1 * sx)}, ${n(y1 * sy)}) → (${n(x2 * sx)}, ${n(y2 * sy)})`;
+        const problems = [];
+        if (x1 < 0 || y1 < 0 || x2 < 0 || y2 < 0) problems.push('Negative coordinate');
+        if (x2 <= x1 || y2 <= y1) problems.push('Empty/reversed');
+        if (Math.max(x1, x2) > w) problems.push(`x > ${w}`);
+        if (Math.max(y1, y2) > h) problems.push(`y > ${h}`);
+        const cell = row.querySelector('.basis-bounds');
+        cell.textContent = problems.length ? problems.join('; ') : 'Inside';
+        cell.classList.toggle('visible', problems.length > 0);
+      });
+    }
+    if (image) {
+      image.addEventListener('load', dimensions);
+      image.addEventListener('error', () => { card.querySelector('.image-status').textContent = 'Image could not load from its stored URL. Try the full-image link.'; });
+      if (image.complete) dimensions();
+    }
+    updateDimensions.push(dimensions);
+    card.querySelector('.coordinate-basis').addEventListener('change', dimensions);
+    card.querySelector('.overlay-toggle').addEventListener('change', event => {
+      card.classList.toggle('hide-boxes', !event.target.checked);
+    });
+  });
+  document.querySelector('#previous').addEventListener('click', () => { index--; show(); });
+  document.querySelector('#next').addEventListener('click', () => { index++; show(); });
+  group.addEventListener('change', filter); unreviewed.addEventListener('change', filter);
+  window.addEventListener('resize', () => updateDimensions.forEach(update => update()));
+  document.addEventListener('keydown', e => {
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+    if (e.key === 'ArrowLeft' && index > 0) { index--; show(); e.preventDefault(); }
+    if (e.key === 'ArrowRight' && index < visible.length - 1) { index++; show(); e.preventDefault(); }
+  });
+  document.querySelector('#export').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify({exported_at: new Date().toISOString(), reviews: notes}, null, 2)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob), link = document.createElement('a');
+    link.href = url; link.download = 'detections-review-notes.json'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  show();
+})();
+</script>
+</html>
