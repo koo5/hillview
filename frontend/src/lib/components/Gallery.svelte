@@ -1,6 +1,8 @@
 <script lang="ts">
     import {onDestroy} from 'svelte';
-    import {photoInFront, photosInRange, photoToLeft, photoToRight, photoUp, photoDown, updateBearing} from "$lib/mapState";
+    import {photoInFront, photosInArea, photosInRange, photoToLeft, photoToRight, photoUp, photoDown, updateBearing} from "$lib/mapState";
+    import {timelineActive, timelinePhotos, timelineCursor} from '$lib/timeline';
+    import {TimelineImagePreloader} from '$lib/timelineImagePreloader';
     import {turn_to_photo_to} from "$lib/data.svelte";
     import {swipe2d} from "$lib/actions/swipe2d";
     import Photo from "./Photo.svelte";
@@ -14,10 +16,28 @@
     import {toggleCamera} from '$lib/appActions';
 
     onDestroy(() => {
+        imagePreloader.dispose();
         zoomViewData.set(null);
     });
 
     let clientWidth: number;
+    let readyUrl: string | undefined;
+    const imagePreloader = new TimelineImagePreloader();
+    function handleImageReady(url: string) {
+        readyUrl = url;
+    }
+
+    $: imagePreloader.update({
+        active: $timelineActive,
+        photos: $timelinePhotos,
+        cursor: $timelineCursor,
+        availablePhotos: $photosInArea,
+        clientWidth,
+        frontUid: $photoInFront?.uid,
+        readyUrl,
+        saveData: typeof navigator !== 'undefined'
+            && !!(navigator as Navigator & {connection?: {saveData?: boolean}}).connection?.saveData,
+    });
     let photoContainer: HTMLElement;
     let photosGrid: HTMLElement;
 
@@ -165,7 +185,7 @@
 			{#each [$photoUp, $photoToLeft, $photoInFront, $photoToRight, $photoDown] as photo, index (keys[index])}
 				<div class="photo-slot {cls[index]}">
 					{#if photo}
-						<Photo photo={photo} className="{cls[index]}" {clientWidth} onInteraction={handlePhotoInteraction}/>
+						<Photo photo={photo} className="{cls[index]}" {clientWidth} onInteraction={handlePhotoInteraction} onImageReady={handleImageReady}/>
 					{/if}
 				</div>
 			{/each}
