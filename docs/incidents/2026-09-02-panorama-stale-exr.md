@@ -151,6 +151,22 @@ The tests are in `backend/worker/tests/unit/test_image_load_cache.py` and run
 with either pytest or standard-library unittest. This patch is prepared locally;
 it needs worker deployment. The preserved panorama is not reuploaded.
 
-The separate issue of preliminary dimensions being returned instead of decoded
-dimensions remains a follow-up. Per-load revalidation prevents the reproduced
-stale-image case; it does not itself refactor those two dimension paths.
+## Worker dimension correction, 2026-10-28
+
+The second worker correction carries the final raster/pyramid coordinate space
+out of rendition generation in an `OptimizedPhoto` result. The processing
+response now takes its dimensions from that result rather than the preliminary
+probe. A capped `full` rendition does not reduce the photo-row dimensions, and
+the accepted external-pyramid path still avoids decoding the source.
+
+If a pyramid was accepted before decoding but the worker subsequently decodes
+the source, its dimensions are checked against the actual raster before any
+variants are published. A disagreement fails the job instead of publishing
+inconsistent outputs. Detection coordinates and decisions are preserved.
+
+Four regressions reproduced the old dimension-return/early-pyramid problems;
+all seven end-to-end dimension cases now pass, including rotation and capped
+renditions. The supported `backend/worker/run_unit_tests.sh` runner passed all
+98 targeted worker tests covering image formats, pyramids, processor helpers,
+cache freshness and the new dimension cases. No database or existing photo was
+changed. This source correction also needs worker deployment.

@@ -12,6 +12,7 @@ import logging
 import re
 import subprocess
 import shlex
+from dataclasses import dataclass
 from typing import Optional, Dict, Any, List, Tuple
 from uuid import UUID
 from datetime import datetime, timezone, timedelta
@@ -524,6 +525,28 @@ def parse_exif_datetime(value, offset_value=None) -> Optional[datetime]:
 
 throttle = Throttle('photo_processor')
 
+
+@dataclass(frozen=True)
+class OptimizedPhoto:
+	"""Metadata returned after creating a photo's output image files.
+
+	``sizes`` describes the generated WebP files (URLs, widths and heights),
+	including resized/cropped copies and optional zoom-pyramid metadata.
+	``detections`` contains the detected objects and their bounding boxes.
+	``width``/``height`` describe the whole processed photo after rotation,
+	before any resizing/cropping; the boxes use these full-size coordinates.
+
+	Returning these dimensions with the file metadata lets the caller save
+	the dimensions actually used, rather than keep its earlier header probe.
+	Even the file named ``full`` can be downscaled, so its dimensions cannot
+	be used to recover the full-size photo dimensions.
+	"""
+	sizes: Dict[str | int, Dict[str, Any]]
+	detections: Optional[Dict[str, Any]]
+	width: int
+	height: int
+
+
 class PhotoProcessor:
 	"""Unified photo processing service for uploads."""
 
@@ -793,7 +816,7 @@ class PhotoProcessor:
 									 output_base: Optional[str] = None,
 									 keep_pics_in_worker: bool = False,
 									 local_pyramid_path: Optional[str] = None,
-									 ) -> tuple[Dict[str, Dict[str, Any]], Optional[Dict[str, Any]]]:
+									 ) -> OptimizedPhoto:
 		"""Create optimized versions with anonymization and unique IDs.
 
 		fast: Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding, reduced size set.
@@ -804,6 +827,8 @@ class PhotoProcessor:
 			volume instead of shipping them (see _get_size_url).
 		local_pyramid_path: an externally rendered <prefix>.dzi OFFERED by the
 			client; the worker decides whether to use it (see the pyramid block).
+		Returns generated-file metadata, detections and the full-size dimensions
+		after decoding (or from the accepted pyramid if decoding was skipped).
 		"""
 
 		sizes_info = {}
@@ -925,12 +950,21 @@ class PhotoProcessor:
 					apply_blur(source_path, image, detections['objects'])
 
 
-			# Use actual image dimensions (may differ from EXIF width/height
-			# due to auto-rotation during pyvips loading). Without a decoded
-			# raster the header dims stand — the accepted pyramid was checked
-			# against exactly those.
+			# Use the whole image's dimensions after decoding/rotation. If decoding
+			# was skipped, use the accepted pyramid's full-size dimensions instead.
 			if image is not None:
 				height, width = image.shape[:2]
+			elif pyr is not None:
+				width, height = pyr.width, pyr.height
+			# For sources narrower than 2*FULL_VARIANT_WIDTH, we can accept an
+			# offered pyramid for serving but still decode the original to create
+			# resized image files. That early acceptance checked header-probe
+			# dimensions; the decoded dimensions can differ. Recheck before
+			# publishing either the pyramid or the generated image files.
+			if ext_pyramid is not None and (ext_pyramid['width'], ext_pyramid['height']) != (width, height):
+				raise ValueError(
+					f"external pyramid {local_pyramid_path} is {ext_pyramid['width']}x{ext_pyramid['height']} "
+					f"but the decoded image is {width}x{height} — wrong pyramid for this file")
 
 			# Pyramid decision, now that anonymization has resolved: an
 			# external offer still pending (auto-detect) is judged on the real
@@ -1142,7 +1176,7 @@ class PhotoProcessor:
 			if pyramid:
 				sizes_info['full']['pyramid'] = pyramid
 
-		return sizes_info, detections
+		return OptimizedPhoto(sizes=sizes_info, detections=detections, width=width, height=height)
 
 
 
@@ -1891,7 +1925,7 @@ class PhotoProcessor:
 		# .exr.encoding sidecar value); read_image falls back to the embedded
 		# header tag when this is absent.
 		encoding = metadata.get('encoding') if metadata else None
-		sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override, quality=quality, fast=fast, encoding=encoding, output_base=output_base, keep_pics_in_worker=keep_pics_in_worker, local_pyramid_path=local_pyramid_path)
+		optimized = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override, quality=quality, fast=fast, encoding=encoding, output_base=output_base, keep_pics_in_worker=keep_pics_in_worker, local_pyramid_path=local_pyramid_path)
 
 		# The raw inertial window, stored as its own gzipped artifact rather than
 		# folded into exif_data. NOT in PROVENANCE_KEYS by design — see the note
@@ -1911,15 +1945,15 @@ class PhotoProcessor:
 		return {
 			'filename': safe_filename,
 			'exif_data': exif_data,
-			'width': width,
-			'height': height,
+			'width': optimized.width,
+			'height': optimized.height,
 			'latitude': gps_data.get('latitude'),
 			'longitude': gps_data.get('longitude'),
 			'compass_angle': gps_data.get('bearing'),
 			'pitch': gps_data.get('pitch'),
 			'altitude': gps_data.get('altitude'),
-			'sizes': sizes_info,  # Worker expects 'sizes', not 'sizes_info'
-			'detected_objects': detections,
+			'sizes': optimized.sizes,
+			'detected_objects': optimized.detections,
 			'description': description,
 			'is_public': is_public,
 			'user_id': user_id,

@@ -224,10 +224,10 @@ the selection and the assignments.
   dimensions used to write the raster. The affected group's last processing
   date predates this change. Deployment identity per photo is not established.
 - `cdb4e8d0` (2026-03-07) explicitly obtains actual decoded dimensions inside
-  `create_optimized_sizes()`. This remains local to that method: the caller
-  `process_uploaded_photo()` still returns its preliminary probe's width/height
-  to the API. The API stores those returned values directly. That is a current
-  path by which row dimensions and rendered/detection-space dimensions can differ.
+  `create_optimized_sizes()`. At audit time this remained local to that method:
+  `process_uploaded_photo()` returned its preliminary probe's width/height to
+  the API, which stored them directly. The subsequent worker correction below
+  carries the actual coordinate dimensions out of rendition generation.
 - Metadata `orientation_code` may populate EXIF data used by the preliminary
   probe (`c079976f`, 2026-02-16); the raster loader reads/autorotates the image
   itself. This is a possible contributor, not a proven cause for each row.
@@ -241,11 +241,17 @@ Merely propagating the old raster's dimensions would hide a stale image upload.
 `revalidate=True`, the documented libvips per-load cache refresh. Five real EXR/
 JPEG regressions fail before the patch and pass afterwards, including same-size,
 same-mtime replacement and symlink retargeting. Global cache policy stays enabled.
-The patch still needs worker deployment; the separate dimension-return refactor
-below remains a follow-up.
-Carry the actual decoded/pyramid source dimensions out of the worker rather
-than inferring original dimensions from a capped full rendition. Preserve all
-detected-object coordinates and flags during a metadata repair.
+The patch still needs worker deployment.
+
+**Dimension return corrected locally, 2026-10-28:** `create_optimized_sizes()`
+returns an `OptimizedPhoto` containing its final source width/height alongside
+renditions and detections. The processing response uses those dimensions, and
+never infers source dimensions from capped `full`. An external pyramid accepted
+before decoding must also match any subsequently decoded raster, checked before
+publishing variants. Four old-path regressions were reproduced; all seven new
+end-to-end dimension cases pass. The supported worker unit runner passed 98
+targeted tests, including the existing pyramid and input-format cases. This
+correction needs worker deployment; no stored coordinates or flags were changed.
 
 ## Reproduction and artifacts
 

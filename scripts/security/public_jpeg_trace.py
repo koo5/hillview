@@ -100,12 +100,12 @@ for mode, override in [('auto', None), ('skip', '[]'),
         os.environ['HILLVIEW_TRACE_FILE'] = str(trace)
         processor = photo_processor.PhotoProcessor()
         with patch.object(subprocess, 'run', run), patch.object(pyvips.Operation, 'call', call), patch.object(Image, 'open', image_open), patch.object(processor, '_get_size_url', publish), patch.object(processor, '_anonymize_image', detector):
-            sizes, detections = asyncio.run(processor.create_optimized_sizes(
+            optimized = asyncio.run(processor.create_optimized_sizes(
                 str(root / 'baseline.jpg'), '11111111-1111-4111-8111-111111111111/probe',
                 31, 19, anonymization_override=photo_processor.AnonymizationOverride.from_json_string(override),
                 fast=fast, output_base=str(root / report['fixture']),
                 local_pyramid_path='/does-not-exist.dzi'))
-            report['results']['variants'] = list(map(str, sizes))
+            report['results']['variants'] = list(map(str, optimized.sizes))
         report['exiftool_trace'] = trace.read_text().splitlines() if trace.exists() else []
         reports.append(report)
 # Turn policy violations into a failing command, even when production helpers
