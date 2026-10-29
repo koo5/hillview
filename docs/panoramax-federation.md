@@ -76,7 +76,7 @@ federate photos under that intake. Hillview needs the wider `full1` or
 `panoramax_in` intake to publish under a Panoramax-compatible outflow.
 The final photo and metadata terms must be settled before registration.
 
-A photo is **servable** iff (one definition in
+A photo is **eligible for selection** iff (one definition in
 `backend/panoramax/app/eligibility.py`, used by sequencer and API):
 
 - Its intake is `full1` or `panoramax_in` (scope `p1`).
@@ -93,7 +93,7 @@ A photo is **servable** iff (one definition in
 
 Sharing changes the outflow of a `full1` photo even when another gate excludes
 it from federation. Approval and contributor flags affect eligibility only.
-Photo share, approval and detection changes bump sequence timestamps; the
+Only selected representatives are served. Photo share, approval and detection changes bump sequence timestamps; the
 sequencer prunes membership on its next pass while reads filter immediately.
 
 `PhotoLicenseHistory` records intake changes. The FK-free append-only
@@ -109,9 +109,66 @@ unuploaded photos authorize with the new choice and already uploaded photos
 receive an idempotent PATCH. Pre-choice photos retain a null intake and adopt
 the global licence at upload, with no migration or dialog.
 
+## Representative views: 5 m cells and bearing sectors
+
+Eligibility is permission to compete, not a promise that every eligible photo
+appears in the catalog. On each collector pass, `app/selection.py` chooses one
+photo per **(grid SRID, 5 m easting cell, 5 m northing cell, bearing sector)**
+across all contributors, before constructing owner sessions.
+
+- Grid coordinates come from PostGIS `ST_Transform` into local WGS84 UTM
+  projections, with UPS for the polar caps. Cells are 5 × 5 projected metres;
+  projection scale varies slightly on the ground. Regular six-degree longitude
+  zones are used, rather than MGRS's exceptional Norway/Svalbard boundaries.
+  Each zone and hemisphere has its own origin; cells are clipped at projection
+  boundaries. This is a grid, not a five-metre radius/distance exclusion rule.
+- The default is eight 45° sectors centered on N, NE, E, etc. North wraps
+  through zero: [337.5°, 22.5°). `PANORAMAX_BEARING_BUCKETS` changes the number
+  of sectors (1–360). Missing/non-finite bearings share one extra unknown
+  bucket, separate from a real north-facing photo.
+- Prefer a capture with the sun above the geometric horizon, then one with
+  unknown capture time, then a night capture. Within that class, prefer the
+  newest capture; unknown capture times use the existing effective/upload-time
+  fallback for recency only. Equal scores use the smallest photo id, so input
+  order and arrival order never affect a winner. A newer night photo does not
+  displace an older daytime photo; night photos still fill otherwise empty
+  buckets.
+- Daylight uses the capture's UTC date/time and location in NOAA's approximate
+  solar-position equations. It accounts for longitude, seasons and polar
+  day/night without time-zone lookup. It does not measure exposure, cloud,
+  terrain shadow, or actual image quality. Upload time never masquerades as a
+  known daytime capture.
+
+The projection reference is [NGA's UTM/UPS description](https://earth-info.nga.mil/?action=coordsys&dir=coordsys);
+daylight follows [NOAA's general solar-position equations](https://gml.noaa.gov/grad/solcalc/solareqns.PDF).
+
+No new winners table or migration is needed: `panoramax.sequence_photos`
+already persists the selected set. Recompute the winners deterministically and
+diff membership as before. Repeated passes do not change ranks or timestamps.
+A better/newer winner replaces the previous member; if a winner withdraws or
+fails moderation, the next-best eligible candidate takes its place. Normal
+membership triggers, departed-photo identity, and catalog tombstones carry
+these changes downstream. Full collector passes serialize per scope with a
+transaction-level advisory lock.
+
+Selection is refreshed on the collector's cadence (default 300 seconds).
+The API reads persisted selection, rather than ranking the entire library on
+each request, and still applies eligibility immediately. An ineligible winner
+is hidden immediately; its replacement becomes visible after the next pass.
+Edits to position/bearing and the arrival of a better candidate likewise take
+effect in selection on that next pass.
+
+Verified 2026-10-29: 127 collector unit tests and 15 real PostGIS/API integration
+tests pass, including global winners, cell boundaries, date line/poles,
+withdrawal fallback, recency/bearing edits, and contributor removal. Both real
+catalog e2e modes pass. In the 50,000-photo corpus, 40,546 photos were eligible
+and 39,223 selected (1,323 suppressed); the full catalog had 39,235 items
+including the 12 worker-uploaded seed photos, with zero harvest errors. The
+unchanged full collector pass took 3.0 seconds and changed no timestamps.
+
 ## Sequences
 
-Synthesized, persisted, per-owner **time-gap sessions** (default 3 h, env
+Synthesized from selected winners, persisted, per-owner **time-gap sessions** (default 3 h, env
 `PANORAMAX_SESSION_GAP_HOURS`) — not one ever-growing collection per user,
 because the meta-catalog's incremental sync re-fetches **all** items of any
 changed collection (collection-level granularity), making giant collections an
@@ -289,8 +346,8 @@ the dev box's `/pics` route in `~/caddy/Caddyfile` sends
    }
    ```
 
-Env knobs: `PANORAMAX_SCOPE` (default `p1`), `PANORAMAX_SESSION_GAP_HOURS`
-(3), `PANORAMAX_SEQUENCER_INTERVAL_S` (300), `PANORAMAX_SEQUENCER_ENABLED`
+Env knobs: `PANORAMAX_SCOPE` (default `p1`), `PANORAMAX_BEARING_BUCKETS` (8),
+`PANORAMAX_SESSION_GAP_HOURS` (3), `PANORAMAX_SEQUENCER_INTERVAL_S` (300), `PANORAMAX_SEQUENCER_ENABLED`
 (true — set false to run the API without the in-process sequencer),
 `PANORAMAX_INSTANCE_NAME` (Hillview), `PANORAMAX_VIEWER_URL`
 (`https://hillview.cz` — where `/` redirects humans arriving from the
@@ -389,12 +446,15 @@ photos through YOLO and derivative generation is a day's work, and everything
 the federation service reads is a database row anyway. The corpus has
 heavy-tailed users with home areas, sessions ranging from singles to walks of
 hundreds of photos over the span, second-to-minute gaps and a random-walk
-track inside a session, inter-session gaps always > 2× the split threshold
-(so the expected sequence count is exact), and ~10% ineligible rows of every
-kind the eligibility filter knows (ARR, private, soft-deleted, failed,
-thumbs-down, flagged) plus one inactive and one test user. On top of the
-light phases it asserts: sequencer output equals the generator's independent
-expectation (sequences, memberships, singles, nothing for the excluded users)
+track inside a session, and inter-session gaps always > 2× the split threshold.
+Four percent of consecutive captures deliberately repeat a position/direction
+to exercise thinning. Exclusions cover grants, sharing, moderation, blurring,
+visibility and processing, plus inactive/test/non-contributor users. The
+generator evaluates the publication policy using actual PostGIS cell coordinates;
+it independently derives expected sessions and ranks from those selected ids.
+On top of the light phases it asserts: sequencer output equals these fixture
+expectations (selected memberships, sessions, singles, nothing for the excluded users),
+ineligible and grid-suppressed samples are absent from the catalog,
 and a second pass changes nothing; every `/api/collections` page and every
 `/items` page of the largest sequence walks cleanly with no duplicates and
 strictly increasing ranks; 200 random edits across users make the `updated`

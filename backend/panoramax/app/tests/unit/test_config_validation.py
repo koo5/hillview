@@ -38,3 +38,19 @@ class TestDbPasswordValidation:
 		with pytest.raises(SystemExit) as e:
 			_require_password(url)
 		assert 'PANORAMAX_DB_PASSWORD' in str(e.value)
+
+
+@pytest.mark.parametrize('value,expected', [(None, 8), ('4', 4), ('16', 16), ('360', 360)])
+def test_bearing_buckets(monkeypatch, value, expected):
+	if value is None:
+		monkeypatch.delenv('PANORAMAX_BEARING_BUCKETS', raising=False)
+	else:
+		monkeypatch.setenv('PANORAMAX_BEARING_BUCKETS', value)
+	assert settings.bearing_buckets() == expected
+
+
+@pytest.mark.parametrize('value', ['0', '-1', '361', '8.5', 'NaN', ''])
+def test_invalid_bearing_buckets(monkeypatch, value):
+	monkeypatch.setenv('PANORAMAX_BEARING_BUCKETS', value)
+	with pytest.raises(SystemExit, match='PANORAMAX_BEARING_BUCKETS'):
+		settings.bearing_buckets()

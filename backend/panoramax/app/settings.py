@@ -89,6 +89,20 @@ def sequencer_enabled() -> bool:
 	return os.getenv('PANORAMAX_SEQUENCER_ENABLED', 'true').lower() in ('1', 'true', 'yes')
 
 
+def bearing_buckets() -> int:
+	value = os.getenv('PANORAMAX_BEARING_BUCKETS', '8')
+	try:
+		count = int(value)
+		if 1 <= count <= 360:
+			return count
+	except ValueError:
+		pass
+	raise SystemExit(f'PANORAMAX_BEARING_BUCKETS must be an integer between 1 and 360, got {value!r}')
+
+
+bearing_buckets()  # Fail at boot, like scope validation.
+
+
 # Page sizes. The harvester follows rel=next links, so limits only shape page
 # count, not completeness.
 COLLECTIONS_PAGE_DEFAULT = 100

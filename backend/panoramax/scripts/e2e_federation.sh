@@ -180,7 +180,7 @@ if [ "$HEAVY" = "1" ]; then
 	assert_eq "$(hv_psql "SELECT count(*) FROM panoramax.sequences WHERE status = 'ready' AND $LOAD_IN")" \
 		"$(jsonq "$LOAD_SUMMARY" "d['expected_sequences']")" "sequences for the corpus (independent expectation)"
 	assert_eq "$(hv_psql "SELECT count(*) FROM panoramax.sequence_photos sp JOIN panoramax.sequences s ON s.id = sp.sequence_id WHERE s.$LOAD_IN")" \
-		"$(jsonq "$LOAD_SUMMARY" "d['eligible']")" "memberships == eligible photos (ineligible rows of every kind excluded)"
+		"$(jsonq "$LOAD_SUMMARY" "d['selected']")" "memberships == selected grid/bearing winners"
 	assert_eq "$(hv_psql "SELECT count(*) FROM (SELECT sp.sequence_id FROM panoramax.sequence_photos sp JOIN panoramax.sequences s ON s.id = sp.sequence_id WHERE s.$LOAD_IN GROUP BY 1 HAVING count(*) = 1) x")" \
 		"$(jsonq "$LOAD_SUMMARY" "d['expected_singles']")" "single-photo sequences"
 	for u in $(jsonq "$LOAD_SUMMARY" "' '.join(k for k,v in d['per_user'].items() if not v['is_active'] or v['is_test'])"); do
@@ -233,8 +233,8 @@ assert_eq "$(cat_psql "SELECT count(*) FROM items")" "$TOTAL_PHOTOS" "items in c
 	|| fail "no computed_geom — geovisio:rank_in_collection or geometry is wrong"
 
 if [ "$HEAVY" = "1" ]; then
-    EXCLUDED_IDS="'$(jsonq "$LOAD_SUMMARY" "\"','\".join(d['excluded_sample_ids'])")'"
-    assert_eq "$(cat_psql "SELECT count(*) FROM items WHERE id IN ($EXCLUDED_IDS)")" "0" "every exclusion kind absent from catalog"
+    EXCLUDED_IDS="'$(jsonq "$LOAD_SUMMARY" "\"','\".join(d['excluded_sample_ids'] + d['suppressed_sample_ids'])")'"
+    assert_eq "$(cat_psql "SELECT count(*) FROM items WHERE id IN ($EXCLUDED_IDS)")" "0" "ineligible and grid-suppressed samples absent from catalog"
 fi
 
 if [ "$HEAVY" = "1" ]; then

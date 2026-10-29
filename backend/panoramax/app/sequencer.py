@@ -1,4 +1,4 @@
-"""Sequence synthesis: split each owner's eligible photos into time-gap sessions
+"""Sequence synthesis: select grid/bearing winners, then split each owner's photos into time-gap sessions
 and persist them as panoramax.sequences / sequence_photos.
 
 Why synthesized persisted sequences (not one ever-growing collection per user):
@@ -37,8 +37,8 @@ from datetime import datetime, timedelta
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from eligibility import ELIGIBLE_PHOTO_WHERE, PHOTO_ORDER_BY
-from settings import Scope, active_scope, sequencer_interval_s, session_gap_hours
+from selection import CANDIDATES_SQL, Candidate, select_photos
+from settings import Scope, active_scope, bearing_buckets, sequencer_interval_s, session_gap_hours
 
 logger = logging.getLogger('panoramax.sequencer')
 
@@ -155,14 +155,15 @@ async def run_once(engine: AsyncEngine, scope: Scope | None = None, gap: timedel
 	gap = gap or timedelta(hours=session_gap_hours())
 
 	async with engine.begin() as conn:
-		rows = (await conn.execute(text(f"""
-			SELECT p.id, p.owner_id, p.effective_at
-			FROM photos p
-			JOIN users u ON u.id = p.owner_id
-			WHERE {ELIGIBLE_PHOTO_WHERE}
-			ORDER BY p.owner_id, {PHOTO_ORDER_BY}
-		"""), {'scope_legal_rights': list(scope.legal_rights)})).all()
-		photos = [PhotoStub(id=r[0], owner_id=r[1], effective_at=r[2]) for r in rows]
+		# Serialize full recomputes, including manual passes versus the background
+		# loop, before taking a snapshot of candidates and current membership.
+		await conn.execute(text("SELECT pg_advisory_xact_lock(hashtext('panoramax.sequencer'), hashtext(:scope))"),
+			{'scope': scope.id})
+		rows = (await conn.execute(text(CANDIDATES_SQL),
+			{'scope_legal_rights': list(scope.legal_rights)})).mappings().all()
+		candidates = [Candidate(**r) for r in rows]
+		selected = select_photos(candidates, bearing_buckets())
+		photos = [PhotoStub(id=p.id, owner_id=p.owner_id, effective_at=p.effective_at) for p in selected]
 
 		rows = (await conn.execute(text("""
 			SELECT sp.photo_id, sp.sequence_id, sp.rank, s.owner_id
@@ -225,16 +226,18 @@ async def run_once(engine: AsyncEngine, scope: Scope | None = None, gap: timedel
 			"""), {'pid': m.photo_id, 'seq': uuid.UUID(m.sequence_id), 'rank': m.rank})
 
 	counters = {
-		'eligible_photos': len(photos),
+		'eligible_photos': len(candidates),
+		'selected_photos': len(photos),
+		'suppressed_photos': len(candidates) - len(photos),
 		'sequences_created': len(new_sequences),
 		'memberships_inserted': len(to_insert),
 		'memberships_updated': len(to_update),
 		'memberships_deleted': len(to_delete),
 	}
-	if any(v for k, v in counters.items() if k != 'eligible_photos'):
+	if any((new_sequences, to_insert, to_update, to_delete)):
 		logger.info("sequencer pass: %s", counters)
 	else:
-		logger.debug("sequencer pass: no changes (%d eligible photos)", len(photos))
+		logger.debug("sequencer pass: no changes (%d eligible, %d selected)", len(candidates), len(photos))
 	return counters
 
 

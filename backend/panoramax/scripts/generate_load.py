@@ -43,6 +43,14 @@ import sys
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+# The policy is pure Python; the fixture generator still needs only stdlib.
+# Its session/count oracle below is independent of the sequencer's session code.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'app'))
+from selection import CANDIDATES_SQL, Candidate, select_photos
+from settings import active_scope, bearing_buckets
+
 
 NS = uuid.UUID('7d0f2b3a-5c1e-4c6f-9a8e-2f4b6c8d0e1f')  # namespace for deterministic ids
 
@@ -217,7 +225,13 @@ def generate(rng: random.Random, users: list[User], total_photos: int, years: fl
 				))
 				u.photos.append(photos[-1])
 
-	# ineligibility: exclusive draw per photo, ~10% overall
+	# Guaranteed bursts in exactly the same position/direction, as well as the
+	# random walk's natural collisions. The collector must suppress these.
+	for previous, photo in zip(photos, photos[1:]):
+		if photo.owner == previous.owner and photo.session_idx == previous.session_idx and rng.random() < 0.04:
+			photo.lon, photo.lat, photo.bearing = previous.lon, previous.lat, previous.bearing
+
+	# ineligibility: exclusive draw per photo
 	for p in photos:
 		r = rng.random()
 		if r < 0.03:
@@ -249,14 +263,14 @@ def generate(rng: random.Random, users: list[User], total_photos: int, years: fl
 	return photos
 
 
-def expected_sequences(users: list[User], gap: timedelta) -> dict:
+def expected_sequences(users: list[User], gap: timedelta, selected_ids: set[str]) -> dict:
 	"""Independent re-derivation of what the sequencer must produce: per
-	eligible owner, split capture-ordered eligible photos on gaps > gap."""
+	selected owner, split capture-ordered winners on gaps > gap."""
 	per_user = {}
 	singles = 0
 	largest = (0, None)
 	for u in users:
-		elig = sorted((p for p in u.photos if p.excluded is None), key=lambda p: (p.at, p.original_filename, p.id))
+		elig = sorted((p for p in u.photos if p.excluded is None and p.id in selected_ids), key=lambda p: (p.at, p.original_filename, p.id))
 		n_seq = 0
 		cur = 0
 		prev = None
@@ -274,7 +288,7 @@ def expected_sequences(users: list[User], gap: timedelta) -> dict:
 			singles += 1
 		if cur > largest[0]:
 			largest = (cur, u.id)
-		per_user[u.id] = {'username': u.username, 'eligible': len(elig), 'sequences': n_seq,
+		per_user[u.id] = {'username': u.username, 'eligible': sum(p.excluded is None for p in u.photos), 'selected': len(elig), 'sequences': n_seq,
 			'is_active': u.is_active, 'is_test': u.is_test, 'total': len(u.photos)}
 	return {
 		'sequences': sum(v['sequences'] for v in per_user.values()),
@@ -408,6 +422,26 @@ def insert(db: Db, rng: random.Random, users: list[User], photos: list[Photo], p
 		db.copy('flagged_photos', ['id', 'flagging_user_id', 'photo_source', 'photo_id', 'flagged_at', 'reason', 'resolved'], flags)
 
 
+def expected_selected_ids(db: Db) -> set[str]:
+	"""Use the publication policy on actual PostGIS grid coordinates, including
+	competition with existing contributors outside this generated corpus.
+
+	The policy itself has separate controlled tests; session counts and capture
+	ranks are independently derived above from the resulting fixture ids.
+	"""
+	grants = ','.join("'" + value.replace("'", "''") + "'" for value in active_scope().legal_rights)
+	query = CANDIDATES_SQL.replace(':scope_legal_rights', f'ARRAY[{grants}]')
+	rows = db.run(f'SELECT row_to_json(candidate) FROM ({query}) candidate')
+	photos = []
+	for line in rows.splitlines():
+		row = json.loads(line)
+		for field in ('captured_at', 'effective_at'):
+			if row[field] is not None:
+				row[field] = datetime.fromisoformat(row[field])
+		photos.append(Candidate(**row))
+	return {p.id for p in select_photos(photos, bearing_buckets())}
+
+
 def main() -> None:
 	ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 	ap.add_argument('--photos', type=int, default=50_000)
@@ -436,8 +470,10 @@ def main() -> None:
 	gap = timedelta(hours=args.gap_hours)
 	users = make_users(rng, args.users, args.prefix)
 	photos = generate(rng, users, args.photos, args.years, gap, args.prefix)
-	expect = expected_sequences(users, gap)
 	insert(db, rng, users, photos, args.prefix)
+	selected_ids = expected_selected_ids(db)
+	expect = expected_sequences(users, gap, selected_ids)
+	selected = sum(p.id in selected_ids for p in photos)
 
 	eligible = sum(1 for p in photos if p.excluded is None)
 	excluded = {}
@@ -446,11 +482,13 @@ def main() -> None:
 			excluded[p.excluded] = excluded.get(p.excluded, 0) + 1
 	summary = {
 		'prefix': args.prefix, 'seed': args.seed, 'gap_hours': args.gap_hours, 'years': args.years,
-		'users': len(users), 'photos': len(photos), 'eligible': eligible, 'excluded': excluded,
+		'users': len(users), 'photos': len(photos), 'eligible': eligible, 'selected': selected,
+		'suppressed': eligible - selected, 'excluded': excluded,
+		'suppressed_sample_ids': [p.id for p in photos if p.excluded is None and p.id not in selected_ids][:20],
 		'excluded_sample_ids': [next(p.id for p in photos if p.excluded == kind) for kind in sorted(excluded)],
 		'expected_sequences': expect['sequences'], 'expected_singles': expect['singles'],
 		'largest_sequence': expect['largest_sequence'],
-		'heaviest_user': max((v for v in expect['per_user'].values()), key=lambda v: v['eligible'])['username'],
+		'heaviest_user': max((v for v in expect['per_user'].values()), key=lambda v: v['selected'])['username'],
 		'per_user': expect['per_user'],
 		'user_ids': [u.id for u in users],
 	}
@@ -458,7 +496,7 @@ def main() -> None:
 		with open(args.summary, 'w') as f:
 			json.dump(summary, f, indent=1)
 	print(f"generated {len(photos)} photos for {len(users)} users over {args.years} years: "
-		f"{eligible} eligible ({excluded}), expecting {expect['sequences']} sequences "
+		f"{eligible} eligible, {selected} selected ({excluded}), expecting {expect['sequences']} sequences "
 		f"({expect['singles']} singles, largest {expect['largest_sequence']['size']})")
 
 

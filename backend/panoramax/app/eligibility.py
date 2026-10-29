@@ -1,7 +1,9 @@
-"""The single definition of which photos this instance serves.
+"""Eligibility gates for federation candidates and selected members.
 
-Used by BOTH the sequencer (deciding membership) and the read API (filtering
-items at serve time). The serve-time filter matters: when a photo flips out of
+Used by BOTH the sequencer (before grid/bearing selection) and the read API
+(filtering persisted member photos at serve time). Passing these gates does
+not itself promise publication: selection.py chooses representatives.
+The serve-time filter matters: when a photo flips out of
 scope (soft-delete, is_public off, license change), the photos trigger bumps
 the sequence's updated_at so the harvester re-crawls, but until the sequencer
 prunes membership the item must already be gone from /items responses.
