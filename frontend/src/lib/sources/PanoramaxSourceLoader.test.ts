@@ -177,7 +177,7 @@ describe('isOwnInstanceItem', () => {
 	it('drops items whose via link points at our instance', () => {
 		const item = {
 			...foreignItem,
-			links: [{ rel: 'via', href: 'https://panoramax.hillview.cz', instance_name: 'hillview' }]
+			links: [{ rel: 'via', href: 'https://p1.geovisio.hillview.cz', instance_name: 'hillview' }]
 		};
 		expect(isOwnInstanceItem(item)).toBe(true);
 	});
@@ -185,7 +185,7 @@ describe('isOwnInstanceItem', () => {
 	it('matches via hrefs regardless of trailing slash and case', () => {
 		const item = {
 			...foreignItem,
-			links: [{ rel: 'via', href: 'https://Panoramax.Hillview.CZ/' }]
+			links: [{ rel: 'via', href: 'https://P1.Geovisio.Hillview.CZ/' }]
 		};
 		expect(isOwnInstanceItem(item)).toBe(true);
 	});
@@ -193,7 +193,7 @@ describe('isOwnInstanceItem', () => {
 	it('does not treat a foreign host merely containing our prefix as ours', () => {
 		const item = {
 			...foreignItem,
-			links: [{ rel: 'via', href: 'https://panoramax.hillview.cz.evil.example' }]
+			links: [{ rel: 'via', href: 'https://p1.geovisio.hillview.cz.evil.example' }]
 		};
 		expect(isOwnInstanceItem(item)).toBe(false);
 	});
