@@ -233,7 +233,7 @@
 						data-filter-value={opt.value}
 					>
 						{#if opt.icon}
-							<svelte:component this={opt.icon} size={16} />
+							<opt.icon size={16} />
 						{/if}
 						{opt.label}
 					</button>
@@ -254,7 +254,7 @@
 						data-filter-value={opt.value}
 					>
 						{#if opt.icon}
-							<svelte:component this={opt.icon} size={16} />
+							<opt.icon size={16} />
 						{/if}
 						{opt.label}
 					</button>
