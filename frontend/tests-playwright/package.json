@@ -7,6 +7,8 @@
   },
   "scripts": {
     "test": "playwright test",
+    "test:quick": "playwright test --grep-invert @stress",
+    "test:stress": "playwright test --grep @stress",
     "test:ui": "playwright test --ui",
     "test:debug": "playwright test --debug",
     "test:headed": "playwright test --headed",

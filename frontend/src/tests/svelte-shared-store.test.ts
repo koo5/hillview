@@ -79,7 +79,9 @@ beforeEach(() => {
   vi.stubGlobal('localStorage', mockWindow.localStorage);
   mockWindow.localStorage.clear();
   storageEventListeners = [];
-  vi.useFakeTimers();
+  // Only the timers the store uses. vitest 4's default fake set makes every
+  // hook in this file hang (10 s hook timeout); the explicit list does not.
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
 });
 
 afterEach(() => {

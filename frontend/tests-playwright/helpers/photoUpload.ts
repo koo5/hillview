@@ -60,7 +60,7 @@ function toAsciiTempPath(originalPath: string): string {
 export async function waitForPhotoProcessing(
   page: Page,
   photoId: string,
-  timeoutMs: number = 30000,
+  timeoutMs: number = T(30000),
 ): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {

@@ -143,7 +143,7 @@ test.describe('Sync Status Reporting', () => {
 		}
 	});
 
-	test('combinedSyncStatus reflects foreground source after upload', async ({ page }) => {
+	test('combinedSyncStatus reflects foreground source after upload', { tag: '@stress' }, async ({ page }) => {
 		// Before any upload, combined should show nothing active
 		const initialCombined = await getCombinedSyncStatus(page);
 		expect(initialCombined).not.toBeNull();

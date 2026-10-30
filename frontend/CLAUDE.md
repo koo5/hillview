@@ -117,6 +117,7 @@ Tests automatically handle:
 - Use `data-testid` attributes in HTML templates for reliable element selection
 - Prefer the optimized test commands for faster development cycles
 - Check test screenshots in `./test-results/` for debugging failures
+- Playwright tests seen failing only on a loaded machine (backend stalls at login, a `goto` that never settles) carry `{ tag: '@stress' }`. `bun run test:quick` in `tests-playwright/` skips them, `bun run test:stress` runs only them, plain `bun run test` runs everything
 
 ### Backend Connectivity
 - Tests expect backend service to be running

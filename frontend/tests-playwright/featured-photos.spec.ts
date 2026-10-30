@@ -50,7 +50,7 @@ test.describe('Featured Photos', () => {
 		expect(photoId2).toBeTruthy();
 	});
 
-	test('hunter mode toggle is visible on map', async ({ page, testUsers }) => {
+	test('hunter mode toggle is visible on map', { tag: '@stress' }, async ({ page, testUsers }) => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 		await goToMapWithMarkers(page);
 

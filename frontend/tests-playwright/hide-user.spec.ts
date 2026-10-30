@@ -65,7 +65,7 @@ test.describe('Hide User', () => {
 		await expect(page.locator('[data-testid="user-page-hide-user"]')).toBeVisible();
 	});
 
-	test('user profile page hides button on own profile', async ({ page, testUsers }) => {
+	test('user profile page hides button on own profile', { tag: '@stress' }, async ({ page, testUsers }) => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 
 		// Navigate to own profile via users list

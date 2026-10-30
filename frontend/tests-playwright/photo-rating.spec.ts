@@ -40,7 +40,7 @@ test.describe('Photo Rating', () => {
 		await expect(thumbsUp.locator('.rating-count')).toHaveText('1');
 	});
 
-	test('should toggle rating off when clicking same button again', async ({ page, testUsers }) => {
+	test('should toggle rating off when clicking same button again', { tag: '@stress' }, async ({ page, testUsers }) => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 
 		await page.goto(`/photo/${photoUid}`);
