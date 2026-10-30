@@ -154,7 +154,10 @@
                 const success = await login(username, password);
 
                 if (!success) {
-                    throw new Error('Login failed. Please check your credentials and try again.');
+                    // login() throws with the server's message when the credentials are
+                    // rejected; a false return means the token exchange succeeded and a
+                    // later step (loading the account) did not, so do not blame the password.
+                    throw new Error('Signed in, but the session could not be set up. Please try again.');
                 }
 
                 track('authLoginSuccess');

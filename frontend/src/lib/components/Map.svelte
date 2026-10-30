@@ -197,6 +197,10 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 	$: map = elMap?.getMap();
 
 	let invalidateSizeTimeout: any = null;
+	// Firefox-only post-init resize nudges (see onMount). Cleared on destroy:
+	// a navigation away within their delay used to fire them against a removed
+	// map and throw an uncaught TypeError from Leaflet's invalidateSize.
+	let firefoxResizeTimeouts: ReturnType<typeof setTimeout>[] = [];
 
 	// Track if marker click delegation has been set up
 	let markerClickDelegationSetup = false;
@@ -1491,19 +1495,19 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 
 			// Firefox fix: Force map resize after initialization
 			if (navigator.userAgent.toLowerCase().includes('firefox')) {
-				setTimeout(() => {
+				firefoxResizeTimeouts.push(setTimeout(() => {
 					if (map && map.invalidateSize) {
 						//console.log('🢄Firefox detected - forcing map resize');
 						map.invalidateSize({ reset: true, animate: false });
 					}
-				}, 100);
+				}, 100));
 
 				// Also add a longer timeout as backup
-				setTimeout(() => {
+				firefoxResizeTimeouts.push(setTimeout(() => {
 					if (map && map.invalidateSize) {
 						map.invalidateSize({ reset: true, animate: false });
 					}
-				}, 500);
+				}, 500));
 			}
 		})();
 
@@ -1558,6 +1562,8 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 			clearTimeout(invalidateSizeTimeout);
 			invalidateSizeTimeout = null;
 		}
+		for (const t of firefoxResizeTimeouts) clearTimeout(t);
+		firefoxResizeTimeouts = [];
 		// Abort running area processes so stale results don't arrive after navigation
 		simplePhotoWorker.abortAreaProcesses();
 		// Clear cached photos and reset bounds so we fetch fresh data when map remounts

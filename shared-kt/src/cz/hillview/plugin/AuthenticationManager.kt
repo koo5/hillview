@@ -113,18 +113,24 @@ class AuthenticationManager(
             notificationHelper.clearAuthExpiredNotification()
             clearSessionExpiredFlag()
 
-            // Register client public key after storing tokens (synchronous - must complete before uploads can start)
+            // Register the client public key now that we have a token. Best effort:
+            // the tokens are already persisted above, so failing the store over this
+            // used to leave the native side logged in while JS reported "login
+            // failed" (a stalled register-client-key under server load did exactly
+            // that on the web, see docs/todo/load-resilience.md). Nothing needs the
+            // key before the first upload, and PhotoUploadLogic re-registers it and
+            // retries when authorize-upload answers client_key_not_registered;
+            // every token refresh passes through here and tries again as well.
             try {
                 Log.d(TAG, "Registering client public key after token storage")
                 val keyResult = registerClientPublicKey(token)
                 if (!keyResult.success) {
-                    Log.e(TAG, "Client public key registration failed - this will prevent photo uploads: ${keyResult.error}")
-                    return keyResult // Pass through the actual error
+                    Log.w(TAG, "Client public key registration failed; uploads will re-register it on demand: ${keyResult.error}")
+                } else {
+                    Log.d(TAG, "Client public key registered successfully during token storage")
                 }
-                Log.d(TAG, "Client public key registered successfully during token storage")
             } catch (e: Exception) {
-                Log.e(TAG, "Error registering client public key during token storage", e)
-                return Result.failure("Key registration exception: ${e.message}")
+                Log.w(TAG, "Error registering client public key during token storage; uploads will re-register it on demand", e)
             }
 
             Result.success()

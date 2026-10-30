@@ -137,6 +137,42 @@ export async function generateClientSignature(
 	});
 }
 
+// ── Client key registration ──
+
+/**
+ * Register this device's public key under the signed-in user. Idempotent on the
+ * server (409 = already registered, treated as success). This is the upload
+ * path's own copy so the service worker can call it; the session-level
+ * registration with its retry schedule lives in clientKeyRegistration.ts.
+ */
+export async function registerClientKey(authFetch: AuthFetch): Promise<void> {
+	const keyInfo = await clientCrypto.getPublicKeyInfo();
+	const response = await authFetch(`${backendUrl}/auth/register-client-key`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			public_key_pem: keyInfo.public_key_pem,
+			key_id: keyInfo.key_id,
+			created_at: keyInfo.created_at
+		})
+	});
+	if (response.ok || response.status === 409) return;
+
+	const error = await response.json().catch(() => ({ detail: response.statusText }));
+	const message = `Client key registration failed: ${detailToMessage(error.detail) || response.status}`;
+	throw response.status >= 500 ? new RetryableUploadError(message) : new NonRetryableUploadError(message);
+}
+
+/** FastAPI `detail` is a string, an object (our error_code payloads) or a list (422). */
+function detailToMessage(detail: unknown): string | undefined {
+	if (typeof detail === 'string') return detail;
+	if (detail && typeof detail === 'object' && 'message' in detail) {
+		return String((detail as { message: unknown }).message);
+	}
+	if (detail !== undefined && detail !== null) return JSON.stringify(detail);
+	return undefined;
+}
+
 // ── Upload authorization ──
 
 /**
@@ -152,6 +188,7 @@ export async function requestUploadAuthorization(
 ): Promise<UploadAuthorizationResponse> {
 	const maxRetries = 3;
 	const baseDelay = 1000;
+	let keyReRegistered = false;
 
 	for (let attempt = 0; attempt <= maxRetries; attempt++) {
 		try {
@@ -176,7 +213,26 @@ export async function requestUploadAuthorization(
 
 			// Got response but not OK
 			const error = await response.json().catch(() => ({ detail: 'Failed to authorize upload' }));
-			const errorMessage = error.detail || `Upload authorization failed: ${response.status}`;
+
+			// The server does not know this device's key under this user: a
+			// server-side DB reset, a server URL switch, or the service worker
+			// uploading before the session's own registration landed. The key is
+			// right here — register it with the current token and retry once,
+			// which heals the mismatch for good. Kotlin's PhotoUploadLogic does
+			// the same on the same error_code.
+			if (
+				!keyReRegistered &&
+				response.status === 409 &&
+				error?.detail?.error_code === 'client_key_not_registered'
+			) {
+				keyReRegistered = true;
+				console.warn('🔐 authorize-upload: client key not registered on the server; re-registering and retrying once');
+				await registerClientKey(authFetch);
+				attempt--; // the healed retry is not a failure, so it does not spend the retry budget
+				continue;
+			}
+
+			const errorMessage = detailToMessage(error.detail) || `Upload authorization failed: ${response.status}`;
 
 			if (response.status >= 500) {
 				throw new RetryableUploadError(errorMessage);

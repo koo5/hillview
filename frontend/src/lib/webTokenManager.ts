@@ -1,6 +1,6 @@
 import { get } from 'svelte/store';
 import type { TokenManager, TokenData } from './tokenManager';
-import { TokenExpiredError, TokenRefreshError } from './tokenManager';
+import { TokenExpiredError, TokenRefreshError, ClientKeyRegistrationError } from './tokenManager';
 import { backendUrl } from './config';
 import { auth } from './authStore';
 import { logout, fetchUserData, getAuthGeneration, bumpAuthGeneration } from './auth.svelte';
@@ -123,14 +123,7 @@ export class WebTokenManager implements TokenManager {
 
             // If refresh is already in progress, wait for it
             if (this.refreshPromise) {
-                if (doLog) console.log(`${this.LOG_PREFIX} Refresh in progress, waiting...`);
-                try {
-                    const newToken = await this.refreshPromise;
-                    return newToken.access_token;
-                } catch (error) {
-                    console.warn(`${this.LOG_PREFIX} Refresh failed:`, error);
-                    return null;
-                }
+                return await this.joinInFlightRefresh();
             }
 
             if (!this.cachedTokenData) {
@@ -149,6 +142,15 @@ export class WebTokenManager implements TokenManager {
                     console.log(`${this.LOG_PREFIX} Token expired, attempting refresh`);
                 } else {
                     console.log(`${this.LOG_PREFIX} Refresh token expiring soon, proactive renewal`);
+                }
+
+                // Re-check after the awaits above: a caller that started in the
+                // meantime may already own a refresh. Two 401s arriving together
+                // (e.g. /auth/me and /notifications on one reload) used to both
+                // pass the check at the top and present the same single-use
+                // refresh token twice.
+                if (this.refreshPromise) {
+                    return await this.joinInFlightRefresh();
                 }
 
                 this.refreshPromise = this.performRefresh(force);
@@ -186,6 +188,28 @@ export class WebTokenManager implements TokenManager {
             }
             console.error(`${this.LOG_PREFIX} Error getting valid token:`, error);
             return null;
+        }
+    }
+
+    /**
+     * Wait on the refresh another caller owns. Same split as the owning caller
+     * in getValidToken: a transient failure keeps the session (null → the caller
+     * surfaces a connection error), a terminal one is the end of the session.
+     * The owning caller performs the logout; a joined caller only reports it, so
+     * one failed refresh logs out once instead of once per request waiting on it.
+     */
+    private async joinInFlightRefresh(): Promise<string | null> {
+        if (doLog) console.log(`${this.LOG_PREFIX} Refresh in progress, waiting...`);
+        try {
+            const newToken = await this.refreshPromise!;
+            return newToken.access_token;
+        } catch (error) {
+            if (error instanceof TokenRefreshError && error.transient) {
+                console.warn(`${this.LOG_PREFIX} Refresh failed transiently (joined); keeping session:`, error);
+                return null;
+            }
+            console.warn(`${this.LOG_PREFIX} Refresh failed (joined):`, error);
+            throw new TokenExpiredError('Token expired and refresh failed');
         }
     }
 
@@ -379,6 +403,14 @@ export class WebTokenManager implements TokenManager {
                 // end-of-session outcome (the caller logs out gracefully), not a bug —
                 // warn, don't error, so resilience tests' "no error spam" guard holds.
                 console.warn(`${this.LOG_PREFIX} Token refresh failed permanently after ${refreshDuration}ms`);
+                // The refresh is over; without this the 'refreshing' status set above
+                // outlives the session and AuthStatusWatcher keeps a "Refreshing
+                // authentication..." banner up on the login page.
+                auth.update(state => ({
+                    ...state,
+                    refresh_status: 'idle',
+                    refresh_attempt: undefined
+                }));
                 throw error;
             }
 
@@ -451,8 +483,9 @@ export class WebTokenManager implements TokenManager {
         console.log(`${this.LOG_PREFIX} Tokens stored in IndexedDB`);
 
         // NOTE: We intentionally do NOT set is_authenticated here.
-        // Auth state is managed by callers (completeAuthentication, performRefresh)
-        // so that key registration can complete before triggering photo sync.
+        // Auth state is managed by callers (completeAuthentication, performRefresh).
+        // Key registration is a session-level job in clientKeyRegistration.ts, and
+        // uploads await it there rather than relying on the order of these flips.
     }
 
     async registerClientPublicKey(): Promise<void> {
@@ -473,7 +506,7 @@ export class WebTokenManager implements TokenManager {
         }
 
         const error = await response.json().catch(() => ({ detail: response.statusText }));
-        throw new Error(`Key registration failed: ${error.detail || response.statusText}`);
+        throw new ClientKeyRegistrationError(response.status, error.detail || response.statusText);
     }
 
     /**

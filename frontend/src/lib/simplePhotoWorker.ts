@@ -180,7 +180,15 @@ class SimplePhotoWorker {
                 requestId
             });
         } catch (error) {
-            console.error(TAG+'Error getting auth token for worker:', error);
+            // The session ending while the worker asks for a token is an expected
+            // outcome (the token manager has logged out), not a bug: the worker just
+            // continues anonymously, so warn rather than error — console-error
+            // guards in the resilience / stale-token specs must stay meaningful.
+            if (error instanceof Error && error.name === 'TokenExpiredError') {
+                console.warn(TAG+'Session ended while getting auth token for worker; continuing anonymously');
+            } else {
+                console.error(TAG+'Error getting auth token for worker:', error);
+            }
             this.worker?.postMessage({
                 type: 'authToken',
                 token: null,

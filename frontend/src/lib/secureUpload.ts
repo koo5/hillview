@@ -6,6 +6,7 @@
  */
 
 import { clientCrypto } from './clientCrypto';
+import { ensureClientKeyRegistered } from './clientKeyRegistration';
 import { http } from './http';
 import {
 	calculateFileHash,
@@ -122,8 +123,11 @@ export async function secureUploadFile(
 		const [fileMD5, fileGeo, keyInfo/*, deviceGeo*/] = await Promise.all([
 			calculateFileHash(file),
 			extractGeolocationFromFile(file, browserMetadata),
-			clientCrypto.getPublicKeyInfo()
+			clientCrypto.getPublicKeyInfo(),
 			//getCurrentLocation()
+			// Resolves once the server knows this device's key for this session
+			// (clientKeyRegistration.ts); authorize-upload rejects the key otherwise.
+			ensureClientKeyRegistered()
 		]);
 
 		// Prefer file EXIF data over device location

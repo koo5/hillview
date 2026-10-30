@@ -10,6 +10,7 @@ import { clearAlerts } from './alertSystem.svelte';
 import { identify } from './analytics';
 import { simplePhotoWorker } from './simplePhotoWorker';
 import { onReconnect } from './connectivity';
+import { startClientKeyRegistration, resetClientKeyRegistration } from './clientKeyRegistration';
 
 const doLog = false;
 
@@ -67,22 +68,6 @@ export async function completeAuthentication(tokenData: {
         // Clear accumulated alerts on successful login
         clearAlerts();
 
-        // Register client public key BEFORE setting is_authenticated.
-        // Like Kotlin: registration must succeed for login to succeed.
-        // This prevents the race where triggerPhotoSync fires (via auth
-        // subscription) before the key is registered on the server.
-        if ('registerClientPublicKey' in tokenManager) {
-            try {
-                await (tokenManager as any).registerClientPublicKey();
-                if (doLog) console.log('🢄[AUTH] Client public key registered');
-            } catch (error: any) {
-                console.error('🢄[AUTH] Key registration failed, aborting login:', error);
-                await tokenManager.clearTokens();
-                return false;
-            }
-        }
-
-        // NOW set authenticated — key is registered, safe to trigger photo sync.
         // Bump the auth generation first so any logout() requested by a stale /
         // in-flight request from the previous session is ignored and cannot clear
         // this freshly established session.
@@ -91,6 +76,17 @@ export async function completeAuthentication(tokenData: {
             ...a,
             is_authenticated: true
         }));
+
+        // Register this device's public key for the new session, in the
+        // background. The login is complete once the tokens are stored: this
+        // used to abort the login (and clear the tokens) when the registration
+        // request failed, which under host load meant a correct password was
+        // answered with "check your credentials" because one POST stalled.
+        // Uploads and other key consumers await ensureClientKeyRegistered()
+        // (clientKeyRegistration.ts), so they no longer depend on the key being
+        // registered before is_authenticated flips.
+        resetClientKeyRegistration();
+        startClientKeyRegistration();
 
         // Fetch user data
 		if (doLog) console.log('🢄[AUTH] Fetching user data after authentication...');
@@ -273,6 +269,7 @@ export async function logout(reason?: string, opts?: { generation?: number }) {
     const tokenManager = createTokenManager();
     await tokenManager.clearTokens();
     if (doLog) console.log('🢄[AUTH] - Tokens cleared successfully');
+    resetClientKeyRegistration();
 
     if (doLog) console.log('🢄[AUTH] - Updating auth store');
     auth.update(a => {
@@ -283,7 +280,11 @@ export async function logout(reason?: string, opts?: { generation?: number }) {
             is_authenticated: false,
             checked: true,
             user: null,
-            userStatus: 'idle'
+            userStatus: 'idle',
+            // No session, nothing to refresh: clears a 'refreshing'/'failed'
+            // indicator so it can't follow the user onto the login page.
+            refresh_status: 'idle',
+            refresh_attempt: undefined
         };
     });
 

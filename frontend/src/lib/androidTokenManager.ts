@@ -87,7 +87,7 @@ export class AndroidTokenManager implements TokenManager {
      * lost if the process dies (or the WebView isn't polling) between the
      * native session death and delivery — historically leaving the JS auth
      * store showing "authenticated" against a dead session forever, because
-     * token-less requests never trip http.ts's 401-logout path. So instead of
+     * token-less requests never trip http.ts's 401 → forced-refresh → logout path. So instead of
      * relying on catching the event, periodically re-derive: ask native for
      * its persisted session state and correct the JS store to match. Runs at
      * startup (once the initial auth check settles), on every return to

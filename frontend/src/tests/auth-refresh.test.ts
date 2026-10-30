@@ -19,9 +19,11 @@ const authStorageMock = vi.hoisted(() => ({
 }));
 vi.mock('$lib/browser/authStorage', () => ({ authStorage: authStorageMock }));
 
+import { get } from 'svelte/store';
 import { WebTokenManager } from '$lib/webTokenManager';
 import { logout, bumpAuthGeneration, fetchUserData } from '$lib/auth.svelte';
 import { TokenExpiredError } from '$lib/tokenManager';
+import { auth } from '$lib/authStore';
 
 const logoutMock = vi.mocked(logout);
 const bumpMock = vi.mocked(bumpAuthGeneration);
@@ -109,6 +111,50 @@ describe('WebTokenManager refresh: transient vs terminal', () => {
 
         await expect(mgr.getValidToken(true)).rejects.toBeInstanceOf(TokenExpiredError);
         expect(logoutMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('fails every caller waiting on one terminal refresh, with a single logout', async () => {
+        // Two requests hit 401 at once (e.g. /auth/me and /notifications on a
+        // reload with a wiped session). Both force a refresh; the second joins the
+        // first's in-flight promise. Both must see the session end — the joined
+        // caller used to get null, which http.ts reports as a transient
+        // connection error ("keeping session") while the session was being torn
+        // down — and the logout must happen once, not once per caller.
+        authStorageMock.getTokenData.mockResolvedValue(validTokenData());
+        (global.fetch as unknown) = vi.fn().mockResolvedValue({
+            ok: false,
+            status: 401,
+            text: async () => 'User not found or inactive',
+        });
+
+        const mgr = new WebTokenManager();
+        await mgr.init();
+
+        const results = await Promise.allSettled([mgr.getValidToken(true), mgr.getValidToken(true)]);
+
+        for (const r of results) {
+            expect(r.status).toBe('rejected');
+            expect((r as PromiseRejectedResult).reason).toBeInstanceOf(TokenExpiredError);
+        }
+        expect((global.fetch as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1);
+        expect(logoutMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves refresh_status idle after a terminal failure', async () => {
+        // The 'refreshing' status is what AuthStatusWatcher turns into a persistent
+        // "Refreshing authentication..." banner; it must not outlive the refresh.
+        (global.fetch as unknown) = vi.fn().mockResolvedValue({
+            ok: false,
+            status: 401,
+            text: async () => 'invalid refresh token',
+        });
+
+        const mgr = new WebTokenManager();
+        await mgr.init();
+
+        await expect(mgr.getValidToken()).rejects.toBeInstanceOf(TokenExpiredError);
+        expect(get(auth).refresh_status).toBe('idle');
+        expect(get(auth).refresh_attempt).toBeUndefined();
     });
 });
 

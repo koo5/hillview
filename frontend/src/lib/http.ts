@@ -1,5 +1,5 @@
 import { get } from 'svelte/store';
-import { auth, logout, getAuthGeneration } from './auth.svelte';
+import { auth } from './auth.svelte';
 import {backendUrl} from "$lib/config";
 import { reportConnectivityLoss, reportConnectivityRestored } from './connectivity';
 import { createTokenManager } from './tokenManagerFactory';
@@ -56,11 +56,6 @@ export class HttpClient {
   private async makeRequest(url: string, options: HttpOptions = {}): Promise<Response> {
     const { quiet, ...init } = options;
     const fullUrl = url.startsWith('http') ? url : `${this.baseURL}${url}`;
-
-    // Snapshot the auth generation at request start. If a newer login replaces the
-    // session before this request errors, the logout() calls below are ignored as
-    // stale so they can't tear down the fresh session.
-    const requestAuthGeneration = getAuthGeneration();
 
     try {
       // Get valid token (will auto-refresh if needed)
@@ -119,10 +114,12 @@ export class HttpClient {
       return response;
 
     } catch (error) {
-      // Handle TokenManager errors
+      // Handle TokenManager errors. The token manager has already logged out
+      // (generation-guarded, see getValidToken in webTokenManager.ts) before
+      // throwing; logging out here as well used to tear the session down twice,
+      // with two concurrent navigations to /login.
       if (error instanceof TokenManagerExpiredError || error instanceof TokenRefreshError) {
         console.warn('🢄[HTTP] TokenManager error:', error.message);
-        logout('Session expired', { generation: requestAuthGeneration });
         throw new TokenExpiredError();
       }
 

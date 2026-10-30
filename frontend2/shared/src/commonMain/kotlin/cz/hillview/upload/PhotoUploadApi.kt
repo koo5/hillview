@@ -30,7 +30,17 @@ class PhotoUploadApi(
 ) {
     private fun url(path: String) = config.apiUrl.trimEnd('/') + path
 
-    /** Idempotent; registers the signing key for the logged-in account. */
+    /**
+     * Idempotent; registers the signing key for the logged-in account.
+     *
+     * Nothing in the app calls this yet (only the integration test does), and
+     * [authorize] maps the 409 `client_key_not_registered` the server answers
+     * for an unknown key to [UploadPermanentException]. When the drain is wired
+     * to this API it needs what the other two clients already do: register once
+     * per session (not as a step that can fail the login), and on that 409
+     * re-register and retry the authorize once — see `requestUploadAuthorization`
+     * in frontend/src/lib/uploadProtocol.ts and shared-kt's PhotoUploadLogic.
+     */
     suspend fun registerClientKey(signer: UploadSigner) {
         session.authorized { token ->
             val response = http.post(url("/auth/register-client-key")) {

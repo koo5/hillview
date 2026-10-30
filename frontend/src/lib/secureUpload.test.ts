@@ -17,6 +17,11 @@ vi.mock('$lib/http', () => ({
 	}
 }));
 
+// The session-level key registration gate (tested in client-key-registration.test.ts)
+vi.mock('$lib/clientKeyRegistration', () => ({
+	ensureClientKeyRegistered: vi.fn().mockResolvedValue(undefined)
+}));
+
 // Mock the uploadProtocol functions since they're tested separately
 vi.mock('$lib/uploadProtocol', async (importOriginal) => {
 	const original = await importOriginal<typeof import('$lib/uploadProtocol')>();
@@ -52,12 +57,14 @@ import {
 	uploadToWorker
 } from '$lib/uploadProtocol';
 import { http } from '$lib/http';
+import { ensureClientKeyRegistered } from '$lib/clientKeyRegistration';
 
 const mockRequestAuth = vi.mocked(requestUploadAuthorization);
 const mockUploadToWorker = vi.mocked(uploadToWorker);
 const mockCalcHash = vi.mocked(calculateFileHash);
 const mockGenSig = vi.mocked(generateClientSignature);
 const mockHttpPost = vi.mocked(http.post);
+const mockEnsureKey = vi.mocked(ensureClientKeyRegistered);
 
 // ── Tests ──
 
@@ -79,6 +86,7 @@ describe('secureUpload', () => {
 			message: 'Upload complete',
 			photo_id: 'photo-abc'
 		});
+		mockEnsureKey.mockResolvedValue(undefined);
 	});
 
 	describe('secureUploadFile', () => {
@@ -90,7 +98,10 @@ describe('secureUpload', () => {
 			// 1. Calculate hash
 			expect(mockCalcHash).toHaveBeenCalledWith(file);
 
-			// 2. Request auth (first arg is the authFetch callback, second is the request)
+			// 2. Request auth (first arg is the authFetch callback, second is the request),
+			//    only once the server is known to have this device's key
+			expect(mockEnsureKey).toHaveBeenCalledTimes(1);
+			expect(mockEnsureKey.mock.invocationCallOrder[0]).toBeLessThan(mockRequestAuth.mock.invocationCallOrder[0]);
 			expect(mockRequestAuth).toHaveBeenCalledTimes(1);
 			const authRequest = mockRequestAuth.mock.calls[0][1];
 			expect(authRequest.filename).toBe('test.jpg');

@@ -66,6 +66,20 @@ export class TokenExpiredError extends Error {
     }
 }
 
+/**
+ * register-client-key answered with an error status. `status` lets the caller
+ * tell a server failure (retry) from a rejected request (do not retry).
+ */
+export class ClientKeyRegistrationError extends Error {
+    readonly status: number;
+
+    constructor(status: number, detail: string) {
+        super(`Key registration failed: ${detail}`);
+        this.name = 'ClientKeyRegistrationError';
+        this.status = status;
+    }
+}
+
 export class TokenRefreshError extends Error {
     /**
      * True when the refresh failed for a recoverable connectivity reason

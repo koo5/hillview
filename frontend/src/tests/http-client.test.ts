@@ -88,20 +88,20 @@ describe('HttpClient — auth handling', () => {
         expect(logoutMock).not.toHaveBeenCalled();
     });
 
-    it('logs out (generation-tagged) and throws on a terminal post-401 refresh failure', async () => {
+    it('throws on a terminal post-401 refresh failure without a second logout (the token manager owns it)', async () => {
         getValidToken.mockResolvedValueOnce('old').mockRejectedValueOnce(new TokenManagerExpiredError());
         global.fetch = vi.fn().mockResolvedValueOnce(resp(401));
 
         await expect(client.get('/x')).rejects.toBeInstanceOf(TokenExpiredError);
-        expect(logoutMock).toHaveBeenCalledWith('Session expired', { generation: 7 });
+        expect(logoutMock).not.toHaveBeenCalled();
     });
 
-    it('logs out and throws (without fetching) when the initial token fetch fails terminally', async () => {
+    it('throws (without fetching or logging out) when the initial token fetch fails terminally', async () => {
         getValidToken.mockRejectedValueOnce(new TokenManagerExpiredError());
         global.fetch = vi.fn();
 
         await expect(client.get('/x')).rejects.toBeInstanceOf(TokenExpiredError);
-        expect(logoutMock).toHaveBeenCalled();
+        expect(logoutMock).not.toHaveBeenCalled();
         expect(global.fetch).not.toHaveBeenCalled();
     });
 });
