@@ -213,18 +213,27 @@ async function fetchTimeline(userIds: string[], anchorId: string, before: number
 	return res.json();
 }
 
+// Bumped by every window load. A response that arrives after a newer load began
+// is dropped, so the newest request wins even when responses come back out of
+// order — a filter change fires one reload per toggle, tens of ms apart, and the
+// slower, older one used to land last and reinstate the unfiltered list.
+let loadGeneration = 0;
+
 /**
  * Fetch the window around `anchorId` for the currently tracked users and install
  * it (photos + cursor + hasMore + pins). Shared by start and by add/remove user.
+ * 'superseded' means a newer load started meanwhile and owns the outcome.
  */
-async function loadWindow(anchorId: string): Promise<boolean> {
+async function loadWindow(anchorId: string): Promise<boolean | 'superseded'> {
 	// Remember the anchor so a filter that empties the list can still reload here.
 	lastTimelineAnchorId = anchorId;
+	const generation = ++loadGeneration;
 	timelineLoading.set(true);
 	try {
 		const userIds = get(timelineUsers).map(u => u.id);
 		const data = await fetchTimeline(userIds, anchorId, TIMELINE_BEFORE, TIMELINE_AFTER);
 
+		if (generation !== loadGeneration) return 'superseded';
 		// User may have closed the timeline while we were loading.
 		if (!get(timelineActive)) return false;
 
@@ -240,11 +249,13 @@ async function loadWindow(anchorId: string): Promise<boolean> {
 		pinWindow(cursor);
 		return true;
 	} catch (e) {
+		if (generation !== loadGeneration) return 'superseded';
 		console.error('Timeline: failed to load', e);
 		addAlert('Failed to load timeline', 'error', { source: 'timeline', duration: 4000 });
 		return false;
 	} finally {
-		timelineLoading.set(false);
+		// The newer load clears the flag when it finishes.
+		if (generation === loadGeneration) timelineLoading.set(false);
 	}
 }
 
@@ -277,6 +288,7 @@ export async function startTimeline(anchor: PhotoData, dir?: WalkDirection) {
 	timelineCursor.set(0);
 
 	const ok = await loadWindow(anchor.id);
+	if (ok === 'superseded') return;
 	if (!ok) {
 		if (get(timelineActive)) stopTimeline();
 		return;
@@ -341,6 +353,9 @@ async function extendTimeline(end: 'before' | 'after') {
 	const photos = get(timelinePhotos);
 	if (photos.length === 0) return;
 	const anchor = end === 'before' ? photos[0] : photos[photos.length - 1];
+	// A chunk fetched for a window that a newer load has since replaced (filters
+	// changed, users added) must not be appended to the new one.
+	const generation = loadGeneration;
 	timelineLoading.set(true);
 	try {
 		const data = await fetchTimeline(
@@ -349,6 +364,7 @@ async function extendTimeline(end: 'before' | 'after') {
 			end === 'before' ? TIMELINE_BEFORE : 0,
 			end === 'after' ? TIMELINE_AFTER : 0,
 		);
+		if (generation !== loadGeneration) return;
 		if (!get(timelineActive)) return;
 
 		const seen = new Set(get(timelinePhotos).map(p => p.uid));
@@ -363,9 +379,10 @@ async function extendTimeline(end: 'before' | 'after') {
 			timelineHasMore.update(m => ({ ...m, after: !!data.has_more_after }));
 		}
 	} catch (e) {
+		if (generation !== loadGeneration) return;
 		console.error('Timeline: failed to extend', e);
 	} finally {
-		timelineLoading.set(false);
+		if (generation === loadGeneration) timelineLoading.set(false);
 	}
 }
 
