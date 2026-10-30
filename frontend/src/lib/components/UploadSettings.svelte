@@ -90,7 +90,7 @@
 	<div class="form-group">
 
 		{#if TAURI}<LicenseSelector />{/if}
-		{#if $autoUploadLicense === null}<p>Choose a license in Photo permissions to enable automatic uploads.</p>{/if}
+		{#if $autoUploadLicense === null}<p>Choose a license {TAURI ? 'above' : 'in Photo permissions'} to enable automatic uploads.</p>{/if}
 
 		<div class="radio-group">
 			<label class="radio-option">

@@ -738,7 +738,9 @@
 							data-testid="photo-edit-description-input"
 						></textarea>
 					</label>
-					<LicenseChoiceControl license={editLicense || photo.license_granted || null} sharing={editPanoramaxShare}
+					<!-- Only the owner's save carries the sharing choice (saveEdit), so only the owner
+					     is told that a license turns sharing off. -->
+					<LicenseChoiceControl license={editLicense || photo.license_granted || null} sharing={isPhotoOwner && editPanoramaxShare}
 						context="Only this photo. Other photos and your capture defaults stay unchanged."
 						note="Changes apply when you save this photo." disabled={isSavingEdit}
 						testId="photo-edit-license-button" currentTestId="photo-edit-license-current"

@@ -4,7 +4,6 @@ import { get } from 'svelte/store';
 import { sources, type Source } from '$lib/data.svelte';
 import { constructUserProfileUrl } from '$lib/urlUtilsServer';
 import { parseInstant, isoDateTimeSec, formatDateTimeSec, viewerZoneInfo } from '$lib/dateUtils';
-import { UPLOAD_LICENSES } from './licenses';
 
 /**
  * Get the full-size URL for any photo type
@@ -240,21 +239,6 @@ export function getLicenseId(photo: PhotoData | null): string | null {
 	return null;
 }
 
-/**
- * The licences a Hillview owner may grant, in the vocabulary WRITES take
- * (upload authorization and PATCH /photos/{id}). Reads speak a public name
- * instead. A 'panoramax' read value can come from two different grants, so
- * editors must prefer the privileged `license_granted` field.
- * Keep in step with the backend's ALLOWED_LICENSES.
- */
-export const GRANTABLE_LICENSES: { id: string; label: string }[] = UPLOAD_LICENSES.map(({ id, label }) => ({ id, label }));
-
-/** A licence id as read → the grant identifier a write must send. */
-export function grantIdForLicense(id: string | null | undefined): string | null {
-	if (!id) return null;
-	if (id === 'panoramax') return null;
-	return id === 'arr' ? 'full1' : id;
-}
 
 /** Human label for a bare license id — falls back to the id itself. */
 export function licenseLabelFor(id: string | null | undefined): string | null {

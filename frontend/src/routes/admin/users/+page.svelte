@@ -73,7 +73,8 @@
 				return;
 			}
 			const updated = await res.json();
-			users = users.map((x) => (x.id === u.id ? { ...x, ...updated } : x));
+			// The reply carries no photo count (only the list does); keep the listed one.
+			users = users.map((x) => (x.id === u.id ? { ...x, ...updated, photo_count: updated.photo_count ?? x.photo_count } : x));
 		} catch (e) {
 			error = 'Network error updating user.';
 		} finally {
@@ -99,7 +100,7 @@
 			});
 			if (!response.ok) throw new Error(`Panoramax update failed (${response.status})`);
 			const updated = await response.json();
-			users = users.map(user => user.id === u.id ? { ...user, ...updated } : user);
+			users = users.map(user => user.id === u.id ? { ...user, ...updated, photo_count: updated.photo_count ?? user.photo_count } : user);
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Could not update Panoramax contributions';
 		} finally {
