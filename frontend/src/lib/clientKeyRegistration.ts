@@ -4,11 +4,11 @@
  *
  * The server needs the key wherever it verifies something this device signed:
  * upload authorization (409 `client_key_not_registered` when the key is
- * unknown), the upload finalize signature check, the stream credential (which
- * silently degrades to an anonymous stream when the key is unknown), and
- * push-token ownership on Android. Those consumers multiply and not all of them
- * fail loudly, so registration is not left to whichever request happens to
- * need the key first. It starts at login, retries in the background, and every
+ * unknown), the upload finalize signature check, the stream credential (a 401
+ * that an EventSource client cannot read the reason of), and push-token
+ * ownership on Android. Those consumers multiply and do not all surface a
+ * missing key in a way the client can act on, so registration is not left to
+ * whichever request happens to need the key first. It starts at login, retries in the background, and every
  * consumer that needs the key awaits `ensureClientKeyRegistered()` instead of
  * relying on the order in which auth state flipped.
  *

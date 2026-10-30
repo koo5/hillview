@@ -39,6 +39,48 @@ spans a worker bridge + Kotlin:
 4. Later cleanup (breaking, gate it): drop the legacy `?token=` branch once old
    clients age out.
 
+## Client key registration and error visibility (2026-10-30)
+
+Found while making web login survive a stalled `register-client-key`
+(docs/todo/load-resilience.md). The credential is signed with the device's
+client key, so it only verifies once that key is registered under the user.
+
+What the backend does today, in `get_current_user` (auth.py): if any
+`stream_*` param is present, the credential must verify; otherwise 401. An
+unregistered key, an expired `exp` and a bad signature all produce the same
+401 with the generic detail. Nothing is served anonymously — an earlier note
+claiming the stream silently fell back to anonymous was wrong.
+
+Why that is awkward for the client: the loader is an `EventSource`. On a
+non-2xx response it fires `error` with no status and no body, so the client
+cannot tell "key not registered" (re-register, then retry) from "credential
+expired" (re-sign, then retry) from "token gone" (log out). Today it would
+have to guess, and the two heals are different.
+
+What the wiring should do:
+
+- Await `ensureClientKeyRegistered()` (frontend/src/lib/clientKeyRegistration.ts)
+  before signing a credential. On Android the key is registered by
+  AuthenticationManager.storeAuthToken, best effort, and healed by
+  PhotoUploadLogic; the stream has no heal of its own there yet.
+- Keep the credential short-lived and re-sign on every reconnect, as the
+  original plan says, so "expired" is rare and self-correcting.
+- On an `error` within the first second of a connection, probe the same URL
+  once with `fetch` (a plain GET; the server starts streaming but the status
+  and, on failure, the body are readable) and act on what comes back; then
+  reconnect. A probe per failed connect is cheap compared to guessing wrong.
+
+What the backend could add to make the probe exact: a machine-readable
+`error_code` on the 401 for the two credential cases, mirroring
+authorize-upload's `client_key_not_registered` — e.g.
+`stream_key_not_registered` and `stream_credential_expired`, with the plain
+"invalid signature" left as the generic 401. One `detail` dict per branch in
+`verify_stream_credential` / its caller; no behaviour change for clients that
+do not look.
+
+Not done: none of the above is implemented; the client wiring itself is still
+the pending item at the top of this file.
+
 --------------------------------------------------------------------------------
 Original plan notes below (kept for reference).
 

@@ -175,8 +175,9 @@ Done:
   409 is a wrong request and is not retried; a session ending stops the run.
   Deferring registration entirely to the first request that needs the key was
   checked and rejected: push-token ownership is a separate check, and the
-  stream credential path silently serves an anonymous stream when the key is
-  unknown, so there would be no error for the client to react to.
+  stream credential answers an unknown key with a 401 that the EventSource
+  client cannot read the reason of, so there would be nothing specific for the
+  client to react to (docs/stream-auth-client-signed-credential-todo.md).
 
 Declined or deferred:
 

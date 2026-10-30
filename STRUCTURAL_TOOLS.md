@@ -22,6 +22,7 @@ the wrongness looks like an answer.
 | regex over an XMP sidecar | two attempts silently returned nothing before a third worked. It is **XML** |
 | guessing a `struct.unpack` format | inferred `<ffii` by reading a header. DWARF knew the real layout |
 | `ast` walk for a function call | missed every call site because they used an **aliased import**; nearly reported a safety gate as missing when it was present and correct |
+| `ps \| grep playwright` to find "my" orphan | the match was a **worker of the user's running test suite** (its PPID said so, printed and unread); SIGKILLed it, failed one of their tests. `/proc/<pid>/status` PPid or the cgroup would have answered |
 
 Every one produced a *plausible* answer. That is the danger: a failed structural
 query errors, a failed text match returns nothing and looks like a fact.
