@@ -87,6 +87,11 @@ A photo is **eligible for selection** iff (one definition in
   skipped anonymization and manual anonymization do not qualify. The
   completed detections migration makes each object's `blurred` explicit;
   the column is PostgreSQL `json`, not `jsonb`.
+- It has a capture time (`captured_at`). Without one, `effective_at` is the
+  upload time: it would be published as the Panoramax `datetime` and would
+  order an upload batch as if it were a walk (a 2026-10-30 mirror of prod had
+  2,654 of 10,920 published photos like that, one "sequence" jumping 68 km in
+  97 s).
 - All existing gates pass: not deleted, public, processing completed, geometry,
   capture/upload effective time and renditions present, owner active and not a
   test user, no thumbs-down rating and no unresolved flag.

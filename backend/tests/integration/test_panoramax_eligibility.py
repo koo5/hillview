@@ -32,6 +32,9 @@ from panoramax.app.eligibility import ELIGIBLE_PHOTO_WHERE
     ({'processing_status': 'authorized'}, {}, False),
     ({'geometry': None}, {}, False),
     ({'effective_at': None}, {}, False),
+    # Without a capture time effective_at is the upload time: it would be
+    # published as the Panoramax datetime and order an upload batch as a walk.
+    ({'captured_at': None}, {}, False),
     ({'sizes': None}, {}, False),
     ({}, {'is_active': False}, False),
     ({}, {'is_test': True}, False),
@@ -41,7 +44,8 @@ def test_federation_eligibility(patch, user_patch, expected):
                  panoramax_owner_share=True, panoramax_moderator_approved=True,
                  detected_objects={'objects': [{'blurred': False, 'confidence': 0.1}]},
                  deleted=False, is_public=True, processing_status='completed',
-                 geometry='SRID=4326;POINT(14 50)', effective_at='2026-10-28T12:00:00Z', sizes={})
+                 geometry='SRID=4326;POINT(14 50)', captured_at='2026-10-28T12:00:00',
+                 effective_at='2026-10-28T12:00:00Z', sizes={})
     user = dict(id='owner', is_active=True, is_test=False, panoramax_contributor=True)
     json_null = patch.get('__json_null__', False)
     photo.update({k: v for k, v in patch.items() if k != '__json_null__'})

@@ -41,6 +41,7 @@ ELIGIBLE_PHOTO_WHERE = """
 	AND p.processing_status = 'completed'
 	AND p.geometry IS NOT NULL
 	AND p.effective_at IS NOT NULL
+	AND p.captured_at IS NOT NULL
 	AND p.sizes IS NOT NULL
 	AND u.is_active = true
 	AND u.is_test = false
