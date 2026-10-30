@@ -27,7 +27,7 @@ import settings
 from cql import FilterParseError, parse_collections_filter
 from db import get_engine
 from eligibility import ELIGIBLE_PHOTO_WHERE, PHOTO_ORDER_BY
-from stac import STAC_VERSION, collection_json, fmt_dt, item_json
+from stac import STAC_VERSION, collection_json, fmt_dt, item_json, with_query
 
 logger = logging.getLogger('panoramax.api')
 
@@ -263,7 +263,7 @@ async def collections(
 
 	base = _base_url()
 	links = [
-		{'rel': 'self', 'href': str(request.url), 'type': 'application/json'},
+		{'rel': 'self', 'href': with_query(f"{base}/api/collections", request.url.query), 'type': 'application/json'},
 		{'rel': 'root', 'href': f"{base}/api/", 'type': 'application/json'},
 	]
 	if len(page) == limit:
@@ -378,7 +378,7 @@ async def items(
 
 	self_href = f"{base}/api/collections/{seq_id}/items"
 	links = [
-		{'rel': 'self', 'href': str(request.url), 'type': 'application/geo+json'},
+		{'rel': 'self', 'href': with_query(self_href, request.url.query), 'type': 'application/geo+json'},
 		{'rel': 'collection', 'href': f"{base}/api/collections/{seq_id}", 'type': 'application/json'},
 		{'rel': 'root', 'href': f"{base}/api/", 'type': 'application/json'},
 	]

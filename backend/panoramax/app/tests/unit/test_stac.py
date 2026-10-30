@@ -4,7 +4,7 @@ meta-catalog's jsonb_date() rejects 'Z')."""
 import json
 from datetime import datetime, timezone
 
-from stac import collection_json, fmt_dt, item_json, pick_assets, provider_name
+from stac import collection_json, fmt_dt, item_json, pick_assets, provider_name, with_query
 
 # Worker layouts (photo_processor.create_optimized_sizes): JSON object keys are
 # strings after persistence. Fast mode has no 640.
@@ -205,3 +205,15 @@ class TestCollectionJson:
 		assert 'extent' in c
 		# but must not leak owner info
 		assert 'providers' not in c
+
+
+class TestWithQuery:
+	# The listings' self links: base URL + path + the client's raw query, so a
+	# stripped vhost prefix (/geovisio on the dev boxes) survives.
+	def test_query_kept_verbatim(self):
+		href = 'https://hv.example/geovisio/api/collections'
+		query = "limit=1&filter=status%20IN%20('deleted','ready')"
+		assert with_query(href, query) == f'{href}?{query}'
+
+	def test_no_query_no_question_mark(self):
+		assert with_query('https://hv.example/geovisio/api/collections', '') == 'https://hv.example/geovisio/api/collections'

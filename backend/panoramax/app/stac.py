@@ -110,6 +110,15 @@ def provider_name(username: str | None, owner_id: str | None) -> str:
 	return 'unknown'
 
 
+def with_query(href: str, query: str) -> str:
+	"""A listing's `self` link: its href built from the advertised base URL,
+	plus the query string exactly as the client sent it. Not request.url:
+	behind a vhost that serves this API under a stripped prefix (the dev boxes'
+	/geovisio) request.url has lost the prefix, while every other link is built
+	from the base URL."""
+	return f"{href}?{query}" if query else href
+
+
 def collection_json(
 	*,
 	seq_id: str,
