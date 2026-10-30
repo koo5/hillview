@@ -23,21 +23,29 @@ Status: **backend DONE (2026-07-08); client wiring PENDING.** Auth-review findin
 
 ## Client wiring PENDING (unverifiable in this env — needs live map + device)
 
-The stream loader runs in a **web worker**, on both web AND Android (the worker's
-auth calls have a TAURI branch hitting the `plugin:hillview|...` commands). So wiring
-spans a worker bridge + Kotlin:
+Two loaders, not one. On the web the stream loader is `StreamSourceLoader.ts`
+in the web worker (`new.worker.ts`), whose `getValidToken` asks the main thread.
+On Android — the Tauri app AND frontend2 — streams never touch the web worker:
+`simplePhotoWorker` picks `KotlinPhotoWorker`, whose `photo_worker_process`
+command runs `PhotoWorkerService` → `PhotoOperations` → shared-kt
+`StreamPhotoLoader` (OkHttp); frontend2's `StreamMarkerSource` drives that same
+loader. (The TAURI branch inside the worker's `getValidToken` predates the
+Kotlin worker; the loader never runs there on Android.) So the wiring is:
 
-1. **Worker bridge** (`webworkers/new.worker.ts`): add a `getStreamAuth()` alongside
-   `getValidToken()`. Web branch → ask main thread (which calls
-   `clientCrypto.signStreamAuth()`) via a new request-id-correlated message
-   (mirror `pendingTokenRequests`). TAURI branch → `invoke('plugin:hillview|sign_stream_auth')`.
-2. **StreamSourceLoader.ts:225-231**: replace `url.searchParams.set('token', authToken)`
-   with the three `stream_*` params from `getStreamAuth()`; re-sign on retry.
-3. **Android**: new plugin command `sign_stream_auth` in `ExamplePlugin.kt` →
-   `ClientCryptoManager.signStreamAuth(exp)` (sibling of `signUploadData`, using the
-   existing `signData` assembly so the canonical bytes match).
-4. Later cleanup (breaking, gate it): drop the legacy `?token=` branch once old
-   clients age out.
+- **Web worker bridge** (`webworkers/new.worker.ts`): a `getStreamAuth()`
+  alongside `getValidToken()` that asks the main thread (which calls
+  `clientCrypto.signStreamAuth()`) via a request-id-correlated message, like
+  `pendingTokenRequests`.
+- **StreamSourceLoader.ts**: replace `url.searchParams.set('token', authToken)`
+  with the three `stream_*` params from `getStreamAuth()`; re-sign on retry.
+- **Android, in Kotlin only**: `StreamPhotoLoader.buildStreamUrl` takes a signed
+  credential instead of the token. The provider it is handed — PhotoOperations'
+  `authTokenProvider` in the Tauri plugin, `freshToken` in frontend2's
+  `StreamMarkerSource` — becomes a credential provider calling
+  `ClientCryptoManager.signStreamAuth(exp)` (sibling of `signUploadData`, same
+  `signData` assembly so the canonical bytes match). No new plugin command.
+- Later cleanup (breaking, gate it): drop the legacy `?token=` branch once old
+  clients age out.
 
 ## Client key registration and error visibility (2026-10-30)
 
@@ -88,8 +96,19 @@ it opens a second stream per failed connect just to read a header.
 
 On Android the key is registered by AuthenticationManager.storeAuthToken, best
 effort, and healed by PhotoUploadLogic; the stream has no heal of its own
-there yet. Whichever option is taken has to cover the TAURI branch of the
-worker as well.
+there yet. Whichever option is taken lands in both loaders, StreamSourceLoader.ts
+and shared-kt StreamPhotoLoader.
+
+Compatibility of the in-band event with clients already built: both shipped
+loaders parse `data: {"type": "error", "message": ...}` today. The Kotlin one
+turns it into a stream error, retries once when the message contains "auth"
+or "401", then fails — the same visible behaviour as today's 401 (and its
+retry reuses the same token string, so it is as blind now as it would be
+then). The web one reports the error and closes the EventSource, so no
+reconnect loop. Keep that exact shape and add `error_code` beside `message`;
+a new `event:` type would also degrade safely but gains nothing. And emit it
+on the credential path only until clients that act on the code are out: no
+shipped client sends `stream_*` params, so nothing built today can see it.
 
 Not done: none of the above is implemented; the client wiring itself is still
 the pending item at the top of this file.
