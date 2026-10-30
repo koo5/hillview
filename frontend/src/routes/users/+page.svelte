@@ -2,7 +2,6 @@
 	import { onMount } from 'svelte';
 	import { http, handleApiError } from '$lib/http';
 	import { parseInstant, isoDate } from '$lib/dateUtils';
-	import { myGoto } from '$lib/navigation.svelte';
 	import { constructUserProfileUrl } from '$lib/urlUtils';
 	import { app } from '$lib/data.svelte';
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
@@ -63,10 +62,6 @@
 			return isoDate(date);
 		}
 	}
-
-	function viewUserPhotos(userId: string) {
-		myGoto(constructUserProfileUrl(userId));
-	}
 </script>
 
 <svelte:head>
@@ -103,41 +98,37 @@
 
 			<div class="grid">
 				{#each users as user}
-					<div class="user-card"
-						data-testid={`user-card-${user.username}`}
-						on:click={() => viewUserPhotos(user.id)}
-						on:keydown={(e) => e.key === 'Enter' && viewUserPhotos(user.id)}
-						role="button"
-						tabindex="0">
-						<div class="user-photo">
-							{#if user.latest_photo_url}
-								<img
-									src={user.latest_photo_url}
-									alt="{user.username}'s latest photo"
-									loading="lazy"
-								/>
-							{:else}
-								<div class="no-photo">
-									<span>📷</span>
-								</div>
-							{/if}
-						</div>
-						<div class="user-info">
-							<h3 class="username">{user.username}</h3>
-							<p class="photo-count">{user.photo_count} photo{user.photo_count !== 1 ? 's' : ''}</p>
-							{#if user.latest_photo_at}
-								<p class="latest-activity">Latest: {formatDate(user.latest_photo_at)}</p>
-							{/if}
-							{#if $app.debug_enabled}
-								<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-								<div on:click|stopPropagation>
-									<details class="debug-details">
-										<summary>[debug]</summary>
-										<pre>{JSON.stringify(user, null, 2)}</pre>
-									</details>
-								</div>
-							{/if}
-						</div>
+					<div class="user-card">
+						<a class="user-link"
+							data-testid={`user-card-${user.username}`}
+							href={constructUserProfileUrl(user.id)}>
+							<div class="user-photo">
+								{#if user.latest_photo_url}
+									<img
+										src={user.latest_photo_url}
+										alt="{user.username}'s latest photo"
+										loading="lazy"
+									/>
+								{:else}
+									<div class="no-photo">
+										<span>📷</span>
+									</div>
+								{/if}
+							</div>
+							<div class="user-info">
+								<h3 class="username">{user.username}</h3>
+								<p class="photo-count">{user.photo_count} photo{user.photo_count !== 1 ? 's' : ''}</p>
+								{#if user.latest_photo_at}
+									<p class="latest-activity">Latest: {formatDate(user.latest_photo_at)}</p>
+								{/if}
+							</div>
+						</a>
+						{#if $app.debug_enabled}
+							<details class="debug-details">
+								<summary>[debug]</summary>
+								<pre>{JSON.stringify(user, null, 2)}</pre>
+							</details>
+						{/if}
 					</div>
 				{/each}
 			</div>
@@ -220,6 +211,12 @@
 		box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
 	}
 
+	.user-link {
+		display: block;
+		color: inherit;
+		text-decoration: none;
+	}
+
 	.user-photo {
 		height: 150px;
 		overflow: hidden;
@@ -268,7 +265,7 @@
 	}
 
 	.debug-details {
-		margin-top: 8px;
+		margin: 0 16px 16px;
 		font-size: 0.75rem;
 	}
 
