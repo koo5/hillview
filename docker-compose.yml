@@ -327,7 +327,7 @@ services:
       dockerfile: panoramax/Dockerfile
     container_name: hillview_panoramax
     mem_limit: 1g
-    profiles: ["panoramax"]
+    # profiles: ["panoramax"]
     ports:
       - "127.0.0.1:8058:8058"
     environment:

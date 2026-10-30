@@ -12,8 +12,9 @@
 	import PhotoMarkerIcon from "$lib/components/PhotoMarkerIcon.svelte";
     import {zoomViewData} from '$lib/zoomView.svelte.js';
     import {app} from '$lib/data.svelte';
-    import {Camera, Award, Activity, Move, ChevronLeft, ChevronRight, ChevronUp, ChevronDown} from 'lucide-svelte';
+    import {Camera, Award, Activity, Move, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ExternalLink} from 'lucide-svelte';
     import {toggleCamera} from '$lib/appActions';
+    import {constructShareUrl, openExternalUrl} from '$lib/urlUtils';
 
     onDestroy(() => {
         imagePreloader.dispose();
@@ -79,6 +80,12 @@
         // Reset swipe state when photo interactions (like zoom) occur
         if (photoContainer && (photoContainer as any).__swipe2d_action) {
             (photoContainer as any).__swipe2d_action.reset();
+        }
+    }
+
+    function openPhotoInProduction() {
+        if ($photoInFront) {
+            void openExternalUrl(constructShareUrl($photoInFront));
         }
     }
 
@@ -155,6 +162,18 @@
         </div>
     {:else}
     <div bind:clientWidth bind:this={photoContainer} class="photo-container" use:swipe2d={swipeOptions}>
+        {#if import.meta.env.VITE_DEV_MODE === 'true'}
+            <button
+                type="button"
+                class="nav-button production-button"
+                on:click={openPhotoInProduction}
+                title="Open current photo on hillview.cz"
+                data-testid="gallery-open-production"
+            >
+                <ExternalLink size={16} /> hillview.cz
+            </button>
+        {/if}
+
         <!-- Navigation buttons -->
         {#if $photoToLeft}
             <button class="nav-button nav-left" on:click={() => handleSwipe('left')} title="Previous photo" data-testid="gallery-nav-left">
@@ -437,6 +456,15 @@
     .nav-button:hover {
         opacity: 1;
         background: rgba(0, 0, 0, 0.7);
+    }
+
+    .production-button {
+        bottom: 8px;
+        left: 8px;
+        gap: 6px;
+        padding: 8px 10px;
+        border-radius: 6px;
+        font-size: 0.8rem;
     }
 
     .nav-left, .nav-right {

@@ -4,7 +4,8 @@ in a local federation mirror.
 
 `panoramax_owner_share` is the one eligibility flag that defaults off (moderator
 approval and the owner's `panoramax_contributor` default on), so a dump
-federates nothing until it is flipped. This sets it on every photo, then runs
+federates nothing until it is flipped. This disables `panoramax_contributor`
+for the two excluded users below, sets the share flag on every photo, then runs
 one sequencer pass so the result is visible at once instead of on the next
 PANORAMAX_SEQUENCER_INTERVAL_S tick. Photos still have to pass every other gate
 in eligibility.py: full1 / panoramax_in intake, a capture time, a detector run
@@ -47,6 +48,19 @@ def main() -> int:
 	if debug.lower() not in TRUTHY:
 		sys.exit('share_all_photos_dev: refusing — hillview_api does not run with '
 			'DEBUG_ENDPOINTS on, so this may not be a dev stack')
+
+	excluded = psql("""
+		WITH excluded AS (
+			UPDATE users SET panoramax_contributor = false
+			WHERE id IN (
+				'3ad50fa1-25b3-4282-814f-7fd6b98af1b4',
+				'69418102-e0ce-4679-b297-b0921ac34ecc'
+			) AND panoramax_contributor
+			RETURNING 1
+		)
+		SELECT count(*) FROM excluded
+	""")
+	print(f'disabled Panoramax contributions for {excluded} more users')
 
 	flipped = psql("""
 		WITH flipped AS (
