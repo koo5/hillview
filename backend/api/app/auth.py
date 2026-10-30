@@ -586,7 +586,7 @@ async def get_current_user_optional(
 # stored public key (reusing verify_ecdsa_signature, which already handles both the web
 # P1363 and Android DER signature encodings). This keeps the long-lived access token
 # out of stream URLs — and thus out of access logs / browser history. See
-# docs/stream-auth-client-signed-credential-todo.md.
+# docs/todo/stream-auth-client-signed-credential-todo.md.
 STREAM_CREDENTIAL_MAX_TTL_SECONDS = 15 * 60  # reject exp further out than this
 
 
@@ -711,10 +711,10 @@ async def get_current_user_optional_with_query(
 				return user
 			raise credentials_exception
 
-	# Legacy fallback: access token in the query string. Kept so old web/Android
-	# clients (which put the full access token in the stream URL) keep working until
-	# they age out; new clients use the signed stream credential above. Removing this
-	# branch later is the breaking change worth gating.
+	# Legacy fallback: access token in the query string. The released Tauri build's
+	# stream loader sends it here and must keep working against this API; current
+	# clients (web, frontend2, future Tauri builds) send the Authorization header
+	# instead, since 2026-10-30. Remove only once that release is retired.
 	if request:
 		query_token = request.query_params.get('token')
 		if query_token:

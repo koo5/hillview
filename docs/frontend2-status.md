@@ -209,7 +209,7 @@ upload trigger) still publishes only after the final bytes exist.
   recorded: precisely the row the two-step lookup has to drop. Found by
   the new GeoElectionBehaviourTest, not by hand. The Tauri app was never
   affected (ExamplePlugin holds exactly one). Test debt from the rework
-  and what is left of it: docs/geo-election-test-todo.md.
+  and what is left of it: docs/todo/geo-election-test-todo.md.
 - Server-URL discipline (the stranded-client-key incident, 2026-08-08):
   the SETTING and the RUNTIME URL are separate values; changing the
   setting shows a restart banner and "Restart now" performs a full
@@ -223,7 +223,7 @@ upload trigger) still publishes only after the final bytes exist.
 - Tests: 142 jvm + 106 android-host + 129 shared instrumented (the
   device tree carries commonTest along) + 18 app behaviour tests, all
   green — measured 2026-08-08 after the election test debt was paid
-  down (docs/geo-election-test-todo.md). The behaviour layer covers map tracking
+  down (docs/todo/geo-election-test-todo.md). The behaviour layer covers map tracking
   (incl. the return-from-capture demote regression it caught), capture
   gating (mock-GPS determinism), storage shape per preference, upload
   coalescing (marker-log arithmetic, no foreground promotion), settings

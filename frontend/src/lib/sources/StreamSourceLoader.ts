@@ -1,11 +1,19 @@
 /**
  * Stream Source Loader - Loads photos from streaming endpoints
- * Uses EventSource for real-time photo streaming with bounds-based filtering
+ *
+ * Reads the server-sent-events stream with fetch rather than EventSource, for
+ * two reasons. fetch can send the access token in an Authorization header;
+ * EventSource cannot, which used to put the token in the URL and so in every
+ * access log on the way. And fetch exposes the HTTP status, so a rejected token
+ * (401, retried once with a forcibly refreshed one) is told apart from a
+ * network failure instead of guessed at from timing.
+ *
+ * The backend still accepts `?token=` on the stream endpoints: the released
+ * Tauri build's Kotlin loader sends it, and must keep working.
  */
 
 import type { PhotoData, Bounds, PhotoId } from '../photoWorkerTypes';
 import { BasePhotoSourceLoader, type PhotoSourceCallbacks } from './PhotoSourceLoader';
-import { verbalizeEventSourceReadyState } from './eventSourceUtils';
 import { postToast } from '../workerToast';
 import type { PhotoSourceOptions } from './PhotoSourceFactory';
 import { STREAM_INACTIVITY_TIMEOUT_MS } from '../photoWorkerConstants';
@@ -103,24 +111,88 @@ export function convertStreamPhoto(photo: any, source: any): PhotoData {
     return convertedPhoto;
 }
 
+/**
+ * Incremental parser for a `text/event-stream` body. Lines may arrive split
+ * across chunks and end in LF, CRLF or CR. A blank line dispatches the event's
+ * `data:` lines (joined with newlines), as EventSource does; comments, `id:`
+ * and `retry:` are ignored, and named events (`event: x`) are skipped because
+ * EventSource's onmessage never saw them either. An unterminated final event
+ * is dropped, also as EventSource does.
+ */
+export class SseDataParser {
+    private buffer = '';
+    private dataLines: string[] = [];
+    private eventType = '';
+    // The previous chunk ended in a CR, which may be the first half of a CRLF.
+    private pendingCr = false;
+
+    constructor(private readonly onData: (data: string) => void) {}
+
+    push(text: string): void {
+        if (this.pendingCr && text.length > 0) {
+            if (text.startsWith('\n')) text = text.slice(1);
+            this.pendingCr = false;
+        }
+        this.buffer += text;
+        for (;;) {
+            const match = /\r\n|\r|\n/.exec(this.buffer);
+            if (!match) return;
+            const line = this.buffer.slice(0, match.index);
+            this.buffer = this.buffer.slice(match.index + match[0].length);
+            // A CR is a complete line ending on its own; skip the LF of a CRLF
+            // whose two halves arrive in different chunks.
+            if (match[0] === '\r' && this.buffer === '') this.pendingCr = true;
+            this.processLine(line);
+        }
+    }
+
+    private processLine(line: string): void {
+        if (line === '') {
+            const data = this.dataLines.join('\n');
+            const isMessage = this.eventType === '' || this.eventType === 'message';
+            const hasData = this.dataLines.length > 0;
+            this.dataLines = [];
+            this.eventType = '';
+            if (hasData && isMessage) this.onData(data);
+            return;
+        }
+        if (line.startsWith(':')) return;
+        const colon = line.indexOf(':');
+        const field = colon === -1 ? line : line.slice(0, colon);
+        let value = colon === -1 ? '' : line.slice(colon + 1);
+        if (value.startsWith(' ')) value = value.slice(1);
+        if (field === 'data') this.dataLines.push(value);
+        else if (field === 'event') this.eventType = value;
+    }
+}
+
+function describeError(error: unknown): string {
+    return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+}
+
 export class StreamSourceLoader extends BasePhotoSourceLoader {
-    private eventSource?: EventSource;
+    // The open stream request. Aborting it ends the request without cancelling
+    // the loader, the way EventSource.close() used to; the loader itself is
+    // cancelled through the base class's abortController.
+    private connection?: AbortController;
     private streamPhotos: PhotoData[] = [];
     private completionPromise?: Promise<void>;
     private completionResolve?: () => void;
     private timeoutId?: NodeJS.Timeout;
-    private readyStateMonitorId?: NodeJS.Timeout;
     private wasConnected = false;
 	private wasErrored = false;
     private retryCount = 0;
-    private maxRetries = 1; // Only retry once for auth errors
+    private maxRetries = 1; // One retry for a request that failed before the stream opened
+    // Status of the failure that triggered the pending retry; a 401 makes the
+    // retry force a token refresh.
+    private retryAfterStatus?: number;
     private currentBounds?: Bounds;
     private maxPhotos?: number;
     private picks?: Set<PhotoId>;
     private queryOptionsJson?: string | null;  // Pre-serialized Hillview filters
-    // Watchdog: an EventSource that goes silent (no message, no error) would
-    // otherwise never resolve start(), and the area process it belongs to would
-    // never complete. Re-armed on open and on every message.
+    // Watchdog: a stream that goes silent (no event, no error) would otherwise
+    // never resolve start(), and the area process it belongs to would never
+    // complete. Re-armed on open and on every event.
     private inactivityTimeoutMs: number;
     private inactivityTimerId?: ReturnType<typeof setTimeout>;
 
@@ -139,10 +211,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             this.inactivityTimerId = undefined;
             if (this.isComplete || this.isAborted()) return;
             console.warn(`${LOG_PREFIX}: no stream activity for ${this.inactivityTimeoutMs}ms on ${this.source.id} - giving up`);
-            if (this.eventSource) {
-                this.eventSource.close();
-                this.eventSource = undefined;
-            }
+            this.closeConnection();
             // A stall after data flowed is a lost connection (toast); a stall
             // before anything arrived reads as the server never answering.
             this.handleFinalFailure(`Stream timed out after ${this.inactivityTimeoutMs}ms of silence`, this.wasConnected);
@@ -153,6 +222,13 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         if (this.inactivityTimerId) {
             clearTimeout(this.inactivityTimerId);
             this.inactivityTimerId = undefined;
+        }
+    }
+
+    private closeConnection(): void {
+        if (this.connection) {
+            this.connection.abort();
+            this.connection = undefined;
         }
     }
 
@@ -255,12 +331,16 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             url.searchParams.set('filters', this.queryOptionsJson);
         }
 
-        // Add authentication token (force refresh on retry attempts)
+        // Authorization header. A retry after a 401 forces a token refresh; a
+        // retry after a network failure or a 5xx reuses the token it had.
+        // No Cache-Control request header: it is not in the API's CORS
+        // allow-list, and `cache: 'no-store'` below does the job without one.
+        const headers: Record<string, string> = { Accept: 'text/event-stream' };
         try {
-            const forceRefresh = this.retryCount > 0;
+            const forceRefresh = this.retryCount > 0 && this.retryAfterStatus === 401;
             const authToken = await this.getAuthTokenWithTimeout(5000, forceRefresh);
             if (authToken) {
-                url.searchParams.set('token', authToken);
+                headers.Authorization = `Bearer ${authToken}`;
                 console.log(`StreamSourceLoader: Authenticated request for ${this.source.id}${forceRefresh ? ' (with refreshed token)' : ''}`);
             } else {
                 console.log(`StreamSourceLoader: Anonymous request for ${this.source.id}`);
@@ -280,199 +360,194 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
 
         // Let OS handle connection lifecycle - no artificial timeout
 
-        this.eventSource = new EventSource(url.toString());
-        this.armWatchdog();
-        if (doLog) console.log(`StreamSourceLoader: Created EventSource for ${this.source.id} with URL:`, url.toString());
-        if (doLog) console.log(`StreamSourceLoader: Initial EventSource readyState: ${verbalizeEventSourceReadyState(this.eventSource.readyState)}`);
+        const connection = new AbortController();
+        this.connection = connection;
 
-        // Connect abort signal to EventSource
+        // Cancelling the loader ends the request
         this.abortController.signal.addEventListener('abort', () => {
-            if (doLog) console.log(`StreamSourceLoader: Abort signal received, closing EventSource for ${this.source.id}`);
-            if (this.eventSource) {
-                this.eventSource.close();
-                this.eventSource = undefined; // Clear reference to allow garbage collection
-            }
+            if (doLog) console.log(`StreamSourceLoader: Abort signal received, closing stream for ${this.source.id}`);
+            this.closeConnection();
             this.resolveCompletion();
         });
 
-        this.eventSource.onmessage = (event) => {
-            this.armWatchdog();
-            try {
-                const data = JSON.parse(event.data);
-                this.handleStreamMessage(data);
-            } catch (error) {
-                console.error('🢄🔍StreamSourceLoader: Error parsing stream message:', error);
-                this.callbacks.onError?.(new Error('Error parsing stream data'));
-                // Close EventSource on parsing error to prevent further errors
-                if (this.eventSource) {
-                    this.eventSource.close();
-                    this.eventSource = undefined;
-                }
-                this.updateLoadingStatus(false, undefined, 'Failed to parse stream data');
-                this.resolveCompletion();
-            }
-        };
-
-        this.eventSource.onerror = (error) => {
-            console.log(`${LOG_PREFIX}: onerror triggered for ${this.source.id}`, {
-                isComplete: this.isComplete,
-                wasConnected: this.wasConnected,
-                wasErrored: this.wasErrored,
-                aborted: this.abortController?.signal.aborted,
-                readyState: this.eventSource?.readyState ? verbalizeEventSourceReadyState(this.eventSource.readyState) : 'undefined',
-                timeFromStart: Date.now() - this.startTime
-            });
-
-            // Check if stream is already complete - if so, this is normal connection closure
-            if (this.isComplete) {
-                if (doLog) console.log(`StreamSourceLoader: EventSource connection closed normally after stream completion for ${this.source.id}`);
-                // Don't show "Connection lost" toast for normal stream completion
-                this.wasConnected = false;
-                if (doLog) console.log(`${LOG_PREFIX}: Set wasConnected=false for completed stream ${this.source.id}`);
-                return;
-            }
-
-            // Check if we've been cancelled/aborted
-            if (this.abortController?.signal.aborted) {
-                if (doLog) console.log(`StreamSourceLoader: EventSource error after abort for ${this.source.id} - ignoring`);
-                return;
-            }
-
-            // Extract more meaningful error information
-            let errorMessage = 'Stream connection error for ' + this.source.id + ' (' + this.source.url + ')';
-            if (error instanceof ErrorEvent) {
-                errorMessage = `Stream error: ${error.message || error.type || 'Unknown error'}`;
-            } else if (error && typeof error === 'object') {
-                errorMessage = `Stream error: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`;
-            }
-
-            console.warn('🢄StreamSourceLoader: Stream error details:', JSON.stringify({
-                error,
-                errorType: error?.constructor?.name,
-                errorMessage,
-                readyState: this.eventSource?.readyState ? verbalizeEventSourceReadyState(this.eventSource.readyState) : 'undefined',
-                url: this.eventSource?.url,
-                timeFromCreation: Date.now() - this.startTime,
-                connectionState: navigator.onLine ? 'online' : 'offline',
-                isComplete: this.isComplete
-            }, null, 2));
-
-            // Check if this is an immediate connection failure
-            if (this.eventSource?.readyState === EventSource.CLOSED && Date.now() - this.startTime < 1000) {
-                console.warn('🢄StreamSourceLoader: EventSource failed immediately after creation - possible network/CORS/URL issue');
-            }
-
-            // Check if we should show toast BEFORE marking as complete
-            const shouldShowToast = this.wasConnected && !this.isComplete;
-            if (doLog) console.log(`${LOG_PREFIX}: Checking toast conditions for ${this.source.id}`, {
-                wasConnected: this.wasConnected,
-                isComplete: this.isComplete,
-                willShowToast: shouldShowToast
-            });
-
-            // Clean up the current EventSource on error
-            if (this.eventSource) {
-                console.log(`StreamSourceLoader: Closing EventSource on error for ${this.source.id}`);
-                this.eventSource.close();
-                this.eventSource = undefined;
-            }
-
-            // Check if this could be an auth error and we should retry
-            const timeFromStart = Date.now() - this.startTime;
-            const isImmediateFailure = timeFromStart < 1000;
-            const couldBeAuthError = !this.wasConnected && isImmediateFailure;
-            const shouldRetry = couldBeAuthError && this.retryCount < this.maxRetries;
-
-            if (shouldRetry) {
-                console.log(`🔄 StreamSourceLoader: Retrying with fresh token for ${this.source.id} (attempt ${this.retryCount + 1}/${this.maxRetries + 1}) - possible auth error`);
-                this.retryCount++;
-                this.wasErrored = false; // Reset error state for retry
-                this.isComplete = false; // Reset completion state
-
-                // Retry with fresh token after a short delay
-                setTimeout(() => {
-                    if (this.currentBounds && !this.isAborted()) {
-                        this.attemptConnection(this.currentBounds).catch((retryError) => {
-                            console.error(`StreamSourceLoader: Retry failed for ${this.source.id}:`, retryError);
-                            // After retry failure, show toast for genuine connection issues
-                            const showToastAfterRetry = true; // Always show toast after retry failure
-                            this.handleFinalFailure(errorMessage, showToastAfterRetry);
-                        });
-                    }
-                }, 100);
-                return; // Don't mark as complete yet, we're retrying
-            }
-
-            // No retry needed - handle final failure
-            // Show toast if we had a connection before OR if this was not an immediate failure (genuine network issue)
-            const shouldShowToastForGenuineError = shouldShowToast || (!couldBeAuthError && !this.wasConnected);
-            this.handleFinalFailure(errorMessage, shouldShowToastForGenuineError);
-        };
-
-        this.eventSource.onopen = () => {
-            const timeFromStart = Date.now() - this.startTime;
-            if (doLog) console.log(`${LOG_PREFIX}: Stream opened for ${this.source.id}`, {
-                readyState: this.eventSource ? verbalizeEventSourceReadyState(this.eventSource.readyState) : 'undefined',
-                timeFromStart,
-                wasErrored: this.wasErrored
-            });
-            this.updateLoadingStatus(true, 'Loading photos...');
-            this.armWatchdog();
-
-            // Toast only on reconnection
-            if (this.wasErrored) {
-                postToast('success', 'Connection restored', this.source.name || this.source.id, 3000);
-            }
-			this.wasErrored= false;
-            this.wasConnected = true;
-            if (doLog) console.log(`${LOG_PREFIX}: Set wasConnected=true for ${this.source.id} after ${timeFromStart}ms`);
-        };
-
-        // Monitor readyState changes
-        let lastReadyState = this.eventSource.readyState;
-        this.readyStateMonitorId = setInterval(() => {
-            if (this.eventSource && this.eventSource.readyState !== lastReadyState) {
-                if (doLog) console.log(`StreamSourceLoader: ReadyState changed from ${verbalizeEventSourceReadyState(lastReadyState)} to ${verbalizeEventSourceReadyState(this.eventSource.readyState)} for ${this.source.id}`);
-                lastReadyState = this.eventSource.readyState;
-                if (this.eventSource.readyState === EventSource.CLOSED) {
-                    if (this.readyStateMonitorId) {
-                        clearInterval(this.readyStateMonitorId);
-                        this.readyStateMonitorId = undefined;
-                    }
-                }
-            }
-        }, 100);
-
-        // Clear monitor on abort
-        this.abortController.signal.addEventListener('abort', () => {
-            if (this.readyStateMonitorId) {
-                clearInterval(this.readyStateMonitorId);
-                this.readyStateMonitorId = undefined;
-            }
-        });
+        this.armWatchdog();
+        void this.readStream(url.toString(), headers, connection);
 
         // Return the completion promise
         return this.completionPromise;
     }
 
+    /**
+     * Run one stream request to its end. Every exit after `connection` was
+     * aborted is silent: the abort came from this loader (cancel, watchdog,
+     * stream completion, a stream error message), which has already settled
+     * the outcome.
+     */
+    private async readStream(url: string, headers: Record<string, string>, connection: AbortController): Promise<void> {
+        let response: Response;
+        try {
+            response = await fetch(url, { headers, signal: connection.signal, cache: 'no-store' });
+        } catch (error) {
+            if (connection.signal.aborted) return;
+            this.handleConnectionError(`Stream request failed for ${this.source.id}: ${describeError(error)}`);
+            return;
+        }
+        if (connection.signal.aborted) return;
+
+        if (!response.ok || !response.body) {
+            const detail = await response.text().catch(() => '');
+            if (connection.signal.aborted) return;
+            this.handleConnectionError(
+                `Stream request failed for ${this.source.id}: HTTP ${response.status}${detail ? ` ${detail.slice(0, 200)}` : ''}`,
+                response.status
+            );
+            return;
+        }
+
+        this.handleOpen();
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        const parser = new SseDataParser((data) => {
+            // An event earlier in the same chunk may have closed the stream
+            // (stream_complete, an error message); EventSource dispatched
+            // nothing after close() either.
+            if (connection.signal.aborted) return;
+            this.handleEventData(data);
+        });
+        try {
+            for (;;) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                parser.push(decoder.decode(value, { stream: true }));
+                if (connection.signal.aborted) return;
+            }
+        } catch (error) {
+            if (connection.signal.aborted) return;
+            this.handleConnectionError(`Stream connection lost for ${this.source.id}: ${describeError(error)}`);
+            return;
+        }
+        if (connection.signal.aborted) return;
+        // The server ended the body without sending stream_complete.
+        this.handleConnectionError(`Stream for ${this.source.id} ended before completion`);
+    }
+
+    private handleOpen(): void {
+        const timeFromStart = Date.now() - this.startTime;
+        if (doLog) console.log(`${LOG_PREFIX}: Stream opened for ${this.source.id}`, {
+            timeFromStart,
+            wasErrored: this.wasErrored
+        });
+        this.updateLoadingStatus(true, 'Loading photos...');
+        this.armWatchdog();
+
+        // Toast only on reconnection
+        if (this.wasErrored) {
+            postToast('success', 'Connection restored', this.source.name || this.source.id, 3000);
+        }
+		this.wasErrored= false;
+        this.wasConnected = true;
+        if (doLog) console.log(`${LOG_PREFIX}: Set wasConnected=true for ${this.source.id} after ${timeFromStart}ms`);
+    }
+
+    private handleEventData(data: string): void {
+        this.armWatchdog();
+        try {
+            const parsed = JSON.parse(data);
+            this.handleStreamMessage(parsed);
+        } catch (error) {
+            console.error('🢄🔍StreamSourceLoader: Error parsing stream message:', error);
+            this.callbacks.onError?.(new Error('Error parsing stream data'));
+            // Close the stream on parsing error to prevent further errors
+            this.closeConnection();
+            this.updateLoadingStatus(false, undefined, 'Failed to parse stream data');
+            this.resolveCompletion();
+        }
+    }
+
+    /**
+     * The request failed, or the stream broke or ended early. `status` is the
+     * HTTP status when the server answered with an error, undefined when no
+     * answer came (network failure) or the stream broke after opening.
+     */
+    private handleConnectionError(errorMessage: string, status?: number): void {
+        const timeFromStart = Date.now() - this.startTime;
+        console.log(`${LOG_PREFIX}: stream failure for ${this.source.id}`, {
+            status,
+            isComplete: this.isComplete,
+            wasConnected: this.wasConnected,
+            wasErrored: this.wasErrored,
+            aborted: this.abortController?.signal.aborted,
+            timeFromStart
+        });
+
+        // Already complete: the server closing after stream_complete is normal
+        if (this.isComplete) {
+            this.wasConnected = false;
+            return;
+        }
+
+        // Check if we've been cancelled/aborted
+        if (this.abortController?.signal.aborted) {
+            if (doLog) console.log(`StreamSourceLoader: stream error after abort for ${this.source.id} - ignoring`);
+            return;
+        }
+
+        console.warn(`🢄StreamSourceLoader: ${errorMessage}`, JSON.stringify({
+            status,
+            timeFromStart,
+            connectionState: navigator.onLine ? 'online' : 'offline'
+        }));
+
+        // Check if we should show toast BEFORE marking as complete
+        const shouldShowToast = this.wasConnected && !this.isComplete;
+
+        this.closeConnection();
+
+        // Retry once a request that failed before the stream opened, unless the
+        // server rejected the request itself (a 4xx other than 401). A 401
+        // retries with a forcibly refreshed token.
+        const retryableStatus = status === undefined || status === 401 || status >= 500;
+        const shouldRetry = !this.wasConnected && retryableStatus && this.retryCount < this.maxRetries;
+
+        if (shouldRetry) {
+            console.log(`🔄 StreamSourceLoader: Retrying ${this.source.id}${status === 401 ? ' with a refreshed token' : ''} (attempt ${this.retryCount + 2}/${this.maxRetries + 1})`);
+            this.retryCount++;
+            this.retryAfterStatus = status;
+            this.wasErrored = false; // Reset error state for retry
+            this.isComplete = false; // Reset completion state
+
+            setTimeout(() => {
+                if (this.currentBounds && !this.isAborted()) {
+                    this.attemptConnection(this.currentBounds).catch((retryError) => {
+                        console.error(`StreamSourceLoader: Retry failed for ${this.source.id}:`, retryError);
+                        // After retry failure, show toast for genuine connection issues
+                        const showToastAfterRetry = true; // Always show toast after retry failure
+                        this.handleFinalFailure(errorMessage, showToastAfterRetry);
+                    });
+                }
+            }, 100);
+            return; // Don't mark as complete yet, we're retrying
+        }
+
+        // No retry - final failure. "Connection lost" when a stream that was
+        // flowing broke, or when connecting failed slowly enough to be a real
+        // network problem. Never for a rejected token: the session machinery
+        // owns that.
+        const isImmediateFailure = timeFromStart < 1000;
+        const toastForConnectFailure = !this.wasConnected && !isImmediateFailure && status !== 401;
+        this.handleFinalFailure(errorMessage, shouldShowToast || toastForConnectFailure);
+    }
+
     private resolveCompletion(): void {
         this.disarmWatchdog();
-        // Clear readyState monitor
-        if (this.readyStateMonitorId) {
-            clearInterval(this.readyStateMonitorId);
-            this.readyStateMonitorId = undefined;
-        }
         if (this.completionResolve) {
             this.completionResolve();
             this.completionResolve = undefined;
             this.completionPromise = undefined;
         }
-        // Ensure EventSource is cleaned up
-        if (this.eventSource) {
-            if (doLog) console.log(`StreamSourceLoader: Cleaning up EventSource in resolveCompletion for ${this.source.id}`);
-            this.eventSource.close();
-            this.eventSource = undefined;
-        }
+        // Ensure the stream request is ended
+        this.closeConnection();
     }
 
     private handleStreamMessage(data: any): void {
@@ -514,12 +589,9 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                     duration
                 });
 
-                // Close EventSource since stream is complete
-                if (this.eventSource) {
-                    if (doLog) console.log(`${LOG_PREFIX}: Closing EventSource after stream completion for ${this.source.id} (wasConnected=${this.wasConnected})`);
-                    this.eventSource.close();
-                    this.eventSource = undefined; // Clear reference to allow garbage collection
-                }
+                // End the request since the stream is complete
+                if (doLog) console.log(`${LOG_PREFIX}: Closing stream after completion for ${this.source.id} (wasConnected=${this.wasConnected})`);
+                this.closeConnection();
 
                 // Resolve the completion promise
                 this.resolveCompletion();
@@ -546,17 +618,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         // Clear loading status
         this.updateLoadingStatus(false, 'Cancelled');
 
-        // Clear readyState monitor first
-        if (this.readyStateMonitorId) {
-            clearInterval(this.readyStateMonitorId);
-            this.readyStateMonitorId = undefined;
-        }
-
-        if (this.eventSource) {
-            if (doLog) console.log(`StreamSourceLoader: Closing EventSource for ${this.source.id} (readyState: ${verbalizeEventSourceReadyState(this.eventSource.readyState)})`);
-            this.eventSource.close();
-            this.eventSource = undefined; // Clear reference to allow garbage collection
-        }
+        this.closeConnection();
 
         // Resolve completion promise if still pending
         this.resolveCompletion();

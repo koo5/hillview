@@ -26,7 +26,7 @@ import org.koin.core.context.GlobalContext
  *
  * The claims are in docs/frontend2-status.md (items 0d/0e) and
  * docs/tauri-capture-ui-contract.md; the test debt they left is
- * docs/geo-election-test-todo.md items 3, 4 and 7. The Tauri app has the
+ * docs/todo/geo-election-test-todo.md items 3, 4 and 7. The Tauri app has the
  * equivalent as an appium spec (background-location-tracking.test.ts) — this
  * side's publisher is a different implementation and had nothing.
  */

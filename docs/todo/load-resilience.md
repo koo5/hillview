@@ -161,8 +161,7 @@ Done:
   returns once the tokens are stored and starts the registration in the
   background (`frontend/src/lib/clientKeyRegistration.ts`). Consumers that
   need the key await `ensureClientKeyRegistered()`; today that is
-  `secureUploadFile`, and the stream credential wiring should do the same
-  when it lands. `requestUploadAuthorization` heals a 409
+  `secureUploadFile`. `requestUploadAuthorization` heals a 409
   `client_key_not_registered` by re-registering and retrying once, the same
   contract Kotlin's `PhotoUploadLogic` uses, which also covers the service
   worker (no access to the main thread's state) and a server that lost the
@@ -174,9 +173,12 @@ Done:
   next consumer or by connectivity returning (`onReconnect`). A 4xx other than
   409 is a wrong request and is not retried; a session ending stops the run.
   Deferring registration entirely to the first request that needs the key was
-  checked and rejected: push-token ownership is a separate check, and the
-  stream credential path silently serves an anonymous stream when the key is
-  unknown, so there would be no error for the client to react to.
+  checked and rejected: the key has several consumers (upload authorize and
+  finalize, push-token ownership on Android), each checking it separately and
+  not all surfacing a missing key the same way. Photo streams were briefly a
+  fourth, through the planned signed stream credential; since 2026-10-30 they
+  send the access token in an Authorization header instead
+  (docs/todo/stream-auth-client-signed-credential-todo.md).
 
 Declined or deferred:
 

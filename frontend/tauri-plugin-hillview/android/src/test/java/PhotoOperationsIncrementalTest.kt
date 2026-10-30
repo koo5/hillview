@@ -39,7 +39,8 @@ class PhotoOperationsIncrementalTest {
 
         override suspend fun load(
             source: SourceConfig, bounds: Bounds?, maxPhotos: Int, authToken: String?, shouldAbort: () -> Boolean,
-            picks: Set<String>, queryOptionsJson: String?, onBatch: ((List<PhotoData>) -> Unit)?
+            picks: Set<String>, queryOptionsJson: String?, onBatch: ((List<PhotoData>) -> Unit)?,
+            refreshAuthToken: (suspend () -> String?)?
         ): List<PhotoData> {
             batch[source.id] = onBatch ?: {}
             return gate(source.id).await()

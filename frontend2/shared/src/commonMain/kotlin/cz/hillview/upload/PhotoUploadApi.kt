@@ -33,13 +33,15 @@ class PhotoUploadApi(
     /**
      * Idempotent; registers the signing key for the logged-in account.
      *
-     * Nothing in the app calls this yet (only the integration test does), and
-     * [authorize] maps the 409 `client_key_not_registered` the server answers
-     * for an unknown key to [UploadPermanentException]. When the drain is wired
-     * to this API it needs what the other two clients already do: register once
-     * per session (not as a step that can fail the login), and on that 409
-     * re-register and retry the authorize once — see `requestUploadAuthorization`
-     * in frontend/src/lib/uploadProtocol.ts and shared-kt's PhotoUploadLogic.
+     * On Android the app never comes through here: the token store is shared-kt's
+     * AuthenticationManager (storeAuthToken registers the key) and uploads run
+     * through shared-kt's PhotoUploadLogic, which re-registers and retries once
+     * when authorize-upload answers 409 `client_key_not_registered`. This
+     * commonMain client is the JVM/desktop and integration-test path (desktop has
+     * no capture, so NoopUploadPipeline). Should a JVM drain ever use it, it
+     * needs the same two things: register once per session without failing the
+     * login over it, and heal that 409 in [authorize], which today maps it to
+     * [UploadPermanentException].
      */
     suspend fun registerClientKey(signer: UploadSigner) {
         session.authorized { token ->

@@ -217,7 +217,10 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
      */
     suspend fun processPhotos(
         messageJson: String,
-        authTokenProvider: suspend () -> String?
+        authTokenProvider: suspend () -> String?,
+        // Refreshes the session unconditionally and returns the new token; the
+        // stream loader calls it once when the server answers 401.
+        authTokenRefresher: (suspend () -> String?)? = null
     ) {
         try {
             val message = parseWorkerMessage(messageJson)
@@ -227,13 +230,13 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                 MessageType.PROCESS_CONFIG -> {
                     // Launch async processing like new.worker.ts
                     serviceScope.launch {
-                        processConfigMessage(message, authTokenProvider)
+                        processConfigMessage(message, authTokenProvider, authTokenRefresher)
                     }
                 }
                 MessageType.PROCESS_AREA -> {
                     // Launch async processing like new.worker.ts
                     serviceScope.launch {
-                        processAreaMessage(message, authTokenProvider)
+                        processAreaMessage(message, authTokenProvider, authTokenRefresher)
                     }
                 }
                 MessageType.PICKS_UPDATED -> {
@@ -281,7 +284,8 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
      */
     private suspend fun processConfigMessage(
         message: WorkerMessage,
-        authTokenProvider: suspend () -> String?
+        authTokenProvider: suspend () -> String?,
+        authTokenRefresher: (suspend () -> String?)?
     ) {
         val config = parseConfigData(message.data)
 
@@ -374,7 +378,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
 
                 // Process through normal message handling (respects priority and queue)
                 serviceScope.launch {
-                    processAreaMessage(areaMessage, authTokenProvider)
+                    processAreaMessage(areaMessage, authTokenProvider, authTokenRefresher)
                 }
             }
 
@@ -397,7 +401,8 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
      */
     private suspend fun processAreaMessage(
         message: WorkerMessage,
-        authTokenProvider: suspend () -> String?
+        authTokenProvider: suspend () -> String?,
+        authTokenRefresher: (suspend () -> String?)?
     ) {
         val areaData = parseAreaData(message.data)
 
@@ -443,6 +448,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                 bounds = areaData.bounds,
                 shouldAbort = { processInfo.abortFlag.get() },
                 authTokenProvider = authTokenProvider,
+                authTokenRefresher = authTokenRefresher,
                 onSourceLoadingStatus = { sourceId, isLoading, progress, error ->
                     sendLoadingStatusEvent(sourceId, isLoading, progress, error)
                 },

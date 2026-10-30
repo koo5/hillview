@@ -12,13 +12,22 @@ import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
 
+/** The stream endpoint answered with an HTTP error before streaming began. */
+class StreamHttpException(val code: Int, message: String) : Exception(message)
+
 /**
- * Stream Photo Loader - EventSource implementation for real-time photo streaming
+ * Stream Photo Loader - Server-Sent Events (SSE) photo streaming over OkHttp
  *
- * Faithful translation of StreamSourceLoader.ts with EventSource functionality
- * using OkHttp for Server-Sent Events (SSE) streaming.
+ * Twin of StreamSourceLoader.ts. The access token travels in an Authorization
+ * header, never in the URL (where it ended up in access logs); a 401 before the
+ * stream opens is retried once with a token from the caller's refresher.
+ *
+ * The backend keeps accepting `?token=` on the stream endpoints, because the
+ * released Tauri build sends it there.
  */
-class StreamPhotoLoader {
+class StreamPhotoLoader internal constructor(private val client: OkHttpClient) {
+    constructor() : this(defaultClient())
+
     companion object {
         private val TAG = hvTag("StreamPhotoLoader")
         private const val doLog = false
@@ -27,6 +36,11 @@ class StreamPhotoLoader {
 
         // Thread-local SimpleDateFormat to avoid creating new instances for each photo
         // SimpleDateFormat is not thread-safe, so we use ThreadLocal for coroutine safety
+        private fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(CONNECTION_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .build()
+
         private val isoDateFormat = ThreadLocal.withInitial {
             SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
                 timeZone = TimeZone.getTimeZone("UTC")
@@ -72,11 +86,6 @@ class StreamPhotoLoader {
         }
     }
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(CONNECTION_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .build()
-
     private val json = Json {
         ignoreUnknownKeys = true
         coerceInputValues = true
@@ -98,14 +107,22 @@ class StreamPhotoLoader {
          * Null (the default) keeps the one-shot behaviour byte-for-byte.
          * Runs on the loader's thread, inside the collect.
          */
-        onBatch: ((List<PhotoData>) -> Unit)? = null
+        onBatch: ((List<PhotoData>) -> Unit)? = null,
+        /**
+         * Called at most once, when the server rejects [authToken] with a 401
+         * before the stream opens: refresh the session unconditionally and
+         * return the new access token (null: none). The stream is then retried
+         * once with it. Null means a 401 fails the load at once — retrying
+         * with the same token cannot succeed.
+         */
+        refreshAuthToken: (suspend () -> String?)? = null
     ): List<PhotoData> {
         if (bounds == null) {
             Log.d(TAG, "StreamPhotoLoader: Started ${source.id} without bounds - waiting for area update")
             return emptyList()
         }
 
-        return loadPhotosWithEventSource(source, bounds, maxPhotos, authToken, shouldAbort, picks, queryOptionsJson, onBatch)
+        return loadPhotosWithEventSource(source, bounds, maxPhotos, authToken, shouldAbort, picks, queryOptionsJson, onBatch, refreshAuthToken)
     }
 
     private suspend fun loadPhotosWithEventSource(
@@ -116,21 +133,23 @@ class StreamPhotoLoader {
         shouldAbort: () -> Boolean,
         picks: Set<String> = emptySet(),
         queryOptionsJson: String? = null,  // Pre-serialized Hillview filters
-        onBatch: ((List<PhotoData>) -> Unit)? = null
+        onBatch: ((List<PhotoData>) -> Unit)? = null,
+        refreshAuthToken: (suspend () -> String?)? = null
     ): List<PhotoData> {
         val photos = mutableListOf<PhotoData>()
         var retryCount = 0
         val maxRetries = 1
+        var token = authToken
 
         while (retryCount <= maxRetries && !shouldAbort()) {
             try {
-                val url = buildStreamUrl(source, bounds, maxPhotos, authToken, picks, queryOptionsJson)
+                val url = buildStreamUrl(source, bounds, maxPhotos, picks, queryOptionsJson)
                 if (doLog) Log.d(TAG, "StreamPhotoLoader: Starting stream from $url (attempt ${retryCount + 1}/${maxRetries + 1})")
 
                 var streamCompleted = false
                 var streamError: String? = null
 
-                streamEventSource(url, shouldAbort).collect { message ->
+                streamEventSource(url, token, shouldAbort).collect { message ->
                     if (shouldAbort()) return@collect
 
                     when (message) {
@@ -191,35 +210,33 @@ class StreamPhotoLoader {
             } catch (e: Exception) {
                 Log.e(TAG, "StreamPhotoLoader: Error on attempt ${retryCount + 1}: ${e.message}")
 
-                if (retryCount >= maxRetries) {
+                // Only a rejected token is worth one more try, and only with a
+                // token the session was refreshed for; anything else fails now.
+                val rejected = e is StreamHttpException && e.code == 401
+                if (!rejected || retryCount >= maxRetries || refreshAuthToken == null) {
                     throw e
                 }
-
-                // Check if this looks like an auth error and we should retry
-                if (e.message?.contains("401") == true || e.message?.contains("auth") == true) {
-                    retryCount++
-                    delay(1000) // Brief delay before retry
-                    if (doLog) Log.d(TAG, "StreamPhotoLoader: Retrying with fresh auth token")
-                    continue
-                } else {
-                    throw e // Non-auth errors don't retry
-                }
+                retryCount++
+                token = refreshAuthToken()
+                if (doLog) Log.d(TAG, "StreamPhotoLoader: Retrying ${source.id} with a refreshed token (${if (token != null) "present" else "none"})")
+                continue
             }
         }
 
         return emptyList()
     }
 
-    private fun streamEventSource(url: String, shouldAbort: () -> Boolean): Flow<StreamMessage> = flow {
-        val request = Request.Builder()
+    private fun streamEventSource(url: String, authToken: String?, shouldAbort: () -> Boolean): Flow<StreamMessage> = flow {
+        val requestBuilder = Request.Builder()
             .url(url)
             .header("Accept", "text/event-stream")
             .header("Cache-Control", "no-cache")
-            .build()
+        authToken?.let { requestBuilder.header("Authorization", "Bearer $it") }
+        val request = requestBuilder.build()
 
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                throw Exception("HTTP ${response.code}: ${response.message}")
+                throw StreamHttpException(response.code, "HTTP ${response.code}: ${response.message}")
             }
 
             response.body?.byteStream()?.let { inputStream ->
@@ -323,7 +340,7 @@ class StreamPhotoLoader {
         }
     }
 
-    private fun buildStreamUrl(source: SourceConfig, bounds: Bounds, maxPhotos: Int, authToken: String?, picks: Set<String> = emptySet(), queryOptionsJson: String? = null): String {
+    private fun buildStreamUrl(source: SourceConfig, bounds: Bounds, maxPhotos: Int, picks: Set<String> = emptySet(), queryOptionsJson: String? = null): String {
         val baseUrl = source.url ?: throw IllegalArgumentException("Stream source missing URL")
 
         val urlBuilder = baseUrl.toHttpUrl().newBuilder()
@@ -342,9 +359,6 @@ class StreamPhotoLoader {
             urlBuilder.addQueryParameter("filters", it)
         }
 
-        authToken?.let {
-            urlBuilder.addQueryParameter("token", it)
-        }
 
         return urlBuilder.build().toString()
     }

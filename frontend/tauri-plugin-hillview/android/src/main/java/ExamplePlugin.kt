@@ -1820,8 +1820,20 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 						}
 					}
 
+					// The stream loader's one retry after a 401: refresh unconditionally,
+					// the same path get_auth_token takes with force=true.
+					val authTokenRefresher: suspend () -> String? = {
+						try {
+							authManager.forceRefreshToken()
+							authManager.getValidToken()
+						} catch (e: Exception) {
+							Log.e(TAG, "🢄📸 Error refreshing auth token for a rejected stream", e)
+							null
+						}
+					}
+
 					// Process the photos using PhotoWorkerService (fire and forget like web worker)
-					photoWorkerService.processPhotos(messageJson, authTokenProvider)
+					photoWorkerService.processPhotos(messageJson, authTokenProvider, authTokenRefresher)
 
 					//Log.d(TAG, "🢄📸 PhotoWorkerService message processed")
 

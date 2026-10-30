@@ -17,7 +17,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     version = PHOTO_DB_VERSION,
     // Schemas are exported per app (they compile these entities with different
     // Room versions) into shared-kt/schemas/{frontend2,tauri}/ — see
-    // docs/geo-election-test-todo.md item 6. Both agree on the identityHash;
+    // docs/todo/geo-election-test-todo.md item 6. Both agree on the identityHash;
     // the files differ only in how verbosely each Room version writes them.
     //
     // If you change an entity here, COMMIT THE REGENERATED JSON with it: the

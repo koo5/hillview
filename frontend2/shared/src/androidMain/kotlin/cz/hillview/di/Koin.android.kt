@@ -126,6 +126,9 @@ actual fun platformModule(): Module = module {
                     ),
                     settings = get(),
                     freshToken = { tokenStore.freshAccessToken() },
+                    // Same as the Tauri plugin's get_auth_token(force): rotate
+                    // under the shared refresh mutex, then read the new token.
+                    refreshToken = { tokenStore.forceRefresh(); tokenStore.freshAccessToken() },
                 ),
                 // Mapillary rides the same backend stream proxy the original
                 // uses (data.svelte.ts: type stream, url backend/mapillary);
@@ -141,6 +144,9 @@ actual fun platformModule(): Module = module {
                     ),
                     settings = get(),
                     freshToken = { tokenStore.freshAccessToken() },
+                    // Same as the Tauri plugin's get_auth_token(force): rotate
+                    // under the shared refresh mutex, then read the new token.
+                    refreshToken = { tokenStore.forceRefresh(); tokenStore.freshAccessToken() },
                 ),
                 // Panoramax queries its public instance directly (original:
                 // type panoramax, api.panoramax.xyz). Default ON now that

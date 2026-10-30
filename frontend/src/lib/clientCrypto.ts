@@ -262,6 +262,10 @@ export class ClientCryptoManager {
     }
 
     /**
+     * Unused since 2026-10-30: the stream loaders read SSE over fetch / OkHttp
+     * and send the access token in an Authorization header, so no client signs
+     * stream credentials (docs/todo/stream-auth-client-signed-credential-todo.md).
+     *
      * Sign a short-TTL, stream-scoped credential for authenticating SSE streams,
      * where EventSource can't send an Authorization header. Signs the canonical
      * [key_id, "stream", exp] list — the exact shape the server reconstructs and

@@ -15,7 +15,7 @@ its own lock. Dependencies change through `scripts/deps.py` at the repo root.
 - **[Photo analyzer revival](../docs/photo-analyzer-revival.md)**: the LLM photo-analysis service — where its data actually lives (`/shared/analyzer_data` vs the stale docker volume), why there is no pending migration, why coverage is the inverse of what 3-D work needs, and what to point it at instead
 - **[Photo upload workflow](../docs/photo-upload-workflow.md)**: the whole upload flow across the Android client, the API and the worker — states, transitions, error handling, known edge cases (written 2026-02; check it against the code)
 - **[Push notifications](../docs/push-notifications.md)**: what the backend sends (`push_notifications.py`), how Android displays it, and the knobs that control both
-- **[Stream auth credential TODO](../docs/stream-auth-client-signed-credential-todo.md)**: replacing `?token=<access_token>` on stream endpoints with a client-signed credential — backend done, client wiring pending
+- **[Stream auth credential TODO](../docs/todo/stream-auth-client-signed-credential-todo.md)**: how photo streams authenticate — since 2026-10-30 an Authorization header (web over fetch, Kotlin over OkHttp); the legacy `?token=` stays for the released Tauri build; the client-signed credential plan it once held is superseded
 - **[Config-permutation testing](../docs/config-testing-and-runtime-overrides.md)**: design notes, not implemented, for testing prod/dev differences — rate limits, debug gates, worker deployment modes
 - **[Timestamp archeology](../docs/timestamp_archeology.md)**: why Canon and phone photos landed on two `captured_at` time scales, and the one-shot fix — read before re-running an old backfill
 
