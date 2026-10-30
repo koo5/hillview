@@ -10,6 +10,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { PhotoData, SourceConfig } from '../lib/photoWorkerTypes';
 import { handleMessage, reset, start, stop } from './new.worker';
+import { MockSseStream, sseResponse } from '../tests/mocks/sseFetch';
 
 // ─── Debug harness ──────────────────────────────────────────────────────────
 const DEBUG_MSG_FLOW = !!process.env.DEBUG_WORKER_MSG;
@@ -66,58 +67,24 @@ const mockPostMessage = vi.fn().mockImplementation(function(this: any, message: 
   }
 });
 
-// Mock EventSource for streaming tests
-const mockEventSourceInstances = new Map<string, any>();
-// Track close() calls for cancellation testing
-const mockEventSourceCloseCalls: string[] = [];
+// Mock the stream transport: StreamSourceLoader reads SSE over fetch. Each
+// request gets a MockSseStream the test can drive like a server.
+const streamRequests: MockSseStream[] = [];
 
-interface MockEventSourceInstance {
-  url: string;
-  readyState: number;
-  onopen: ((event: Event) => void) | null;
-  onmessage: ((event: MessageEvent) => void) | null;
-  onerror: ((event: Event) => void) | null;
-  close: () => void;
-  addEventListener: (type: string, listener: any) => void;
-  removeEventListener: (type: string, listener: any) => void;
-  dispatchEvent: (event: Event) => boolean;
-}
-
-const MockEventSource = vi.fn().mockImplementation(function(this: any, url: string): MockEventSourceInstance {
-  const instance: MockEventSourceInstance = {
-    url,
-    readyState: 1, // OPEN
-    onopen: null,
-    onmessage: null,
-    onerror: null,
-    close: vi.fn(() => {
-      // Track which source was closed for cancellation testing
-      const sourceMatch = url.match(/example\.com\/([^?]+)/);
-      if (sourceMatch) {
-        mockEventSourceCloseCalls.push(sourceMatch[1]);
-      }
-    }),
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn()
-  };
-
-  mockEventSourceInstances.set(url, instance);
+const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+  const url = String(input);
+  const stream = new MockSseStream(url, init);
+  streamRequests.push(stream);
 
   // `manual-…` sources never emit on their own: the test drives them through
   // emitPhotos / completeStream / failStream, which is how per-source timing
   // (fast source, slow source, hung source) is expressed.
   if (url.includes('manual-')) {
-    queueMicrotask(() => instance.onopen?.(new Event('open')));
-    return instance;
+    return sseResponse(stream);
   }
 
   // Use queueMicrotask for test-friendly async handling
   queueMicrotask(() => {
-    if (instance.onopen) {
-      instance.onopen(new Event('open'));
-    }
-
     // Send test data based on URL
     let testData: any[] = [];
     if (url.includes('source1')) {
@@ -158,69 +125,49 @@ const MockEventSource = vi.fn().mockImplementation(function(this: any, url: stri
     }
 
     // Send photos as stream message (type must be 'photos' to match StreamSourceLoader)
-    if (testData.length > 0 && instance.onmessage) {
-      instance.onmessage(new MessageEvent('message', {
-        data: JSON.stringify({
-          type: 'photos',
-          photos: testData
-        })
-      }));
+    if (testData.length > 0) {
+      stream.emit({ type: 'photos', photos: testData });
     }
 
-    // Send completion message
-    if (instance.onmessage) {
-      instance.onmessage(new MessageEvent('message', {
-        data: JSON.stringify({
-          type: 'stream_complete'
-        })
-      }));
-    }
+    // Send completion message, then end the body as the server does
+    stream.emit({ type: 'stream_complete' });
+    stream.end();
   });
 
-  return instance;
+  return sseResponse(stream);
 });
 
-// Add EventSource static properties
-Object.assign(MockEventSource, {
-  CONNECTING: 0,
-  OPEN: 1,
-  CLOSED: 2,
-  prototype: {}
-});
-
-// EventSource must be global — StreamSourceLoader reads it at call time
-globalThis.EventSource = MockEventSource as any;
+// fetch must be global — StreamSourceLoader reads it at call time
+globalThis.fetch = mockFetch as any;
 
 // ─── Manual stream control (for `manual-…` sources) ─────────────────────────
-function findInstance(urlPart: string): MockEventSourceInstance {
-  const matches = Array.from(mockEventSourceInstances.entries()).filter(([url]) => url.includes(urlPart));
-  if (matches.length === 0) throw new Error(`no EventSource instance for ${urlPart}`);
+function findInstance(urlPart: string): MockSseStream {
+  const matches = streamRequests.filter(stream => stream.url.includes(urlPart));
+  if (matches.length === 0) throw new Error(`no stream request for ${urlPart}`);
   // The most recently created one is the live one (an earlier one may have been cancelled)
-  return matches[matches.length - 1][1];
+  return matches[matches.length - 1];
 }
 
-async function waitForInstance(urlPart: string, timeout = 2000): Promise<MockEventSourceInstance> {
+async function waitForInstance(urlPart: string, timeout = 2000): Promise<MockSseStream> {
   const start = Date.now();
   while (Date.now() - start < timeout) {
-    const hit = Array.from(mockEventSourceInstances.keys()).some(url => url.includes(urlPart));
+    const hit = streamRequests.some(stream => stream.url.includes(urlPart));
     if (hit) return findInstance(urlPart);
     await new Promise(r => setTimeout(r, 5));
   }
-  throw new Error(`Timeout waiting for EventSource ${urlPart}`);
+  throw new Error(`Timeout waiting for stream request ${urlPart}`);
 }
 
 function emitPhotos(urlPart: string, photos: PhotoData[]): void {
-  findInstance(urlPart).onmessage?.(new MessageEvent('message', { data: JSON.stringify({ type: 'photos', photos }) }));
+  findInstance(urlPart).emit({ type: 'photos', photos });
 }
 
 function completeStream(urlPart: string): void {
-  findInstance(urlPart).onmessage?.(new MessageEvent('message', { data: JSON.stringify({ type: 'stream_complete' }) }));
+  findInstance(urlPart).emit({ type: 'stream_complete' });
 }
 
 function failStream(urlPart: string): void {
-  const instance = findInstance(urlPart);
-  instance.readyState = 2; // CLOSED
-  instance.onerror?.(new Event('error'));
+  findInstance(urlPart).fail();
 }
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -269,9 +216,8 @@ describe('New Worker Integration Tests', () => {
     messageId = 1;
     testStartTime = Date.now();
     mockPostMessage.mockClear();
-    MockEventSource.mockClear();
-    mockEventSourceInstances.clear();
-    mockEventSourceCloseCalls.length = 0;
+    mockFetch.mockClear();
+    streamRequests.length = 0;
 
     // Fresh worker state + inject mock postMessage
     reset({ postMessage: mockPostMessage });
@@ -397,7 +343,7 @@ describe('New Worker Integration Tests', () => {
   });
 
   it('should apply smart culling for many photos', async () => {
-    // MockEventSource creates 1000 bulk photos spread across a grid
+    // The stream mock creates 1000 bulk photos spread across a grid
     // lat = 50.0 + (i % 20) * 0.01, lng = 10.0 + floor(i/20) * 0.01
     const sources = [createStreamSource('bulk-source')];
 
@@ -429,7 +375,7 @@ describe('New Worker Integration Tests', () => {
   });
 
   it('should sort photosInRange by bearing', async () => {
-    // MockEventSource sends bearing-test photos with UNSORTED bearings: 270, 45, 180, 0, 90
+    // The stream mock sends bearing-test photos with UNSORTED bearings: 270, 45, 180, 0, 90
     // This verifies the worker actually sorts them, not just returns pre-sorted data
     const sources = [createStreamSource('bearing-test')];
     await sendMessage('configUpdated', {
@@ -480,7 +426,10 @@ describe('New Worker Integration Tests', () => {
     // Should only have photos from enabled source
     const photoIds = response.photos_in_area.map((p: PhotoData) => p.id);
     expect(photoIds).toContain('photo1'); // From enabled source (source1)
-    expect(MockEventSource).toHaveBeenCalledTimes(1); // Only called for enabled source
+    expect(mockFetch).toHaveBeenCalledTimes(1); // Only called for enabled source
+    // The token rides in the Authorization header, never in the URL
+    expect(streamRequests[0].headers['authorization']).toBe('Bearer test-auth-token-12345');
+    expect(new URL(streamRequests[0].url).searchParams.has('token')).toBe(false);
   });
 
   it('should filter photos by actual distance from map center', async () => {
@@ -750,8 +699,8 @@ describe('New Worker Integration Tests', () => {
       const live = await waitForInstance('manual-a');
       expect(live).not.toBe(stale);
 
-      // … and a batch it still had in flight is ignored.
-      stale.onmessage?.(new MessageEvent('message', { data: JSON.stringify({ type: 'photos', photos: [p('stale1')] }) }));
+      // … and a batch the server still sends it is ignored.
+      stale.emit({ type: 'photos', photos: [p('stale1')] });
       emitPhotos('manual-a', [p('live1')]);
       completeStream('manual-a');
 
@@ -803,7 +752,7 @@ describe('New Worker Integration Tests', () => {
         return ids(await waitForPhotosUpdate(sentAt));
       };
       const xFirst = await run('manual-x', a, 'manual-y', b);
-      reset({ postMessage: mockPostMessage }); start(); mockEventSourceInstances.clear();
+      reset({ postMessage: mockPostMessage }); start(); streamRequests.length = 0;
       const yFirst = await run('manual-y', b, 'manual-x', a);
       expect(xFirst).toEqual(yFirst);
       expect(xFirst).toHaveLength(4);

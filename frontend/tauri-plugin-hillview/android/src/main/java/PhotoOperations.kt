@@ -17,7 +17,8 @@ interface DeviceLoading {
 interface StreamLoading {
     suspend fun load(
         source: SourceConfig, bounds: Bounds?, maxPhotos: Int, authToken: String?, shouldAbort: () -> Boolean,
-        picks: Set<String>, queryOptionsJson: String?, onBatch: ((List<PhotoData>) -> Unit)?
+        picks: Set<String>, queryOptionsJson: String?, onBatch: ((List<PhotoData>) -> Unit)?,
+        refreshAuthToken: (suspend () -> String?)?
     ): List<PhotoData>
 }
 
@@ -35,8 +36,9 @@ private class RealStreamLoading : StreamLoading {
     private val loader = StreamPhotoLoader()
     override suspend fun load(
         source: SourceConfig, bounds: Bounds?, maxPhotos: Int, authToken: String?, shouldAbort: () -> Boolean,
-        picks: Set<String>, queryOptionsJson: String?, onBatch: ((List<PhotoData>) -> Unit)?
-    ) = loader.loadPhotos(source, bounds, maxPhotos, authToken, shouldAbort, picks, queryOptionsJson, onBatch)
+        picks: Set<String>, queryOptionsJson: String?, onBatch: ((List<PhotoData>) -> Unit)?,
+        refreshAuthToken: (suspend () -> String?)?
+    ) = loader.loadPhotos(source, bounds, maxPhotos, authToken, shouldAbort, picks, queryOptionsJson, onBatch, refreshAuthToken)
 }
 
 private class RealPanoramaxLoading : PanoramaxLoading {
@@ -137,7 +139,10 @@ class PhotoOperations(
         messageId: Int,
         config: ConfigData,
         shouldAbort: () -> Boolean,
-        authTokenProvider: suspend () -> String?
+        authTokenProvider: suspend () -> String?,
+        // Refreshes the session unconditionally and returns the new token; the
+        // stream loader calls it once when the server answers 401.
+        authTokenRefresher: (suspend () -> String?)? = null
     ): List<PhotoData> {
         if (doLog) Log.d(TAG, "PhotoOperations: Processing config update ($processId)")
 
@@ -185,7 +190,7 @@ class PhotoOperations(
                     }
                     "stream" -> {
                         val authToken = authTokenProvider()
-                        streamLoader.load(source, null, maxPhotosInArea, authToken, shouldAbort, sourcePickIds, queryOptionsJson, null)
+                        streamLoader.load(source, null, maxPhotosInArea, authToken, shouldAbort, sourcePickIds, queryOptionsJson, null, authTokenRefresher)
                     }
                     "panoramax" -> {
                         val authToken = authTokenProvider()
@@ -236,6 +241,7 @@ class PhotoOperations(
         bounds: Bounds,
         shouldAbort: () -> Boolean,
         authTokenProvider: suspend () -> String?,
+        authTokenRefresher: (suspend () -> String?)? = null,
         onSourceLoadingStatus: ((sourceId: String, isLoading: Boolean, progress: String?, error: String?) -> Unit)? = null,
         onSourcePhotos: ((sourceId: String, photos: List<PhotoData>) -> Unit)? = null
     ): Map<String, List<PhotoData>> {
@@ -282,10 +288,10 @@ class PhotoOperations(
                                 }
                                 "stream" -> {
                                     val authToken = authTokenProvider()
-                                    streamLoader.load(source, bounds, maxPhotosInArea, authToken, shouldAbort, sourcePickIds, queryOptionsJson) { batch ->
+                                    streamLoader.load(source, bounds, maxPhotosInArea, authToken, shouldAbort, sourcePickIds, queryOptionsJson, onBatch = { batch ->
                                         // A batch of a superseded area is nobody's news.
                                         if (!shouldAbort()) onSourcePhotos?.invoke(source.id, batch)
-                                    }
+                                    }, refreshAuthToken = authTokenRefresher)
                                 }
                                 "panoramax" -> {
                                     val authToken = authTokenProvider()

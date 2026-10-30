@@ -1,6 +1,43 @@
 # Stream auth: replace `?token=<access_token>` with a client-signed credential — TODO
 
-Status: **backend DONE (2026-07-08); client wiring PENDING.** Auth-review finding #5.
+Status: **superseded 2026-10-30 by header auth.** Auth-review finding #5.
+
+## Decision (2026-10-30): send the access token in a header
+
+Both stream loaders now send `Authorization: Bearer <access token>` and no
+longer put the token in the URL, which was the leak this file set out to fix:
+
+- **Web** (`frontend/src/lib/sources/StreamSourceLoader.ts`): reads the SSE body
+  with `fetch` + `ReadableStream` in the worker instead of `EventSource`, through
+  a small `SseDataParser`. The HTTP status is now visible: a 401 is retried
+  once with a forcibly refreshed token, a 4xx other than 401 is not retried, a
+  network failure or 5xx before the stream opens is retried once as before.
+- **Kotlin** (shared-kt `StreamPhotoLoader`, used by the Tauri plugin's photo
+  worker and by frontend2): OkHttp sets the header; a 401 throws
+  `StreamHttpException` and is retried once with a token from the caller's
+  refresher (Tauri plugin: `AuthenticationManager.forceRefreshToken`, the same
+  path as `get_auth_token(force)`; frontend2: `TokenStore.forceRefresh`). The
+  old retry matched "401" in an exception message and reused the same token.
+- **Backend: unchanged.** `get_current_user_optional_with_query` already reads
+  the header first. The legacy `?token=` branch stays: the released Tauri
+  build sends it, and the constraint is that the released build keeps working
+  after the production API is updated. Remove it only once that release is
+  retired (frontend2 is expected to replace it).
+
+Consequences:
+
+- The client-signed stream credential is no longer needed by any client.
+  `verify_stream_credential` and its `stream_*` branch stay in the backend,
+  tested and unused; no shipped client sends `stream_*` params, so removing
+  them is safe whenever convenient. `clientCrypto.signStreamAuth` is likewise
+  unused.
+- The in-band `auth_error` idea below is moot: the status is readable now.
+- In July 2026 the fetch option was weighed and rejected for a web-side reason
+  that was not written down. This time the switch was made and the full
+  Playwright suite (chromium, firefox, webkit) is the check; if that reason
+  resurfaces, record it here.
+
+Everything below is the earlier plan and analysis, kept for reference.
 
 ## Done (backend, verifiable + shipped behind legacy compat)
 
@@ -48,6 +85,8 @@ Kotlin worker; the loader never runs there on Android.) So the wiring is:
   clients age out.
 
 ## Client key registration and error visibility (2026-10-30)
+
+(Superseded the same day by the decision at the top of this file.)
 
 Found while making web login survive a stalled `register-client-key`
 (docs/todo/load-resilience.md). The credential is signed with the device's

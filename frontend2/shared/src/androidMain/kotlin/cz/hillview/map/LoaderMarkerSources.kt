@@ -135,6 +135,11 @@ class StreamMarkerSource(
     private val settings: MapSettingsRepository,
     /** Logged-in queries see the user's own private photos too. */
     private val freshToken: suspend () -> String?,
+    /**
+     * Forces a session refresh and returns the new token; the loader calls it
+     * once when the server rejects [freshToken]'s token with a 401.
+     */
+    private val refreshToken: (suspend () -> String?)? = null,
 ) : PhotoMarkerSource {
     private val loader = StreamPhotoLoader()
     private val gate = RefetchGate(REFETCH_MS)
@@ -178,6 +183,7 @@ class StreamMarkerSource(
                     // re-merges on each publish, so markers fill in while the
                     // stream is still open instead of at stream_complete.
                     onBatch = { partial -> _markers.value = partial.map { it.toMarker() } },
+                    refreshAuthToken = refreshToken,
                 )
             }
             _markers.value = photos.map { it.toMarker() }
