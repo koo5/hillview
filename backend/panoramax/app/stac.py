@@ -15,7 +15,9 @@ against its schema and code):
 """
 import json
 from datetime import datetime, timezone
+from pathlib import PurePosixPath
 from typing import Any
+from urllib.parse import urlsplit
 
 STAC_VERSION = '1.0.0'
 
@@ -34,6 +36,23 @@ def fmt_dt(dt: datetime | None) -> str | None:
 	return dt.astimezone(timezone.utc).isoformat(timespec='microseconds')
 
 
+# Asset media types by file suffix. Most derivatives are WebP, but older
+# photos and the Tigris pool carry JPEG, and clients that select assets on
+# `image/jpeg` only find those when the type says so. Not `mimetypes`: whether
+# it knows .webp depends on the host's mime.types, and this image's does not.
+_MEDIA_TYPES = {
+	'.webp': 'image/webp',
+	'.jpg': 'image/jpeg',
+	'.jpeg': 'image/jpeg',
+	'.png': 'image/png',
+}
+
+
+def media_type(url: str) -> str | None:
+	"""The image media type a URL's file suffix names, or None if unknown."""
+	return _MEDIA_TYPES.get(PurePosixPath(urlsplit(url).path).suffix.lower())
+
+
 def _numeric_variants(sizes: dict[str, Any]) -> dict[int, dict]:
 	"""The plain downscale variants ('320', '2048', ...) — excludes 'full',
 	'*_crop' and '*_llm' keys. JSON object keys are always strings even though
@@ -50,8 +69,8 @@ def pick_assets(sizes: dict[str, Any]) -> dict[str, Any] | None:
 
 	hd -> 'full', sd -> 2048-ish, thumb -> 640-ish. Fast-mode processing has no
 	640 variant and narrow sources may lack larger ones, hence fallback chains.
-	All derivatives are WebP (risk noted in docs: the ecosystem tends to assume
-	jpeg; the fallback plan is jpeg derivatives, not serving different URLs).
+	Each asset's type comes from its file suffix (`media_type`): most
+	derivatives are WebP, some photos' are JPEG.
 	Returns None when no usable asset exists (photo shouldn't be served then).
 	"""
 	if isinstance(sizes, str):
@@ -84,10 +103,13 @@ def pick_assets(sizes: dict[str, Any]) -> dict[str, Any] | None:
 	def asset(info: dict, title: str, roles: list[str]) -> dict:
 		a = {
 			'href': info['url'],
-			'type': 'image/webp',
+			'type': media_type(info['url']),
 			'title': title,
 			'roles': roles,
 		}
+		if a['type'] is None:
+			# An unknown suffix gets no type rather than a guessed one.
+			del a['type']
 		if info.get('width'):
 			a['width'] = info['width']
 		if info.get('height'):

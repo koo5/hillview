@@ -4,7 +4,7 @@ meta-catalog's jsonb_date() rejects 'Z')."""
 import json
 from datetime import datetime, timezone
 
-from stac import collection_json, fmt_dt, item_json, pick_assets, provider_name, with_query
+from stac import collection_json, fmt_dt, item_json, media_type, pick_assets, provider_name, with_query
 
 # Worker layouts (photo_processor.create_optimized_sizes): JSON object keys are
 # strings after persistence. Fast mode has no 640.
@@ -217,3 +217,28 @@ class TestWithQuery:
 
 	def test_no_query_no_question_mark(self):
 		assert with_query('https://hv.example/geovisio/api/collections', '') == 'https://hv.example/geovisio/api/collections'
+
+
+class TestMediaType:
+	def test_by_suffix(self):
+		assert media_type('https://pics/opt/640/a.webp') == 'image/webp'
+		assert media_type('https://pics4.t3.storage.dev/opt/1024/a.jpg') == 'image/jpeg'
+		assert media_type('https://pics/a.JPEG') == 'image/jpeg'
+		assert media_type('https://pics/a.png') == 'image/png'
+
+	def test_query_and_unknown(self):
+		assert media_type('https://pics/a.jpg?v=2') == 'image/jpeg'
+		assert media_type('https://pics/a') is None
+		assert media_type('https://pics/a.tiff') is None
+
+	def test_assets_declare_each_files_own_type(self):
+		# A JPEG original with WebP derivatives, as on older photos.
+		sizes = {**FULL_SIZES, 'full': {'url': 'https://pics/full.jpg', 'width': 4000, 'height': 3000}}
+		assets = pick_assets(sizes)
+		assert assets['hd']['type'] == 'image/jpeg'
+		assert assets['sd']['type'] == 'image/webp'
+		assert assets['thumb']['type'] == 'image/webp'
+
+	def test_unknown_suffix_gets_no_type(self):
+		assets = pick_assets({'full': {'url': 'https://pics/full', 'width': 10, 'height': 10}})
+		assert 'type' not in assets['hd']

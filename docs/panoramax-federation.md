@@ -261,6 +261,11 @@ at quality 75, `thumb` = 500px at quality 75 (a 500×300 centre-crop for 360°),
 tiles at 95; the thumbnail is a plain PIL resize, **not** an EXIF-embedded one
 (there is no vips or exiftool anywhere in their API).
 
+Not every photo is WebP, though: older photos and the Tigris pool carry JPEG
+files (4,146 of the 10,920 photos a 2026-10-30 mirror of prod published), and
+`stac.pick_assets` declares each asset's type from its file suffix, so those
+assets are `image/jpeg` and the JPEG-only client paths below work for them.
+
 We are nonetheless the only WebP producer in the federation. The federation
 itself imposes no format requirement and the meta-catalog is format-agnostic
 (it stores hrefs verbatim and 308-redirects), but **three places in the
