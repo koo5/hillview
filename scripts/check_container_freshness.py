@@ -246,8 +246,7 @@ def check_baked_origin(container):
 	      f"bundle carries {', '.join(culprits) if culprits else 'no known profile URL'}.")
 	print("    VITE_* is baked at build time, so this image was built for another")
 	print("    profile — the app will call the wrong host. Rebuild it:")
-	print("      docker compose -f docker-compose.yml -f docker-compose.dev.yml "
-	      "up -d --build frontend")
+	print("      ./compose.sh up -d --build frontend")
 	return 1
 
 

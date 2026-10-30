@@ -37,7 +37,7 @@ Profiles are declared in hosts.toml (gitignored; format in hosts.example.toml),
 built by scripts/host_profiles.py. Restart the stack afterwards — api
 and worker read these at container start:
 
-    docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+    ./compose.sh up -d
 """
 import argparse
 import json
@@ -56,7 +56,10 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BEGIN = "# >>> set_host:"
 END = "# <<< set_host"
 
-COMPOSE = ["docker", "compose", "-f", "docker-compose.yml", "-f", "docker-compose.dev.yml"]
+# compose.sh pins the env-file order (.env, then .env.dev) and the dev overlay;
+# verifying against a bare `docker compose -f …` would check a config without
+# .env.dev, i.e. not the one the stack actually runs.
+COMPOSE = [os.path.join(REPO, "compose.sh")]
 
 # Always the published api port, in every profile: Caddy proxies /api to this
 # same port, so it does not move when the browser-facing host does.
@@ -175,7 +178,7 @@ def verify(expected):
 	resolved, problem = compose_resolved()
 	if resolved is None:
 		print(f"\nnot verified: {problem}")
-		print("  check by hand: docker compose -f docker-compose.yml -f docker-compose.dev.yml config")
+		print("  check by hand: ./compose.sh config")
 		return True
 	ok = True
 	for key, want in expected.items():
@@ -338,11 +341,11 @@ def main():
 	})
 
 	print("\nrestart the stack so api/worker pick this up:")
-	print("  docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d")
+	print("  ./compose.sh up -d")
 	if profile["frontend_url"]:
 		print("\nthis profile serves the BUILT frontend container, which holds no source —")
 		print("rebuild it after frontend/src changes or you test stale code:")
-		print("  docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build frontend")
+		print("  ./compose.sh up -d --build frontend")
 	return 0 if ok else 1
 
 

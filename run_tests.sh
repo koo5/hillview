@@ -18,7 +18,10 @@
 set -e
 cd "$(dirname "$(readlink -f -- "$0")")"
 
-COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.dev.yml)
+# compose.sh, not a hand-built `docker compose -f …`: it pins the env-file order
+# (.env, then .env.dev) as well as the dev overlay, so the containers started
+# here are the ones every other dev command starts, not a variant without .env.dev.
+COMPOSE=(./compose.sh)
 
 echo "=================== web leg ==================="
 python3 scripts/set_host.py --for web
