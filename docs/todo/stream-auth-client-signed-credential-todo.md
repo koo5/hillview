@@ -57,36 +57,34 @@ cannot tell "key not registered" (re-register, then retry) from "credential
 expired" (re-sign, then retry) from "token gone" (log out). Today it would
 have to guess, and the two heals are different.
 
-Ways out, in order of how much they remove rather than add:
+Ways out. Reading the SSE body with `fetch` (Authorization header, no token
+in the URL, no credential at all) was weighed hard in July 2026 before this
+plan was chosen, and lost to a web-side constraint; Android was never the
+constraint (its loader is OkHttp and can set any header). The reason itself
+was not written down at the time, so it is not restated here; re-establish it
+before re-opening that option.
 
-- **Stop using EventSource; read the SSE body with `fetch`.** The loader
-  already runs in a web worker, where `fetch` + `ReadableStream` is available
-  on web and in the Tauri webview alike. A fetch can carry an `Authorization`
-  header, so the token never has to be in the URL at all — which was the whole
-  reason for the signed credential. The status and the error body become
-  ordinary values the existing 401 handling can act on, the watchdog and
-  reconnect logic the loader already has stay, and the browser's hidden
-  EventSource auto-reconnect (which fires blind against a 401 forever) goes
-  away. This makes most of this file moot; the credential would remain only
-  if some consumer truly cannot send headers.
-- **If EventSource stays, deliver auth failures in-band.** The one thing an
-  EventSource can read is an event. The stream endpoints would answer an
-  unverifiable credential with 200 and a single
-  `event: auth_error` / `data: {"error_code": "stream_key_not_registered" | "stream_credential_expired" | "unauthorized"}`
-  and then close; the client acts on the code and closes the source so the
+- **Deliver auth failures in-band.** The one thing an EventSource can read is
+  an event. The stream endpoints answer an unverifiable credential — and,
+  usefully, an expired legacy `?token=` too — with 200 and a single
+  `event: auth_error` / `data: {"error_code": "stream_key_not_registered" | "stream_credential_expired" | "unauthorized"}`,
+  then close. The client acts on the code and closes the source so the
   browser does not reconnect blind. Unconventional (a 200 for an auth
-  failure), but it is the only channel the transport offers, and it stays
-  additive: the 401 remains for requests without a credential.
+  failure), but it is the only channel the transport offers, and additive:
+  the 401 stays for requests that carry no credential at all. Scope: a
+  non-raising variant of the stream auth dependency returning user-or-reason,
+  one event at the top of the two stream generators (hillview_routes,
+  mapillary_routes), and a handler in the web and Kotlin loaders. The
+  preferred option.
 - **Make the ambiguity not matter.** Await `ensureClientKeyRegistered()`
   (frontend/src/lib/clientKeyRegistration.ts) before signing, re-sign with a
   fresh `exp` on every connect, and on an immediate error do a single blind
   heal (re-register the key, re-sign, reconnect once) before treating the
-  session as gone. Cheapest, and good enough while the two above are not
-  done, but it still guesses.
+  session as gone. Cheapest, still a guess; the loader already does a blind
+  forced token refresh on retry today.
 
 A probe `fetch` of the same URL to read the status was considered and dropped:
-it opens a second stream per failed connect just to read a header, and once a
-fetch is in play the first option is the right one.
+it opens a second stream per failed connect just to read a header.
 
 On Android the key is registered by AuthenticationManager.storeAuthToken, best
 effort, and healed by PhotoUploadLogic; the stream has no heal of its own
