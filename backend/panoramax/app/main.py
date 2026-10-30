@@ -27,7 +27,7 @@ import settings
 from cql import FilterParseError, parse_collections_filter
 from db import get_engine
 from eligibility import ELIGIBLE_PHOTO_WHERE, PHOTO_ORDER_BY
-from stac import STAC_VERSION, collection_json, fmt_dt, item_json, with_query
+from stac import STAC_VERSION, collection_json, fmt_dt, item_json, photo_map_url, with_query
 
 logger = logging.getLogger('panoramax.api')
 
@@ -88,12 +88,36 @@ def _as_uuid(value: str, status_code: int = 404) -> uuid_mod.UUID:
 		raise HTTPException(status_code=status_code, detail='Not a valid id')
 
 
+async def _served_photo_map_url(pic: str) -> str | None:
+	"""The viewer's map URL for a photo this service serves, else None: an
+	id that is malformed, unknown or not federated reveals nothing."""
+	try:
+		photo_id = str(uuid_mod.UUID(pic))
+	except ValueError:
+		return None
+	scope = settings.active_scope()
+	async with get_engine().connect() as conn:
+		r = (await conn.execute(text(f"""
+			SELECT ST_Y(p.geometry), ST_X(p.geometry), p.compass_angle
+			FROM panoramax.sequence_photos sp
+			JOIN photos p ON p.id = sp.photo_id
+			JOIN users u ON u.id = p.owner_id
+			WHERE p.id = :photo_id AND {ELIGIBLE_PHOTO_WHERE}
+		"""), {'photo_id': photo_id, 'scope_legal_rights': list(scope.legal_rights)})).first()
+	if r is None:
+		return None
+	return photo_map_url(settings.viewer_url(), photo_id, r[0], r[1], r[2])
+
+
 @app.get('/')
-async def root() -> RedirectResponse:
+async def root(pic: str | None = Query(default=None)) -> RedirectResponse:
 	# Humans arrive here from the catalog's per-item rel=via link, which points
-	# at the registered instance URL. Send them to the viewer, not to STAC JSON
-	# (the harvester only ever requests /api/*).
-	return RedirectResponse(url=settings.viewer_url())
+	# at the registered instance URL. The web viewer's "Origin instance" link
+	# appends the explorer's own query string, so `pic` names the photo being
+	# looked at: send them to that photo on the viewer's map, else to its start
+	# page, never to STAC JSON (the harvester only ever requests /api/*).
+	target = await _served_photo_map_url(pic) if pic else None
+	return RedirectResponse(url=target or settings.viewer_url())
 
 
 @app.get('/api/health')

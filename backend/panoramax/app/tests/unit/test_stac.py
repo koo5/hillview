@@ -4,7 +4,7 @@ meta-catalog's jsonb_date() rejects 'Z')."""
 import json
 from datetime import datetime, timezone
 
-from stac import collection_json, fmt_dt, item_json, media_type, pick_assets, provider_name, with_query
+from stac import collection_json, fmt_dt, item_json, media_type, photo_map_url, pick_assets, provider_name, with_query
 
 # Worker layouts (photo_processor.create_optimized_sizes): JSON object keys are
 # strings after persistence. Fast mode has no 640.
@@ -242,3 +242,14 @@ class TestMediaType:
 	def test_unknown_suffix_gets_no_type(self):
 		assets = pick_assets({'full': {'url': 'https://pics/full', 'width': 10, 'height': 10}})
 		assert 'type' not in assets['hd']
+
+
+class TestPhotoMapUrl:
+	# The shape of the frontend's constructPhotoMapPath.
+	def test_with_bearing(self):
+		assert photo_map_url('https://hillview.cz', 'abc', 50.0781234567, 14.4719, 52.5) == \
+			'https://hillview.cz/?lat=50.0781235&lon=14.4719&zoom=18&bearing=52.5&photo=hillview-abc'
+
+	def test_without_bearing(self):
+		assert photo_map_url('https://hillview.cz', 'abc', 50.0, 14.0, None) == \
+			'https://hillview.cz/?lat=50.0&lon=14.0&zoom=18&photo=hillview-abc'

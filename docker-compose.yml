@@ -336,8 +336,10 @@ services:
       # characters must not be '/', 'a', 'p' or 'i' (the catalog rstrip("/api")s
       # the whole string); any *.hillview.cz host is safe.
       - PANORAMAX_BASE_URL=${PANORAMAX_BASE_URL:-http://localhost:8058}
-      # Where "/" sends humans following the catalog's per-item rel=via link
-      - PANORAMAX_VIEWER_URL=${PANORAMAX_VIEWER_URL:-https://hillview.cz}
+      # Where "/" sends humans following the catalog's per-item rel=via link:
+      # the stack's own frontend (FRONTEND_URL, which set_host.py writes from
+      # the host profile) unless overridden, else hillview.cz
+      - PANORAMAX_VIEWER_URL=${PANORAMAX_VIEWER_URL:-${FRONTEND_URL:-https://hillview.cz}}
       - PANORAMAX_INSTANCE_NAME=${PANORAMAX_INSTANCE_NAME:-Hillview}
       # The logo the meta-catalog shows for us (/api/configuration `logo`)
       - PANORAMAX_LOGO_URL=${PANORAMAX_LOGO_URL:-https://hillview.cz/favicon.png}

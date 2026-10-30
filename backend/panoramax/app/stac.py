@@ -17,7 +17,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 STAC_VERSION = '1.0.0'
 
@@ -46,6 +46,16 @@ _MEDIA_TYPES = {
 	'.jpeg': 'image/jpeg',
 	'.png': 'image/png',
 }
+
+
+def photo_map_url(viewer_url: str, photo_id: str, lat: float, lon: float, bearing: float | None) -> str:
+	"""Hillview's map view of one photo, the shape of the frontend's
+	constructPhotoMapPath (frontend/src/lib/urlUtilsServer.ts)."""
+	params: dict[str, Any] = {'lat': round(lat, 7), 'lon': round(lon, 7), 'zoom': 18}
+	if bearing is not None:
+		params['bearing'] = bearing
+	params['photo'] = f'hillview-{photo_id}'
+	return f'{viewer_url}/?{urlencode(params)}'
 
 
 def media_type(url: str) -> str | None:

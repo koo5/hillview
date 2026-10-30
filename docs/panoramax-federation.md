@@ -49,6 +49,14 @@ on the registered one. Hence `/` on this service **redirects to
 `PANORAMAX_VIEWER_URL`** (hillview.cz) rather than serving STAC JSON: the
 catalog attaches a `rel=via` link to every harvested item pointing at the
 registered instance URL, presented to users as "Link to the original instance".
+The web viewer shows it as "Origin instance" and appends the explorer's own
+query string to it, so `/?…&pic=<item id>` arrives here: for a photo we serve,
+`/` redirects to that photo on the viewer's map
+(`/?lat=…&lon=…&zoom=18&bearing=…&photo=hillview-<id>`, the frontend's
+`constructPhotoMapPath` shape); any other `pic` gets the plain redirect. On a
+dev vhost the registered URL ends in `/geovisio` with no slash, which the
+`handle_path /geovisio/*` route does not match: the vhost also needs
+`redir /geovisio /geovisio/?{query} 308`.
 
 
 ## Scope and licensing
@@ -364,8 +372,8 @@ Env knobs: `PANORAMAX_SCOPE` (default `p1`), `PANORAMAX_BEARING_BUCKETS` (8),
 `PANORAMAX_SESSION_GAP_HOURS` (0.25), `PANORAMAX_SEQUENCER_INTERVAL_S` (300), `PANORAMAX_SEQUENCER_ENABLED`
 (true — set false to run the API without the in-process sequencer),
 `PANORAMAX_INSTANCE_NAME` (Hillview), `PANORAMAX_VIEWER_URL`
-(`https://hillview.cz` — where `/` redirects humans arriving from the
-catalog's per-item `rel=via` link), `PANORAMAX_LOGO_URL`
+(the stack's `FRONTEND_URL` if set, else `https://hillview.cz` — where `/`
+redirects humans arriving from the catalog's per-item `rel=via` link), `PANORAMAX_LOGO_URL`
 (`https://hillview.cz/favicon.png` — `/api/configuration`'s `logo`, which the
 meta-catalog stores and serves at `/api/instances/<name>/logo`; the web
 viewer's picture panel always asks explore.panoramax.fr for it, so it shows
