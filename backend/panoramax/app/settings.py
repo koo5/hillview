@@ -71,6 +71,13 @@ def viewer_url() -> str:
 	return os.getenv('PANORAMAX_VIEWER_URL', 'https://hillview.cz').rstrip('/')
 
 
+def logo_url() -> str:
+	"""The logo the meta-catalog shows for this instance. It stores
+	/api/configuration's `logo` and /api/instances/<name>/logo redirects to it;
+	the web viewer's picture panel asks the public catalog for that URL."""
+	return os.getenv('PANORAMAX_LOGO_URL', 'https://hillview.cz/favicon.png')
+
+
 def instance_name() -> str:
 	# Unique key in the meta-catalog's `instances` table (the URL is not
 	# unique, the name is).

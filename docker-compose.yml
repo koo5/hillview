@@ -339,6 +339,8 @@ services:
       # Where "/" sends humans following the catalog's per-item rel=via link
       - PANORAMAX_VIEWER_URL=${PANORAMAX_VIEWER_URL:-https://hillview.cz}
       - PANORAMAX_INSTANCE_NAME=${PANORAMAX_INSTANCE_NAME:-Hillview}
+      # The logo the meta-catalog shows for us (/api/configuration `logo`)
+      - PANORAMAX_LOGO_URL=${PANORAMAX_LOGO_URL:-https://hillview.cz/favicon.png}
       - PANORAMAX_SCOPE=${PANORAMAX_SCOPE:-p1}
       - PANORAMAX_BEARING_BUCKETS=${PANORAMAX_BEARING_BUCKETS:-8}
       - PANORAMAX_SESSION_GAP_HOURS=${PANORAMAX_SESSION_GAP_HOURS:-3}

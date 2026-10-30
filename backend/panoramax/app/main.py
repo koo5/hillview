@@ -145,6 +145,7 @@ async def configuration() -> dict:
 	scope = settings.active_scope()
 	return {
 		'name': settings.instance_name(),
+		'logo': settings.logo_url(),
 		# Placeholder declaration until the panoramax outflow wording is final.
 		'description': (
 			'Hillview (https://hillview.cz) serves a Panoramax-compatible read API. '

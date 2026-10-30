@@ -356,7 +356,11 @@ Env knobs: `PANORAMAX_SCOPE` (default `p1`), `PANORAMAX_BEARING_BUCKETS` (8),
 (true — set false to run the API without the in-process sequencer),
 `PANORAMAX_INSTANCE_NAME` (Hillview), `PANORAMAX_VIEWER_URL`
 (`https://hillview.cz` — where `/` redirects humans arriving from the
-catalog's per-item `rel=via` link).
+catalog's per-item `rel=via` link), `PANORAMAX_LOGO_URL`
+(`https://hillview.cz/favicon.png` — `/api/configuration`'s `logo`, which the
+meta-catalog stores and serves at `/api/instances/<name>/logo`; the web
+viewer's picture panel always asks explore.panoramax.fr for it, so it shows
+only once we are registered there).
 
 ## Registration
 
