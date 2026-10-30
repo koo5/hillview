@@ -300,11 +300,15 @@ format's ~25-34% advantage also lands at its low end for complex natural scenes.
 
 `api.panoramax.xyz` fetches assets in the browser, so the asset host must send
 permissive CORS — this has broken at least three instances right after they
-joined. Current state: `pics.hillview.cz` sends
-`Access-Control-Allow-Origin: *` ✅, but the **Tigris CDN
-(`pics4.t3.storage.dev`) sends no CORS headers at all** ❌. No federated photo
-lives there today (863 non-CC photos do), so it is a latent trap: configure
-the bucket's CORS policy before any federated photo is written to that pool.
+joined. The web viewer draws a photo as a WebGL texture, so without the header
+the picture stays black (Firefox names the CORS block in its console; Chromium
+stays silent). Current state: both asset hosts send
+`Access-Control-Allow-Origin: *` ✅ — `pics.hillview.cz` from its Caddy vhost,
+the Tigris bucket (`pics4.t3.storage.dev`) from a bucket CORS rule (origins
+`*`, methods GET and HEAD), added 2026-10-30 after a dev mirror of prod with
+every photo shared published 274 photos from that pool and drew them black.
+The viewer fetches assets with plain anonymous GETs (no preflight, no
+credentials), so nothing beyond that rule is needed.
 
 The **instance API itself** is also CORS-open (added 2026-08-30), but this is
 **optional, not a federation requirement** — the earlier claim that the viewer
