@@ -92,6 +92,16 @@ describe('secureUpload', () => {
 	describe('secureUploadFile', () => {
 		const file = new File(['photo data'], 'test.jpg', { type: 'image/jpeg' });
 
+		it('does not wait for, or fail on, a stalled or failing key registration', async () => {
+			// A registration that never settles, then one that fails: the upload
+			// goes ahead either way and relies on authorize-upload's 409 heal.
+			mockEnsureKey.mockReturnValueOnce(new Promise(() => {}));
+			await expect(secureUploadFile(file, '', true)).resolves.toMatchObject({ success: true });
+			mockEnsureKey.mockRejectedValueOnce(new Error('register-client-key 503'));
+			await expect(secureUploadFile(file, '', true)).resolves.toMatchObject({ success: true });
+			expect(mockRequestAuth).toHaveBeenCalledTimes(2);
+		});
+
 		it('sends the explicit Panoramax choice to authorization', async () => {
 			await secureUploadFile(file, '', true, undefined, 'panoramax_in', undefined, true);
 			expect(mockRequestAuth.mock.calls[0][1]).toMatchObject({ license: 'panoramax_in', panoramax_share: true });
@@ -103,10 +113,9 @@ describe('secureUpload', () => {
 			// 1. Calculate hash
 			expect(mockCalcHash).toHaveBeenCalledWith(file);
 
-			// 2. Request auth (first arg is the authFetch callback, second is the request),
-			//    only once the server is known to have this device's key
+			// 2. Request auth (first arg is the authFetch callback, second is the request).
+			//    Key registration is kicked, not awaited: authorize-upload heals a missing key.
 			expect(mockEnsureKey).toHaveBeenCalledTimes(1);
-			expect(mockEnsureKey.mock.invocationCallOrder[0]).toBeLessThan(mockRequestAuth.mock.invocationCallOrder[0]);
 			expect(mockRequestAuth).toHaveBeenCalledTimes(1);
 			const authRequest = mockRequestAuth.mock.calls[0][1];
 			expect(authRequest.filename).toBe('test.jpg');

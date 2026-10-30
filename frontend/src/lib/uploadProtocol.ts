@@ -226,9 +226,11 @@ export async function requestUploadAuthorization(
 				response.status === 409 &&
 				error?.detail?.error_code === 'client_key_not_registered'
 			) {
-				keyReRegistered = true;
 				console.warn('🔐 authorize-upload: client key not registered on the server; re-registering and retrying once');
 				await registerClientKey(authFetch);
+				// Only a registration that went through uses up the heal: one that
+				// failed transiently goes round the retry loop and heals again.
+				keyReRegistered = true;
 				attempt--; // the healed retry is not a failure, so it does not spend the retry budget
 				continue;
 			}

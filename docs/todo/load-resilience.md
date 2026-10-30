@@ -163,9 +163,11 @@ Done:
 - `waitForPhotoProcessing` default is `T(30000)` like its sibling waits.
 - Login no longer fails over client key registration. `completeAuthentication`
   returns once the tokens are stored and starts the registration in the
-  background (`frontend/src/lib/clientKeyRegistration.ts`). Consumers that
-  need the key await `ensureClientKeyRegistered()`; today that is
-  `secureUploadFile`. `requestUploadAuthorization` heals a 409
+  background (`frontend/src/lib/clientKeyRegistration.ts`). A consumer that
+  cannot heal a missing key awaits `ensureClientKeyRegistered()`. Uploads
+  only kick it without waiting (a review on 2026-10-30 found that awaiting let
+  a stalled registration hold every photo about a minute and then fail it).
+  `requestUploadAuthorization` heals a 409
   `client_key_not_registered` by re-registering and retrying once, the same
   contract Kotlin's `PhotoUploadLogic` uses, which also covers the service
   worker (no access to the main thread's state) and a server that lost the

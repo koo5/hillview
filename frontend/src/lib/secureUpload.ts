@@ -120,15 +120,21 @@ export async function secureUploadFile(
 	try {
 		console.log(`🢄🔐 Starting secure upload for: ${file.name}`);
 
+		// Make sure this session's key registration is under way, without waiting
+		// for it: a stalled or failing register-client-key must not hold or fail
+		// an upload the server would accept. If the key really is missing,
+		// authorize-upload answers 409 client_key_not_registered and
+		// requestUploadAuthorization re-registers and retries (uploadProtocol.ts).
+		ensureClientKeyRegistered().catch(() => {
+			// Logged inside the run; the 409 heal covers a missing key.
+		});
+
 		// Step 1: Calculate file MD5 hash, extract geolocation data, and get client key info
 		const [fileMD5, fileGeo, keyInfo/*, deviceGeo*/] = await Promise.all([
 			calculateFileHash(file),
 			extractGeolocationFromFile(file, browserMetadata),
 			clientCrypto.getPublicKeyInfo(),
 			//getCurrentLocation()
-			// Resolves once the server knows this device's key for this session
-			// (clientKeyRegistration.ts); authorize-upload rejects the key otherwise.
-			ensureClientKeyRegistered()
 		]);
 
 		// Prefer file EXIF data over device location

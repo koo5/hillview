@@ -82,9 +82,10 @@ export async function completeAuthentication(tokenData: {
         // used to abort the login (and clear the tokens) when the registration
         // request failed, which under host load meant a correct password was
         // answered with "check your credentials" because one POST stalled.
-        // Uploads and other key consumers await ensureClientKeyRegistered()
-        // (clientKeyRegistration.ts), so they no longer depend on the key being
-        // registered before is_authenticated flips.
+        // Uploads heal a missing key themselves (the 409 in
+        // requestUploadAuthorization) and other key consumers await
+        // ensureClientKeyRegistered() (clientKeyRegistration.ts), so nothing
+        // depends on the key being registered before is_authenticated flips.
         resetClientKeyRegistration();
         startClientKeyRegistration();
 

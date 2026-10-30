@@ -103,6 +103,26 @@ describe('requestUploadAuthorization key self-heal', () => {
         await expect(requestUploadAuthorization(authFetch, AUTH_REQUEST)).rejects.toThrow('Explained here');
     });
 
+    it('a transient registration failure does not use up the heal', async () => {
+        // 409 -> register 503 -> (backoff) -> 409 again -> register ok -> authorized
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        try {
+            const authFetch = vi.fn<AuthFetch>()
+                .mockResolvedValueOnce(keyNotRegistered)
+                .mockResolvedValueOnce(response(503, { detail: 'busy' }))
+                .mockResolvedValueOnce(keyNotRegistered)
+                .mockResolvedValueOnce(response(200, { message: 'registered' }))
+                .mockResolvedValueOnce(authorized);
+
+            const result = requestUploadAuthorization(authFetch, AUTH_REQUEST);
+            await vi.runAllTimersAsync();
+            expect((await result).photo_id).toBe('p1');
+            expect(authFetch).toHaveBeenCalledTimes(5);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('fails without retry when the registration itself is rejected', async () => {
         const authFetch = vi.fn<AuthFetch>()
             .mockResolvedValueOnce(keyNotRegistered)
