@@ -335,7 +335,9 @@ the dev box's `/pics` route in `~/caddy/Caddyfile` sends
    `handle_path /geovisio/* { reverse_proxy localhost:8058 }` and the
    machine's `hosts.toml` entry sets `PANORAMAX_BASE_URL=https://<vhost>/geovisio`
    (rendered into `.env` by `scripts/set_host.py`) so self/next links
-   round-trip through Caddy. (Editing the bind-mounted
+   round-trip through Caddy. Both collection and item page self links use this
+   canonical base, preserving query parameters even when Caddy strips the
+   path prefix. (Editing the bind-mounted
    Caddyfile replaces its inode; `caddy reload` then still reads the old
    file — recreate the caddy container.)
 4. Caddy vhost (lives outside the repo, `~/caddy/Caddyfile` on the VM). See the
@@ -347,6 +349,19 @@ the dev box's `/pics` route in `~/caddy/Caddyfile` sends
        reverse_proxy localhost:8058
    }
    ```
+
+The container health check calls `/api/health`, which opens a database
+connection. `/api/configuration` alone is not a database readiness check: it
+can return 200 even when the role's password is wrong. If the container is
+running but collections fail with a `panoramax_ro` authentication error,
+re-run `backend/scripts/provision_panoramax_role.sh` after setting the password
+in `.env`; it is safe to repeat and reapplies the grants as well. Restart the
+Panoramax service if its configured password or canonical URL changed.
+
+For a local smoke check, request `/geovisio/api/health`,
+`/geovisio/api/configuration` and `/geovisio/api/collections?limit=1` through
+Caddy, then follow the response's self/root links. An empty collections list is
+valid when no photos currently pass consent and eligibility checks.
 
 Env knobs: `PANORAMAX_SCOPE` (default `p1`), `PANORAMAX_BEARING_BUCKETS` (8),
 `PANORAMAX_SESSION_GAP_HOURS` (3), `PANORAMAX_SEQUENCER_INTERVAL_S` (300), `PANORAMAX_SEQUENCER_ENABLED`
@@ -422,24 +437,76 @@ End-to-end against the **real harvester**, fully scripted:
 ```bash
 ./backend/panoramax/scripts/e2e_federation.sh            # full run
 ./backend/panoramax/scripts/e2e_federation.sh --heavy    # + production-shaped 50k-photo corpus
-./backend/panoramax/scripts/e2e_federation.sh --no-seed  # reuse existing photos
+./backend/panoramax/scripts/e2e_federation.sh --no-seed  # reuse a retained heavy corpus
 ./backend/panoramax/scripts/e2e_federation.sh --keep-up  # leave the catalog running
 ./backend/panoramax/scripts/e2e_federation.sh --keep-load     # --heavy: leave the corpus in the DB
 ./backend/panoramax/scripts/e2e_federation.sh --cleanup-load  # remove a kept corpus
 ./backend/panoramax/scripts/e2e_federation.sh --down     # tear the catalog down
 ```
 
-It brings up the hillview stack, seeds opted-in photos through the real upload path
-(`scripts/seed_photos.py`, laid out as N time-gap sessions so the sequencer's
-splitting is asserted), starts the meta-catalog stack from the local checkout
-(`META_CATALOG=`, default `/home/koom/repos/panoramax/server/meta-catalog/0/meta-catalog`),
-installs the harvester CLI, registers the instance, and then asserts: full
-harvest with **zero harvest errors** (the check that matters — the harvester
-reports "imported" even when every collection failed), collection/item counts
-matching the DB, providers and computed geometries present, edit propagation
-via incremental harvest, deletion propagation into `deleted_items`, sequence
-tombstoning plus tombstone visibility through the CQL status filter, restore,
-and pystac validation.
+`e2e_federation.sh` only prepares the stack and invokes
+`e2e_federation.py`. **All assertions live in that one Python suite**, including
+heavy mode. The `Catalog` adapter runs the same collector commands locally or
+over SSH; neither the light nor heavy test phases branch on collector location.
+
+The wrapper brings up Hillview (or accepts `--reuse-stack`), provisions its
+role, starts the collector's database/migrations and prepares the harvester CLI.
+`META_CATALOG` names the checkout on the collector host. The default is
+`/home/koom/repos/panoramax/server/meta-catalog/0/meta-catalog`. It preserves an
+already-running local collector, leaves remote collectors running, and stops a
+local collector it started unless `--keep-up` is set. Start the collector's
+optional `api` service separately to use its Caddy map page.
+
+The suite registers a separate named instance and scopes catalog assertions to
+that instance and its own fixture IDs. It creates an isolated account rather
+than resetting shared development users. It uploads nine real images and
+expects five winners across three sequences: a newer daytime photo beats an
+older daytime view and a fresher night view; a different bearing in the same
+cell survives; CC and owner opt-out are excluded. It verifies full harvest,
+providers, computed geometries, paging, STAC validation, image delivery and
+public CORS **from the collector host**, owner edits, photo deletion and
+restoration, immediate consent withdrawal, a replacement winner, sequence
+tombstones, and restoration under the same sequence ID. Every harvest must
+finish with zero collection errors.
+
+The account, photos and unused provider are removed in `finally`, followed by
+an incremental harvest to withdraw fixtures. The suite does not clear unrelated
+catalog data. Clearing a development catalog remains a separate, explicit
+action. `--heavy` adds the corpus checks below to this same flow for either
+transport. `--no-seed` now reuses a retained heavy corpus manifest in `WORK_DIR`;
+the nine isolated upload fixtures are always created and cleaned up.
+
+### Running the same suite on dev4-2
+
+```bash
+INSTANCE_NAME=hillview-dev4-e2e \
+  ./backend/panoramax/scripts/e2e_federation.sh --reuse-stack \
+  --catalog-ssh koom@192.168.122.37 \
+  --harvester /home/koom/.cache/hillview/panoramax-e2e/venv/bin/stac-harvester \
+  --ca-bundle /home/koom/.cache/hillview/panoramax-e2e/ca-bundle.pem
+```
+
+Add `--heavy` to run exactly the same corpus and churn checks against that
+collector. Omitting `--catalog-ssh` selects the local transport. `CATALOG_DB`,
+`CATALOG_HARVESTER` and `CATALOG_CA_BUNDLE` are also available as environment
+variables; their paths and database address are interpreted on the collector
+host. The source URL defaults to `PANORAMAX_BASE_URL`, with `PANORAMAX_URL`
+available as an explicit override.
+
+`HILLVIEW_INSECURE_TLS` applies to the local development upload client; the
+remote harvester and asset/schema checks verify TLS with the combined CA
+bundle. That remote bundle contains the usual trusted roots plus dev4's
+**public** Caddy root certificate. No private CA key is transferred.
+
+Local deployment setup lives outside git: dev4 permits HTTPS specifically from
+`192.168.122.37`, and dev4-2 resolves `hv.dev4.jj.internal` to dev4's LAN address
+`192.168.122.64`. Its Caddy already strips `/catalog` when proxying the collector
+to port 9000, and serves `/catalog-map` from `~/caddy/aaa/catalog-map.html`.
+Its separate `/geovisio` route points to its own port 8058; the remote test
+registers dev4's URL, not that local service. The collector's compose stack
+lives at `~/repos/panoramax/server/meta-catalog/0/meta-catalog` and needs
+`database`, `migrations` and `api`. The remote test does not clean unrelated
+catalog data; clearing a development catalog is a separate, explicit action.
 
 **Heavy mode** (`--heavy`; `LOAD_PHOTOS=50000 LOAD_USERS=40 LOAD_YEARS=3
 LOAD_SEED=1` to tune) adds a production-shaped corpus written straight into
@@ -466,10 +533,10 @@ sequences, the catalog drops them, and reactivating revives the **same**
 uuids. It prints timings for the sequencer passes, harvests and page
 latencies, and removes the corpus at the end unless `--keep-load`.
 
-Two things it does that are worth knowing: it points the seeder straight at
-`localhost:8056` (the API advertises the deployment's public `WORKER_URL`,
-which may not resolve locally), and it clears `users.is_test` on the seeded
-user, because eligibility deliberately excludes test accounts.
+The upload fixtures use the worker URL advertised by authorization and a fresh
+ordinary account. They do not rewrite shared users' `is_test` flags. Heavy
+cleanup withdraws the corpus and harvests its tombstones before deleting its
+sequences, so the collector does not retain stale generated collections.
 
 Running it in a fresh worktree needs three gitignored files copied from a
 working checkout: `.env`, `backend/api/app/.env` (holds `JWT_PRIVATE_KEY` —

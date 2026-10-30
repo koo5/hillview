@@ -263,7 +263,7 @@ async def collections(
 
 	base = _base_url()
 	links = [
-		{'rel': 'self', 'href': str(request.url), 'type': 'application/json'},
+		{'rel': 'self', 'href': f"{base}/api/collections" + (f"?{request.url.query}" if request.url.query else ''), 'type': 'application/json'},
 		{'rel': 'root', 'href': f"{base}/api/", 'type': 'application/json'},
 	]
 	if len(page) == limit:
@@ -378,7 +378,7 @@ async def items(
 
 	self_href = f"{base}/api/collections/{seq_id}/items"
 	links = [
-		{'rel': 'self', 'href': str(request.url), 'type': 'application/geo+json'},
+		{'rel': 'self', 'href': self_href + (f"?{request.url.query}" if request.url.query else ''), 'type': 'application/geo+json'},
 		{'rel': 'collection', 'href': f"{base}/api/collections/{seq_id}", 'type': 'application/json'},
 		{'rel': 'root', 'href': f"{base}/api/", 'type': 'application/json'},
 	]

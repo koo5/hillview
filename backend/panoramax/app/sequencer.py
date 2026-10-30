@@ -242,7 +242,7 @@ async def run_once(engine: AsyncEngine, scope: Scope | None = None, gap: timedel
 
 
 async def wait_for_schema(engine: AsyncEngine) -> None:
-	"""The api container applies migration 030 in its prestart; this container
+	"""The api container applies migration 033 in its prestart; this container
 	may win the race, so poll instead of crashing."""
 	while True:
 		try:

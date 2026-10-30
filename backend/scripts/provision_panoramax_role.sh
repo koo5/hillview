@@ -7,7 +7,7 @@
 #     ./backend/scripts/provision_panoramax_role.sh
 #
 # Must run AFTER migration 033_add_panoramax_schema (the grants reference the
-# panoramax schema). Migration 030 also applies these grants itself when the
+# panoramax schema). Migration 033 also applies these grants itself when the
 # role already exists, so on fresh clusters this script is unnecessary.
 set -euo pipefail
 
