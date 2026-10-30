@@ -96,6 +96,13 @@ async function performRun(): Promise<void> {
 			} catch (error) {
 				assertSameSession(gen);
 				const message = error instanceof Error ? error.message : String(error);
+				if (isSessionEnded(error)) {
+					// Expected, not a fault: the session ended (logout, or a refresh
+					// the server rejected) while the run was in flight. The next login
+					// starts its own run.
+					console.warn(`${LOG_PREFIX} Client key registration stopped, the session ended: ${message}`);
+					throw error;
+				}
 				if (!isRetryable(error)) {
 					console.error(`${LOG_PREFIX} Client key registration rejected, not retrying: ${message}`);
 					throw error;
@@ -123,9 +130,11 @@ async function registerOnce(): Promise<void> {
 	await (tokenManager as { registerClientPublicKey(): Promise<void> }).registerClientPublicKey();
 }
 
+function isSessionEnded(error: unknown): boolean {
+	return error instanceof Error && error.name === 'TokenExpiredError';
+}
+
 function isRetryable(error: unknown): boolean {
-	// The session ended under us; the next login starts its own run.
-	if (error instanceof Error && error.name === 'TokenExpiredError') return false;
 	// The server answered: only its own failures are worth another try.
 	if (error instanceof ClientKeyRegistrationError) return error.status >= 500;
 	// No answer at all (network, timeout, http.ts status-0 wrapper).

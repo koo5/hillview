@@ -98,13 +98,18 @@ describe('ensureClientKeyRegistered', () => {
         expect(registerMock).toHaveBeenCalledTimes(1);
     });
 
-    it('stops when the session has ended', async () => {
+    it('stops quietly when the session has ended', async () => {
         registerMock.mockRejectedValue(tokenExpired());
 
         await expect(ensureClientKeyRegistered()).rejects.toMatchObject({ name: 'TokenExpiredError' });
         await vi.advanceTimersByTimeAsync(60_000);
 
         expect(registerMock).toHaveBeenCalledTimes(1);
+        // An ended session is an outcome, not a fault: the Playwright stale-token
+        // spec fails on any console error, and a login followed by a stale token
+        // lands exactly here.
+        expect(console.error).not.toHaveBeenCalled();
+        expect(console.warn).toHaveBeenCalled();
     });
 
     it('gives up after the schedule and lets the next caller start a fresh run', async () => {
