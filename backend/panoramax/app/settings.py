@@ -85,7 +85,7 @@ def instance_name() -> str:
 
 
 def session_gap_hours() -> float:
-	return float(os.getenv('PANORAMAX_SESSION_GAP_HOURS', '3'))
+	return float(os.getenv('PANORAMAX_SESSION_GAP_HOURS', '0.25'))
 
 
 def sequencer_interval_s() -> int:

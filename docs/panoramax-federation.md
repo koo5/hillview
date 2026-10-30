@@ -173,8 +173,8 @@ unchanged full collector pass took 3.0 seconds and changed no timestamps.
 
 ## Sequences
 
-Synthesized from selected winners, persisted, per-owner **time-gap sessions** (default 3 h, env
-`PANORAMAX_SESSION_GAP_HOURS`) — not one ever-growing collection per user,
+Synthesized from selected winners, persisted, per-owner **time-gap sessions** (default 15 min, env
+`PANORAMAX_SESSION_GAP_HOURS` = 0.25; 3 h until 2026-10-30) — not one ever-growing collection per user,
 because the meta-catalog's incremental sync re-fetches **all** items of any
 changed collection (collection-level granularity), making giant collections an
 unbounded recurring cost. No distance splitting: the catalog only draws lines
@@ -361,7 +361,7 @@ the dev box's `/pics` route in `~/caddy/Caddyfile` sends
    ```
 
 Env knobs: `PANORAMAX_SCOPE` (default `p1`), `PANORAMAX_BEARING_BUCKETS` (8),
-`PANORAMAX_SESSION_GAP_HOURS` (3), `PANORAMAX_SEQUENCER_INTERVAL_S` (300), `PANORAMAX_SEQUENCER_ENABLED`
+`PANORAMAX_SESSION_GAP_HOURS` (0.25), `PANORAMAX_SEQUENCER_INTERVAL_S` (300), `PANORAMAX_SEQUENCER_ENABLED`
 (true — set false to run the API without the in-process sequencer),
 `PANORAMAX_INSTANCE_NAME` (Hillview), `PANORAMAX_VIEWER_URL`
 (`https://hillview.cz` — where `/` redirects humans arriving from the

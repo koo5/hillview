@@ -4,7 +4,7 @@ and persist them as panoramax.sequences / sequence_photos.
 Why synthesized persisted sequences (not one ever-growing collection per user):
 the meta-catalog's incremental sync is collection-level — any change re-fetches
 ALL items of the collection — so giant collections are an unbounded recurring
-harvest cost. Sessions split on a capture-time gap (~3h default, env-tunable).
+harvest cost. Sessions split on a capture-time gap (15 min default, env-tunable).
 No distance split: the catalog only draws lines between consecutive items <75m
 apart, so sparse sequences just render as dots.
 
