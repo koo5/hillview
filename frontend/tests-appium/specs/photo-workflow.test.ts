@@ -1,5 +1,6 @@
 import { browser } from '@wdio/globals';
 import { acceptPermissionDialogIfPresent, byTestId, ensureWebViewContext, TESTID } from '../helpers/selectors';
+import { ensureUploadLicense } from '../helpers/license';
 import { recreateTestUsers, loginAsTestUser, getTestUserToken, getUserPhotos } from '../helpers/backend';
 
 describe('Photo Workflow', () => {
@@ -64,14 +65,9 @@ describe('Photo Workflow', () => {
         await configureBtn.click();
         await browser.pause(2000);
 
-        // Now on /settings/upload — accept license first
+        // Now on /settings/upload — choose a license first (in a dialog)
         await ensureWebViewContext();
-        const licenseCheckbox = await $('[data-testid="license-checkbox"]');
-        await licenseCheckbox.waitForDisplayed({ timeout: 5000 });
-        if (!(await licenseCheckbox.isSelected())) {
-            await licenseCheckbox.click();
-            await browser.pause(1000);
-        }
+        await ensureUploadLicense();
 
         // Enable auto-upload
         const enableRadio = await $('[data-testid="auto-upload-enabled"]');

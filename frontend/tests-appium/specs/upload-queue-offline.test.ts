@@ -15,6 +15,7 @@ import {
     openMenu,
     TESTID,
 } from '../helpers/selectors';
+import { ensureUploadLicense } from '../helpers/license';
 import {
     recreateTestUsers,
     loginAsTestUser,
@@ -31,15 +32,6 @@ async function openSettings(): Promise<void> {
     await link.click();
     await browser.pause(2000);
     await ensureWebViewContext();
-}
-
-async function setLicense(checked: boolean): Promise<void> {
-    const license = await byTestId(TESTID.licenseCheckbox);
-    await license.waitForDisplayed({ timeout: 10000 });
-    if ((await license.isSelected()) !== checked) {
-        await license.click();
-        await browser.pause(500);
-    }
 }
 
 async function setWifiOnly(on: boolean): Promise<void> {
@@ -60,7 +52,7 @@ async function setWifiOnly(on: boolean): Promise<void> {
  */
 async function enableAutoUpload(): Promise<void> {
     await openSettings();
-    await setLicense(true);
+    await ensureUploadLicense();
     const enable = await byTestId(TESTID.autoUploadEnabled);
     await enable.waitForDisplayed({ timeout: 5000 });
     await enable.click();

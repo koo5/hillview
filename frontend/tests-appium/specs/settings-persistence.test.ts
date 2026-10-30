@@ -15,6 +15,7 @@
 
 import { browser } from '@wdio/globals';
 import { byTestId, ensureWebViewContext, openMenu, TESTID } from '../helpers/selectors';
+import { ensureUploadLicense, hasUploadLicense } from '../helpers/license';
 import { recreateTestUsers, loginAsTestUser } from '../helpers/backend';
 
 const APP_PACKAGE = 'cz.hillviedev';
@@ -59,16 +60,6 @@ async function restartApp(): Promise<void> {
     await ensureWebViewContext();
 }
 
-/** Set the license checkbox to the desired state. No-op if already matching. */
-async function setLicense(checked: boolean): Promise<void> {
-    const license = await byTestId(TESTID.licenseCheckbox);
-    await license.waitForDisplayed({ timeout: 10000 });
-    if ((await license.isSelected()) !== checked) {
-        await license.click();
-        await browser.pause(500);
-    }
-}
-
 /** Click the requested radio and wait a beat for the save round-trip. */
 async function selectUploadRadio(testId: string): Promise<void> {
     const radio = await byTestId(testId);
@@ -110,42 +101,33 @@ describe('Settings persistence', () => {
      * on every app start. Before the fix, this stomped auto_upload_prompt_enabled
      * down to false, flipping the radio from "Disabled" (prompt me) to
      * "Disabled (Never prompt)".
+     *
+     * The license is now chosen in a dialog that cannot unset it, so the old
+     * setup (check the license, pick "Disabled", uncheck it) is no longer a user
+     * path. The state it built, no license with the prompt still on, is a fresh
+     * install's (auto_upload_prompt_enabled defaults to true), so this test must
+     * run before anything in the session chooses a license.
      */
-    it('keeps auto-upload prompt enabled across restart with no license', async () => {
+    it('keeps auto-upload prompt enabled across restart with no license', async function () {
         await openSettings();
-        // The radio group is pointer-events:none when license is unchecked, so
-        // we have to check the license to seed the "Disabled" (prompt=true) state,
-        // then uncheck it to land in the actual bug scenario (license null +
-        // prompt_enabled true).
-        await setLicense(true);
-        await selectUploadRadio(TESTID.autoUploadDisabled);
-        await setLicense(false);
+        if (await hasUploadLicense()) {
+            this.skip(); // a license is already set and the dialog cannot unset it
+        }
 
-        // Sanity check before the restart: license should be off, "Disabled"
-        // radio selected, "Disabled (Never prompt)" not selected.
-        const licenseBefore = await byTestId(TESTID.licenseCheckbox);
-        expect(await licenseBefore.isSelected()).toBe(false);
+        // Sanity check before the restart: "Disabled" radio selected,
+        // "Disabled (Never prompt)" not selected.
         const disabledBefore = await byTestId(TESTID.autoUploadDisabled);
         const disabledNeverBefore = await byTestId(TESTID.autoUploadDisabledNever);
         expect(await disabledBefore.isSelected()).toBe(true);
         expect(await disabledNeverBefore.isSelected()).toBe(false);
 
-        // Extra settle time: the license toggled true → false in quick succession,
-        // and Android WebView's localStorage is flushed to disk lazily. Without
-        // this pause, terminateApp may kill the process before the second write
-        // reaches disk, leaving the first (true) write as the persisted value.
-        await browser.pause(2000);
-
         await restartApp();
         await openSettings();
 
         // After restart, the prompt setting must NOT have flipped to "never".
-        // License is still unchecked, so the autoUploadLicense subscriber fires again
-        // on this startup — the regression would surface here.
-        const licenseAfter = await byTestId(TESTID.licenseCheckbox);
-        await licenseAfter.waitForDisplayed({ timeout: 10000 });
-        expect(await licenseAfter.isSelected()).toBe(false);
-
+        // The license is still unset, so the autoUploadLicense subscriber fires
+        // again on this startup: the regression would surface here.
+        expect(await hasUploadLicense()).toBe(false);
         const disabledAfter = await byTestId(TESTID.autoUploadDisabled);
         const disabledNeverAfter = await byTestId(TESTID.autoUploadDisabledNever);
         expect(await disabledAfter.isSelected()).toBe(true);
@@ -158,16 +140,14 @@ describe('Settings persistence', () => {
      */
     it('persists auto-upload enabled + wifi-only across restart', async () => {
         await openSettings();
-        await setLicense(true);
+        await ensureUploadLicense();
         await selectUploadRadio(TESTID.autoUploadEnabled);
         await setWifiOnly(true);
 
         await restartApp();
         await openSettings();
 
-        const licenseAfter = await byTestId(TESTID.licenseCheckbox);
-        await licenseAfter.waitForDisplayed({ timeout: 10000 });
-        expect(await licenseAfter.isSelected()).toBe(true);
+        expect(await hasUploadLicense()).toBe(true);
         expect(await (await byTestId(TESTID.autoUploadEnabled)).isSelected()).toBe(true);
         expect(await (await byTestId(TESTID.wifiOnlyCheckbox)).isSelected()).toBe(true);
     });
@@ -181,7 +161,7 @@ describe('Settings persistence', () => {
     it('persists "Disabled (Never prompt)" across restart', async () => {
         await openSettings();
         // Need license to bypass pointer-events:none on the radio group.
-        await setLicense(true);
+        await ensureUploadLicense();
         await selectUploadRadio(TESTID.autoUploadDisabledNever);
 
         const neverBefore = await byTestId(TESTID.autoUploadDisabledNever);
@@ -190,9 +170,7 @@ describe('Settings persistence', () => {
         await restartApp();
         await openSettings();
 
-        const licenseAfter = await byTestId(TESTID.licenseCheckbox);
-        await licenseAfter.waitForDisplayed({ timeout: 10000 });
-        expect(await licenseAfter.isSelected()).toBe(true);
+        expect(await hasUploadLicense()).toBe(true);
 
         const neverAfter = await byTestId(TESTID.autoUploadDisabledNever);
         const disabledAfter = await byTestId(TESTID.autoUploadDisabled);
@@ -213,7 +191,7 @@ describe('Settings persistence', () => {
         await openSettings();
 
         // Establish a known full state.
-        await setLicense(true);
+        await ensureUploadLicense();
         await selectUploadRadio(TESTID.autoUploadEnabled);
         await setWifiOnly(true);
 
@@ -231,7 +209,7 @@ describe('Settings persistence', () => {
         await openSettings();
 
         // License + enabled radio must still be set; only wifi-only should have flipped.
-        expect(await (await byTestId(TESTID.licenseCheckbox)).isSelected()).toBe(true);
+        expect(await hasUploadLicense()).toBe(true);
         expect(await (await byTestId(TESTID.autoUploadEnabled)).isSelected()).toBe(true);
         expect(await (await byTestId(TESTID.wifiOnlyCheckbox)).isSelected()).toBe(false);
     });
@@ -260,7 +238,7 @@ describe('Settings persistence', () => {
         expect(await (await byTestId(TESTID.landscapeArmor22Checkbox)).isSelected()).toBe(true);
 
         // Now touch an upload setting and confirm the compass flag isn't dragged along.
-        await setLicense(true);
+        await ensureUploadLicense();
         await selectUploadRadio(TESTID.autoUploadDisabled);
 
         await restartApp();

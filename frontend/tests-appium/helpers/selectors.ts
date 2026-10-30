@@ -161,8 +161,14 @@ export const TESTID = {
     geoTrackingExportButton: 'geo-tracking-export-button',
     geoTrackingAutoExportCheckbox: 'geo-tracking-auto-export-checkbox',
 
-    // LicenseSelector.svelte
+    // LicenseChoiceControl.svelte + LicenseDialog.svelte (helpers/license.ts):
+    // the upload licence is chosen in a dialog; license-checkbox is the
+    // CC BY-SA 4.0 + OSM radio inside it, and license-unset shows while none is set.
+    licenseSummary: 'license-summary',
+    licenseUnset: 'license-unset',
+    licenseChangeButton: 'license-change-button',
     licenseCheckbox: 'license-checkbox',
+    licenseDialogConfirm: 'license-dialog-confirm',
 
     // CompassSettings.svelte — writes to compassPrefs via the same set_settings
     // Kotlin handler that owns the upload prefs, so it's useful for cross-category

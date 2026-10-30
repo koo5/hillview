@@ -11,6 +11,7 @@ import {
     openMenu,
     TESTID,
 } from './selectors';
+import { ensureUploadLicense } from './license';
 
 export async function openSettings(): Promise<void> {
     await openMenu();
@@ -24,12 +25,7 @@ export async function openSettings(): Promise<void> {
 
 export async function enableAutoUpload(): Promise<void> {
     await openSettings();
-    const license = await byTestId(TESTID.licenseCheckbox);
-    await license.waitForDisplayed({ timeout: 10000 });
-    if (!(await license.isSelected())) {
-        await license.click();
-        await browser.pause(500);
-    }
+    await ensureUploadLicense();
     const radio = await byTestId(TESTID.autoUploadEnabled);
     await radio.waitForDisplayed({ timeout: 5000 });
     await radio.click();

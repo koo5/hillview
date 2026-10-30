@@ -77,7 +77,7 @@ describe('Incoming click_action intent', () => {
 
     async function assertOnSettings(timeoutMs: number): Promise<void> {
         await ensureWebViewContext();
-        const license = await byTestId(TESTID.licenseCheckbox);
+        const license = await byTestId(TESTID.licenseSummary);
         await license.waitForDisplayed({ timeout: timeoutMs });
         expect(await license.isDisplayed()).toBe(true);
     }

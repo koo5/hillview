@@ -36,6 +36,7 @@ import {
     openMenu,
     TESTID,
 } from '../helpers/selectors';
+import { ensureUploadLicense } from '../helpers/license';
 import { recreateTestUsers, loginAsTestUser, setBackendDelay } from '../helpers/backend';
 
 // -------------------- settings helpers (mirror upload-notification.test.ts) --------------------
@@ -50,15 +51,6 @@ async function openSettings(): Promise<void> {
     await ensureWebViewContext();
 }
 
-async function setLicense(checked: boolean): Promise<void> {
-    const license = await byTestId(TESTID.licenseCheckbox);
-    await license.waitForDisplayed({ timeout: 10000 });
-    if ((await license.isSelected()) !== checked) {
-        await license.click();
-        await browser.pause(500);
-    }
-}
-
 async function setWifiOnly(on: boolean): Promise<void> {
     const wifi = await byTestId(TESTID.wifiOnlyCheckbox);
     await wifi.waitForDisplayed({ timeout: 5000 });
@@ -70,7 +62,7 @@ async function setWifiOnly(on: boolean): Promise<void> {
 
 async function setAutoUpload(on: boolean): Promise<void> {
     await openSettings();
-    await setLicense(true);
+    await ensureUploadLicense();
     const radio = await byTestId(
         on ? TESTID.autoUploadEnabled : TESTID.autoUploadDisabledNever,
     );
