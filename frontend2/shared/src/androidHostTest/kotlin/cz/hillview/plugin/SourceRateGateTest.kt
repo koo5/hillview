@@ -14,7 +14,7 @@ import kotlin.test.assertTrue
  * bugs guarded here were both about WHEN the clock moves, which a real clock
  * makes awkward to say anything exact about.
  *
- * See docs/geo-election-test-todo.md item 2.
+ * See docs/todo/geo-election-test-todo.md item 2.
  */
 class SourceRateGateTest {
 

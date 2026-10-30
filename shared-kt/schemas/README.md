@@ -60,4 +60,4 @@ stale export and produced the same hash as frontend2.
 "Schema export directory is not provided" warning, not a decision. A
 `room.schemaLocation` line was added to the Tauri plugin's build the next day
 and never wrote anything, because export was off. Both were sorted out
-2026-08-08; see `docs/geo-election-test-todo.md` item 6.
+2026-08-08; see `docs/todo/geo-election-test-todo.md` item 6.

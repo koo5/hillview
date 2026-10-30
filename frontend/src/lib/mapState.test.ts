@@ -3,7 +3,7 @@ import { computePhotoInFront, toTableSource, kotlinOwnsSource } from './mapState
 
 /**
  * The boundary where the app's own bearing/location source names become the
- * tracking tables' vocabulary — see docs/geo-election-test-todo.md item 5.
+ * tracking tables' vocabulary — see docs/todo/geo-election-test-todo.md item 5.
  *
  * Two rules meet here, and both are load-bearing for the election:
  *  - `source` is coarse and EXACT (android | gps-kalman | manual); the fine

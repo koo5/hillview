@@ -177,7 +177,7 @@ Done:
   checked and rejected: push-token ownership is a separate check, and the
   stream credential answers an unknown key with a 401 that the EventSource
   client cannot read the reason of, so there would be nothing specific for the
-  client to react to (docs/stream-auth-client-signed-credential-todo.md).
+  client to react to (docs/todo/stream-auth-client-signed-credential-todo.md).
 
 Declined or deferred:
 

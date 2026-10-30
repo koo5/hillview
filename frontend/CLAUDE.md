@@ -10,11 +10,11 @@
 - **[Auth state machine](../docs/auth-state-machine.md)**: who holds auth state on Android/Tauri, how the copies stay consistent, and the invariants any auth change must preserve
 - **[Push notifications](../docs/push-notifications.md)**: the FCM / UnifiedPush flow end to end — what the backend sends, how Android displays it, and the knobs that control both
 - **[Photo upload workflow](../docs/photo-upload-workflow.md)**: the whole upload flow across the Android client, the API and the worker — states, transitions, error handling, known edge cases (written 2026-02; check it against the code)
-- **[Stream auth credential TODO](../docs/stream-auth-client-signed-credential-todo.md)**: replacing `?token=<access_token>` on stream endpoints with a client-signed credential — backend done, client wiring pending
+- **[Stream auth credential TODO](../docs/todo/stream-auth-client-signed-credential-todo.md)**: replacing `?token=<access_token>` on stream endpoints with a client-signed credential — backend done, client wiring pending
 - **[App behaviour scenarios](../docs/app-behaviour-scenarios.md)**: what the app is *supposed* to do, as the Appium and Playwright suites assert it — including rules that exist only as an assertion plus a comment about the bug it was written for
 - **[Terrain mode](../docs/terrain-mode.md)**: design record for terrain in the main app — the mode, marker states, selection, enqueue and status polling
 - **[Terrain overlay graduation](../docs/terrain-overlay-graduation.md)**: the per-photo horizon line + peak labels in the zoom view, and the depth buffer that answers "what am I looking at?" for any pixel
-- **[Clock-calibration video TODO](../docs/clock-video-calibration-todo.md)**: the clock video recorder here and the solver in the sibling `pics` repo — validated end to end, with what is left
+- **[Clock-calibration video TODO](../docs/todo/clock-video-calibration-todo.md)**: the clock video recorder here and the solver in the sibling `pics` repo — validated end to end, with what is left
 
 ## Web Development
 

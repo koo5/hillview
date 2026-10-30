@@ -586,7 +586,7 @@ async def get_current_user_optional(
 # stored public key (reusing verify_ecdsa_signature, which already handles both the web
 # P1363 and Android DER signature encodings). This keeps the long-lived access token
 # out of stream URLs — and thus out of access logs / browser history. See
-# docs/stream-auth-client-signed-credential-todo.md.
+# docs/todo/stream-auth-client-signed-credential-todo.md.
 STREAM_CREDENTIAL_MAX_TTL_SECONDS = 15 * 60  # reject exp further out than this
 
 

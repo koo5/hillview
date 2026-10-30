@@ -57,26 +57,41 @@ cannot tell "key not registered" (re-register, then retry) from "credential
 expired" (re-sign, then retry) from "token gone" (log out). Today it would
 have to guess, and the two heals are different.
 
-What the wiring should do:
+Ways out, in order of how much they remove rather than add:
 
-- Await `ensureClientKeyRegistered()` (frontend/src/lib/clientKeyRegistration.ts)
-  before signing a credential. On Android the key is registered by
-  AuthenticationManager.storeAuthToken, best effort, and healed by
-  PhotoUploadLogic; the stream has no heal of its own there yet.
-- Keep the credential short-lived and re-sign on every reconnect, as the
-  original plan says, so "expired" is rare and self-correcting.
-- On an `error` within the first second of a connection, probe the same URL
-  once with `fetch` (a plain GET; the server starts streaming but the status
-  and, on failure, the body are readable) and act on what comes back; then
-  reconnect. A probe per failed connect is cheap compared to guessing wrong.
+- **Stop using EventSource; read the SSE body with `fetch`.** The loader
+  already runs in a web worker, where `fetch` + `ReadableStream` is available
+  on web and in the Tauri webview alike. A fetch can carry an `Authorization`
+  header, so the token never has to be in the URL at all — which was the whole
+  reason for the signed credential. The status and the error body become
+  ordinary values the existing 401 handling can act on, the watchdog and
+  reconnect logic the loader already has stay, and the browser's hidden
+  EventSource auto-reconnect (which fires blind against a 401 forever) goes
+  away. This makes most of this file moot; the credential would remain only
+  if some consumer truly cannot send headers.
+- **If EventSource stays, deliver auth failures in-band.** The one thing an
+  EventSource can read is an event. The stream endpoints would answer an
+  unverifiable credential with 200 and a single
+  `event: auth_error` / `data: {"error_code": "stream_key_not_registered" | "stream_credential_expired" | "unauthorized"}`
+  and then close; the client acts on the code and closes the source so the
+  browser does not reconnect blind. Unconventional (a 200 for an auth
+  failure), but it is the only channel the transport offers, and it stays
+  additive: the 401 remains for requests without a credential.
+- **Make the ambiguity not matter.** Await `ensureClientKeyRegistered()`
+  (frontend/src/lib/clientKeyRegistration.ts) before signing, re-sign with a
+  fresh `exp` on every connect, and on an immediate error do a single blind
+  heal (re-register the key, re-sign, reconnect once) before treating the
+  session as gone. Cheapest, and good enough while the two above are not
+  done, but it still guesses.
 
-What the backend could add to make the probe exact: a machine-readable
-`error_code` on the 401 for the two credential cases, mirroring
-authorize-upload's `client_key_not_registered` — e.g.
-`stream_key_not_registered` and `stream_credential_expired`, with the plain
-"invalid signature" left as the generic 401. One `detail` dict per branch in
-`verify_stream_credential` / its caller; no behaviour change for clients that
-do not look.
+A probe `fetch` of the same URL to read the status was considered and dropped:
+it opens a second stream per failed connect just to read a header, and once a
+fetch is in play the first option is the right one.
+
+On Android the key is registered by AuthenticationManager.storeAuthToken, best
+effort, and healed by PhotoUploadLogic; the stream has no heal of its own
+there yet. Whichever option is taken has to cover the TAURI branch of the
+worker as well.
 
 Not done: none of the above is implemented; the client wiring itself is still
 the pending item at the top of this file.

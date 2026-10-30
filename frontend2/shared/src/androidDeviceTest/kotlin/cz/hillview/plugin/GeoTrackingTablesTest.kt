@@ -13,7 +13,7 @@ import org.junit.Test
  * What the tracking tables themselves promise — on a device because the
  * promise is Room's, and Room only exists there.
  *
- * The subject is the v14 shape (see docs/geo-election-test-todo.md item 1):
+ * The subject is the v14 shape (see docs/todo/geo-election-test-todo.md item 1):
  * `(timestamp, sourceId)` as the primary key, and the `electedSourceId`
  * filter the two lookup queries do. An in-memory database, so the app's own
  * rows are never touched — this is about the schema, not about a session.
