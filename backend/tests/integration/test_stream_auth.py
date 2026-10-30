@@ -18,6 +18,7 @@ import os
 import sys
 import uuid
 
+import pytest
 import requests
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -111,6 +112,34 @@ def test_legacy_query_token_still_works():
     tokens = _login()
     r = requests.get(WHOAMI, params={"token": tokens["access_token"]})
     assert r.status_code == 200 and r.json().get("authenticated") is True, r.text
+
+
+# The Play Store Tauri build (1.32.0, listing updated 2026-08-01) loads photo
+# streams through its Kotlin StreamPhotoLoader, which puts the access token in
+# ?token= on these exact endpoints. Current clients (web, frontend2, later Tauri
+# builds) send the Authorization header instead, so nothing else exercises this
+# path any more: it must keep passing until that release is retired.
+STREAM_PARAMS = {
+    "top_left_lat": 50.1, "top_left_lon": 14.3,
+    "bottom_right_lat": 50.0, "bottom_right_lon": 14.5,
+    "client_id": "default", "max_photos": 1,
+}
+
+
+@pytest.mark.parametrize("endpoint", ["hillview", "mapillary"])
+def test_released_tauri_app_query_token_on_stream_endpoints(endpoint):
+    """A valid ?token= opens the stream; an invalid one is a 401, so the
+    parameter is really read there rather than ignored as anonymous."""
+    tokens = _login()
+    url = f"{API_URL}/{endpoint}"
+
+    accepted = requests.get(url, params={**STREAM_PARAMS, "token": tokens["access_token"]}, stream=True, timeout=60)
+    accepted.close()
+    assert accepted.status_code == 200, f"{endpoint}: valid ?token= rejected: {accepted.status_code}"
+
+    rejected = requests.get(url, params={**STREAM_PARAMS, "token": "not-a-token"}, stream=True, timeout=60)
+    rejected.close()
+    assert rejected.status_code == 401, f"{endpoint}: invalid ?token= not rejected: {rejected.status_code}"
 
 
 def test_expired_stream_credential_rejected():
