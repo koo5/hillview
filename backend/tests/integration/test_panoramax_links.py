@@ -9,6 +9,7 @@ request.url.
 """
 import os
 import uuid
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import requests
@@ -24,24 +25,47 @@ def test_collections_listing_self_link_keeps_base_and_query():
     assert links['self'] == f'{base}/api/collections?limit=1'
 
 
-def test_root_without_a_served_photo_goes_to_the_viewer():
-    for query in ('', '?pic=not-a-uuid', f'?pic={uuid.uuid4()}'):
-        response = requests.get(f'{PANORAMAX_URL}/{query}', allow_redirects=False, timeout=10)
-        assert response.status_code == 307, (query, response.text)
-        assert 'photo=' not in response.headers['location']
+def root_redirect(**params):
+    """Where `/` sends the web viewer's "Origin instance" link: (path, query)."""
+    response = requests.get(f'{PANORAMAX_URL}/', params=params, allow_redirects=False, timeout=10)
+    assert response.status_code == 307, response.text
+    location = urlsplit(response.headers['location'])
+    return location.path, {k: v[0] for k, v in parse_qs(location.query).items()}
+
+
+def test_root_without_a_usable_pic():
+    assert root_redirect()[1] == {}
+    assert root_redirect(pic='not-a-uuid')[1] == {}
+    # The explorer's own map position still lands on the same place (MapLibre
+    # zoom 17 is Leaflet zoom 18).
+    assert root_redirect(pic='not-a-uuid', map='17/50.08/14.42')[1] == {'lat': '50.08', 'lon': '14.42', 'zoom': '18'}
+
+
+def test_root_passes_an_unserved_photo_to_the_frontend():
+    # Positioned only by the explorer's own map parameter: the frontend checks
+    # the photo against Hillview's API with the visitor's own access.
+    pic = str(uuid.uuid4())
+    assert root_redirect(pic=pic)[1] == {'photo': f'hillview-{pic}'}
+    assert root_redirect(pic=pic, map='17/50.08/14.42')[1] == \
+        {'lat': '50.08', 'lon': '14.42', 'zoom': '18', 'photo': f'hillview-{pic}'}
+    assert root_redirect(pic=pic, focus='meta') == (f'/photo/hillview-{pic}', {})
 
 
 def test_root_sends_a_served_photo_to_its_place_on_the_map():
-    # The web viewer's "Origin instance" link: the via href plus the explorer's
-    # own query string, which carries pic=<item id> and seq=<collection id>.
     page = requests.get(f'{PANORAMAX_URL}/api/collections', params={'limit': 1}, timeout=10).json()
     if not page['collections']:
         pytest.skip('no served collection on this stack')
     seq = page['collections'][0]['id']
     items = requests.get(f'{PANORAMAX_URL}/api/collections/{seq}/items', params={'limit': 1}, timeout=10).json()
     pic = items['features'][0]['id']
-    response = requests.get(f'{PANORAMAX_URL}/', params={'focus': 'pic', 'pic': pic, 'seq': seq},
-                            allow_redirects=False, timeout=10)
-    assert response.status_code == 307
-    location = response.headers['location']
-    assert f'photo=hillview-{pic}' in location and 'lat=' in location and 'lon=' in location
+
+    # focus=map: the map at the photo's own position, the photo selected.
+    path, query = root_redirect(focus='map', pic=pic, seq=seq, map='3/0/0')
+    assert query['photo'] == f'hillview-{pic}' and query['zoom'] == '18'
+    assert 'lat' in query and 'lon' in query and 'x1' not in query
+    assert query['lat'] != '0'  # the photo's position, not the explorer's map
+    # focus=pic: Hillview's zoom view on the whole photo.
+    path, query = root_redirect(focus='pic', pic=pic, seq=seq)
+    assert (query['x1'], query['y1'], query['x2']) == ('0', '0', '1') and float(query['y2']) > 0
+    # focus=meta: the photo's detail page.
+    assert root_redirect(focus='meta', pic=pic) == (f'/photo/hillview-{pic}', {})

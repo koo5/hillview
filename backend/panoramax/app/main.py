@@ -27,7 +27,10 @@ import settings
 from cql import FilterParseError, parse_collections_filter
 from db import get_engine
 from eligibility import ELIGIBLE_PHOTO_WHERE, PHOTO_ORDER_BY
-from stac import STAC_VERSION, collection_json, fmt_dt, item_json, photo_map_url, with_query
+from stac import (
+	STAC_VERSION, collection_json, explorer_map_view, fmt_dt, hillview_map_url, item_json,
+	photo_detail_url, with_query,
+)
 
 logger = logging.getLogger('panoramax.api')
 
@@ -88,36 +91,64 @@ def _as_uuid(value: str, status_code: int = 404) -> uuid_mod.UUID:
 		raise HTTPException(status_code=status_code, detail='Not a valid id')
 
 
-async def _served_photo_map_url(pic: str) -> str | None:
-	"""The viewer's map URL for a photo this service serves, else None: an
-	id that is malformed, unknown or not federated reveals nothing."""
-	try:
-		photo_id = str(uuid_mod.UUID(pic))
-	except ValueError:
-		return None
+async def _served_photo(photo_id: str):
+	"""(lat, lon, bearing, width, height) of a photo this service serves, else
+	None. Only served photos are looked up, so the position of anything else
+	never leaves the database."""
 	scope = settings.active_scope()
 	async with get_engine().connect() as conn:
-		r = (await conn.execute(text(f"""
-			SELECT ST_Y(p.geometry), ST_X(p.geometry), p.compass_angle
+		return (await conn.execute(text(f"""
+			SELECT ST_Y(p.geometry), ST_X(p.geometry), p.compass_angle, p.width, p.height
 			FROM panoramax.sequence_photos sp
 			JOIN photos p ON p.id = sp.photo_id
 			JOIN users u ON u.id = p.owner_id
 			WHERE p.id = :photo_id AND {ELIGIBLE_PHOTO_WHERE}
 		"""), {'photo_id': photo_id, 'scope_legal_rights': list(scope.legal_rights)})).first()
-	if r is None:
-		return None
-	return photo_map_url(settings.viewer_url(), photo_id, r[0], r[1], r[2])
+
+
+async def _viewer_target(pic: str | None, focus: str | None, map_view: str | None) -> str:
+	"""Where `/` sends a human, from the web viewer's own query string.
+
+	- A photo we serve: that photo on Hillview's map at its own position and
+	  bearing; with focus=pic (the explorer showed the photo large), in
+	  Hillview's zoom view on the whole photo.
+	- focus=meta (the explorer showed the photo's details): Hillview's detail
+	  page of that photo.
+	- Any other well-formed pic: that photo id at the explorer's own map
+	  position. The frontend then checks it against Hillview's API with the
+	  visitor's own access (verifyUrlRequestedPhoto), so the redirect adds
+	  nothing the URL did not already hold.
+	- No usable pic: the explorer's map position, else the start page.
+	"""
+	viewer = settings.viewer_url()
+	try:
+		photo_id = str(uuid_mod.UUID(pic)) if pic else None
+	except ValueError:
+		photo_id = None
+	if photo_id and focus == 'meta':
+		return photo_detail_url(viewer, photo_id)
+	served = await _served_photo(photo_id) if photo_id else None
+	if served:
+		lat, lon, bearing, width, height = served
+		zoom_view_height = height / width if focus == 'pic' and width and height else None
+		return hillview_map_url(viewer, lat, lon, bearing=bearing, photo_id=photo_id,
+			zoom_view_height=zoom_view_height)
+	lat, lon, zoom = explorer_map_view(map_view) or (None, None, 18)
+	return hillview_map_url(viewer, lat, lon, zoom, photo_id=photo_id)
 
 
 @app.get('/')
-async def root(pic: str | None = Query(default=None)) -> RedirectResponse:
+async def root(
+	pic: str | None = Query(default=None),
+	focus: str | None = Query(default=None),
+	map_view: str | None = Query(default=None, alias='map'),
+) -> RedirectResponse:
 	# Humans arrive here from the catalog's per-item rel=via link, which points
-	# at the registered instance URL. The web viewer's "Origin instance" link
-	# appends the explorer's own query string, so `pic` names the photo being
-	# looked at: send them to that photo on the viewer's map, else to its start
-	# page, never to STAC JSON (the harvester only ever requests /api/*).
-	target = await _served_photo_map_url(pic) if pic else None
-	return RedirectResponse(url=target or settings.viewer_url())
+	# at the registered instance URL; the web viewer's "Origin instance" link
+	# appends the explorer's own query string (pic, seq, focus, map, xyz, ...).
+	# Send them to the matching place in Hillview, never to STAC JSON (the
+	# harvester only ever requests /api/*).
+	return RedirectResponse(url=await _viewer_target(pic, focus, map_view))
 
 
 @app.get('/api/health')

@@ -14,10 +14,11 @@ against its schema and code):
   at the existing CDN/pics WebP derivatives.
 """
 import json
+import math
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
 from typing import Any
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 
 STAC_VERSION = '1.0.0'
 
@@ -48,19 +49,55 @@ _MEDIA_TYPES = {
 }
 
 
-def photo_map_url(viewer_url: str, photo_id: str, lat: float, lon: float, bearing: float | None) -> str:
-	"""Hillview's map view of one photo, the shape of the frontend's
-	constructPhotoMapPath (frontend/src/lib/urlUtilsServer.ts)."""
-	params: dict[str, Any] = {'lat': round(lat, 7), 'lon': round(lon, 7), 'zoom': 18}
-	if bearing is not None:
-		params['bearing'] = bearing
-	params['photo'] = f'hillview-{photo_id}'
-	return f'{viewer_url}/?{urlencode(params)}'
-
-
 def media_type(url: str) -> str | None:
 	"""The image media type a URL's file suffix names, or None if unknown."""
 	return _MEDIA_TYPES.get(PurePosixPath(urlsplit(url).path).suffix.lower())
+
+
+# Hillview's Leaflet map limits (minZoom / maxZoom in Map.svelte).
+HILLVIEW_ZOOM_RANGE = (3, 23)
+
+
+def hillview_map_url(
+	viewer_url: str, lat: float | None = None, lon: float | None = None, zoom: float = 18,
+	bearing: float | None = None, photo_id: str | None = None, zoom_view_height: float | None = None,
+) -> str:
+	"""A Hillview map URL in the frontend's own shape (constructPhotoMapPath in
+	urlUtilsServer.ts, the share URL in urlUtils.ts): position, bearing, the
+	photo, then the zoom view rectangle. That rectangle is in OpenSeadragon
+	coordinates with the width normalized to 1, so the whole photo runs from
+	0,0 to 1,height/width. Without a position the frontend locates the photo
+	itself; with nothing at all it is the start page."""
+	params: dict[str, Any] = {}
+	if lat is not None and lon is not None:
+		params.update(lat=round(lat, 7), lon=round(lon, 7), zoom=zoom)
+	if bearing is not None:
+		params['bearing'] = bearing
+	if photo_id:
+		params['photo'] = f'hillview-{photo_id}'
+		if zoom_view_height:
+			params.update(x1=0, y1=0, x2=1, y2=round(zoom_view_height, 6))
+	return f'{viewer_url}/?{urlencode(params)}' if params else viewer_url
+
+
+def photo_detail_url(viewer_url: str, photo_id: str) -> str:
+	"""Hillview's detail page of one photo (getPhotoDetailUrl in photoUtils.ts)."""
+	return f"{viewer_url}/photo/{quote(f'hillview-{photo_id}', safe='')}"
+
+
+def explorer_map_view(value: str | None) -> tuple[float, float, float] | None:
+	"""The Panoramax web viewer's `map=zoom/lat/lon` as (lat, lon, zoom) for
+	Hillview's map, or None if absent or malformed. The viewer's MapLibre uses
+	512 px tiles where Leaflet uses 256 px, so the same scale is one zoom level
+	higher here."""
+	try:
+		zoom, lat, lon = (float(part) for part in (value or '').split('/'))
+	except ValueError:
+		return None
+	if not (math.isfinite(zoom) and -90 <= lat <= 90 and -180 <= lon <= 180):
+		return None
+	low, high = HILLVIEW_ZOOM_RANGE
+	return lat, lon, min(max(round(zoom) + 1, low), high)
 
 
 def _numeric_variants(sizes: dict[str, Any]) -> dict[int, dict]:

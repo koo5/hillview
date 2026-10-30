@@ -4,7 +4,10 @@ meta-catalog's jsonb_date() rejects 'Z')."""
 import json
 from datetime import datetime, timezone
 
-from stac import collection_json, fmt_dt, item_json, media_type, photo_map_url, pick_assets, provider_name, with_query
+from stac import (
+	collection_json, explorer_map_view, fmt_dt, hillview_map_url, item_json, media_type, photo_detail_url,
+	pick_assets, provider_name, with_query,
+)
 
 # Worker layouts (photo_processor.create_optimized_sizes): JSON object keys are
 # strings after persistence. Fast mode has no 640.
@@ -244,12 +247,33 @@ class TestMediaType:
 		assert 'type' not in assets['hd']
 
 
-class TestPhotoMapUrl:
-	# The shape of the frontend's constructPhotoMapPath.
-	def test_with_bearing(self):
-		assert photo_map_url('https://hillview.cz', 'abc', 50.0781234567, 14.4719, 52.5) == \
+class TestHillviewLinks:
+	# The shapes of the frontend's constructPhotoMapPath, share URL and photo page.
+	def test_photo_with_position_and_bearing(self):
+		assert hillview_map_url('https://hillview.cz', 50.0781234567, 14.4719, bearing=52.5, photo_id='abc') == \
 			'https://hillview.cz/?lat=50.0781235&lon=14.4719&zoom=18&bearing=52.5&photo=hillview-abc'
 
-	def test_without_bearing(self):
-		assert photo_map_url('https://hillview.cz', 'abc', 50.0, 14.0, None) == \
-			'https://hillview.cz/?lat=50.0&lon=14.0&zoom=18&photo=hillview-abc'
+	def test_zoom_view_on_the_whole_photo(self):
+		# OpenSeadragon coordinates, width normalized to 1: a 1080x1920 portrait.
+		assert hillview_map_url('https://hillview.cz', 50.0, 14.0, photo_id='abc', zoom_view_height=1920 / 1080) == \
+			'https://hillview.cz/?lat=50.0&lon=14.0&zoom=18&photo=hillview-abc&x1=0&y1=0&x2=1&y2=1.777778'
+
+	def test_photo_alone_and_nothing_at_all(self):
+		assert hillview_map_url('https://hillview.cz', photo_id='abc') == 'https://hillview.cz/?photo=hillview-abc'
+		assert hillview_map_url('https://hillview.cz') == 'https://hillview.cz'
+
+	def test_detail_page(self):
+		assert photo_detail_url('https://hillview.cz', 'abc') == 'https://hillview.cz/photo/hillview-abc'
+
+
+class TestExplorerMapView:
+	def test_maplibre_zoom_is_one_level_lower_than_leaflet(self):
+		assert explorer_map_view('18.68/50.3193861/15.0402806') == (50.3193861, 15.0402806, 20)
+
+	def test_zoom_clamped_to_hillviews_range(self):
+		assert explorer_map_view('0/50/14')[2] == 3
+		assert explorer_map_view('24/50/14')[2] == 23
+
+	def test_malformed(self):
+		for value in (None, '', '18/50', '18/50/14/1', 'a/b/c', '18/95/14', '18/50/190', 'nan/50/14', 'inf/50/14'):
+			assert explorer_map_view(value) is None, value
