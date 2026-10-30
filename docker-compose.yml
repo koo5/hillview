@@ -23,6 +23,46 @@ services:
     container_name: hillview_postgres
     mem_limit: 4g
     restart: always
+    # Commit, WAL and checkpoint knobs, each defaulting to the Postgres default so
+    # an unset .env runs stock Postgres. On a dev box whose disk is shared with
+    # other workloads a COMMIT was measured waiting 24 s on the WAL fsync inside
+    # the login route (docs/todo/load-resilience.md); these are the dials for that.
+    #
+    # How much a crash can lose, from safest to least safe:
+    #   synchronous_commit=off   COMMIT returns before the WAL is flushed; a crash
+    #                            loses up to ~3× wal_writer_delay of commits, the
+    #                            on-disk state stays consistent. The dev/test pick.
+    #   full_page_writes=off     drops the torn-page protection; only safe on a
+    #                            filesystem that guarantees atomic page writes.
+    #   fsync=off                no flush at all; a crash can corrupt the cluster.
+    #                            Throwaway databases only.
+    # Checkpoints: a checkpoint is what the stalled commits were queued behind.
+    # Larger max_wal_size / longer checkpoint_timeout mean fewer checkpoints at
+    # the cost of a longer crash recovery. commit_delay groups concurrent commits
+    # into one flush (microseconds; only matters with synchronous_commit=on).
+    # log_min_duration_statement logs any statement slower than N ms (-1 = off);
+    # the api's own "slow commit" warning (backend/common/database.py) covers the
+    # commit side.
+    command:
+      - postgres
+      - -c
+      - synchronous_commit=${POSTGRES_SYNCHRONOUS_COMMIT:-on}
+      - -c
+      - fsync=${POSTGRES_FSYNC:-on}
+      - -c
+      - full_page_writes=${POSTGRES_FULL_PAGE_WRITES:-on}
+      - -c
+      - wal_writer_delay=${POSTGRES_WAL_WRITER_DELAY:-200ms}
+      - -c
+      - commit_delay=${POSTGRES_COMMIT_DELAY:-0}
+      - -c
+      - max_wal_size=${POSTGRES_MAX_WAL_SIZE:-1GB}
+      - -c
+      - checkpoint_timeout=${POSTGRES_CHECKPOINT_TIMEOUT:-5min}
+      - -c
+      - checkpoint_completion_target=${POSTGRES_CHECKPOINT_COMPLETION_TARGET:-0.9}
+      - -c
+      - log_min_duration_statement=${POSTGRES_LOG_MIN_DURATION_STATEMENT:--1}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}

@@ -1,11 +1,12 @@
 from sqlalchemy import event
 from sqlalchemy.orm import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.pool import NullPool, Pool
 import anyio
 import logging
 import os
+import time
 from dotenv import load_dotenv
 
 log = logging.getLogger(__name__)
@@ -58,6 +59,24 @@ if not os.getenv("ALEMBIC_SYNC_MODE"):
 			connect_args=_CONNECT_ARGS,
 		)
 	SessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+	# Warn when a commit (flush + COMMIT round trip) takes longer than this. The
+	# 2026-10-30 load incident was a 24 s COMMIT inside the login route that was
+	# only found by reconstructing it from request-log gaps; this names it directly.
+	SLOW_COMMIT_MS = int(os.getenv("DB_SLOW_COMMIT_MS", "1000"))
+
+	@event.listens_for(Session, "before_commit")
+	def _note_commit_start(session):
+		session.info["commit_started_at"] = time.monotonic()
+
+	@event.listens_for(Session, "after_commit")
+	def _warn_slow_commit(session):
+		started = session.info.pop("commit_started_at", None)
+		if started is None:
+			return
+		elapsed_ms = (time.monotonic() - started) * 1000
+		if elapsed_ms >= SLOW_COMMIT_MS:
+			log.warning(f"slow commit: {elapsed_ms:.0f} ms (threshold {SLOW_COMMIT_MS} ms)")
 else:
 	# In alembic mode, don't create the async engine
 	engine = None

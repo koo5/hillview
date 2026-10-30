@@ -753,6 +753,12 @@ async def clear_mapillary_cache_tables(db: AsyncSession) -> Dict[str, int]:
 	Returns:
 		Dict with deletion counts
 	"""
+	# Hold both tables for the whole transaction: the Mapillary cache writer can
+	# commit a mapillary_photo_cache row (referencing a region) between the two
+	# deletes, and the second then fails on the FK — seen as a 500 from
+	# /api/debug/clear-database on a loaded machine, with the test that relied on
+	# the wipe finding 0 markers instead of its mock set.
+	await db.execute(text("LOCK TABLE mapillary_photo_cache, cached_regions IN SHARE ROW EXCLUSIVE MODE"))
 	mapillary_cache_result = await db.execute(text("DELETE FROM mapillary_photo_cache"))
 	cached_regions_result = await db.execute(text("DELETE FROM cached_regions"))
 	await db.commit()

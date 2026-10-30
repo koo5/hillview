@@ -195,7 +195,7 @@ async def register_user(request: Request, user: UserCreate, db: AsyncSession = D
 
 	# Create new user
 	try:
-		hashed_password = get_password_hash(validated_password)
+		hashed_password = await asyncio.to_thread(get_password_hash, validated_password)
 		db_user = User(
 			email=validated_email,
 			username=validated_username,

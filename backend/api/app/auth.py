@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 import sys
 import os
+import asyncio
 import secrets
 import uuid
 import logging
@@ -219,7 +220,9 @@ async def authenticate_user(db: AsyncSession, username: str, password: str):
 	# Never log the plaintext password or stored hash material, even at debug —
 	# debug logs get enabled in prod incident triage and end up in aggregators.
 	logger.debug(f"Verifying password for user {username}")
-	password_valid = verify_password(password, user.hashed_password)
+	# bcrypt is ~0.2 s of pure CPU; run it off the event loop so a login never
+	# stalls every other request (docs/todo/load-resilience.md).
+	password_valid = await asyncio.to_thread(verify_password, password, user.hashed_password)
 	logger.debug(f"Password verification result: {password_valid}")
 	if not password_valid:
 		logger.warning(f"Authentication failed: Invalid password for user: {username}")
@@ -968,7 +971,7 @@ async def recreate_test_users() -> dict:
 
 			# Create fresh test users
 			for username, password, role in test_user_data:
-				hashed_password = get_password_hash(password)
+				hashed_password = await asyncio.to_thread(get_password_hash, password)
 				logger.info(f"Creating test user {username} with role {role.value} and password: {password}")
 				new_user = User(
 					username=username,
