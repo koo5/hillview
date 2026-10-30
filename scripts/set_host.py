@@ -18,9 +18,11 @@ HTTPS/HTTP-2 origin published over Yggdrasil, `local` is a Caddy origin that is
 only reachable on the LAN. The built-in `localhost` is the fallback for a
 machine with no profiles of its own.
 
-Switching clears the dev database by default: a stored photo's URLs were built
-from the PICS_URL in force when it was written, so rows made under the previous
-profile point at a host this one does not serve. Pass --keep-db to skip that.
+Switching clears the dev database when it moves what photo URLs are built
+from: a stored photo's URLs were built from the PICS_URL (and FILE_POOLS) in
+force when it was written, so rows made under the previous profile point at a
+host this one does not serve. Re-applying the live profile moves nothing and
+keeps the data. Pass --keep-db to keep it across a real switch too.
 
 Rather than editing your declarations in place, it appends a delimited block:
 
@@ -195,6 +197,20 @@ def verify(expected):
 	return ok
 
 
+# What a stored photo's URLs are built from (see clear_database).
+PHOTO_URL_KEYS = ("PICS_URL", "FILE_POOLS")
+
+
+def photo_urls_move(before, after):
+	"""Whether rendering changed what stored photo URLs are built from.
+
+	Only then do the existing rows point at a host this profile does not serve.
+	Re-applying the live profile (to re-render one changed setting, say) leaves
+	them valid, and clearing then would only destroy data.
+	"""
+	return any(active_value(before, key) != active_value(after, key) for key in PHOTO_URL_KEYS)
+
+
 def clear_database():
 	"""Wipe the dev database, because rows outlive the profile that made them.
 
@@ -268,8 +284,9 @@ def main():
 	                         "that leg, resolved from the hostname — so nobody "
 	                         "has to remember which profile a given box tests under")
 	parser.add_argument("--keep-db", action="store_true",
-	                    help="do not clear the dev database (keeps rows whose "
-	                         "photo URLs still point at the previous host)")
+	                    help="do not clear the dev database even when the switch "
+	                         "moves PICS_URL / FILE_POOLS (keeps rows whose photo "
+	                         "URLs still point at the previous host)")
 	args = parser.parse_args()
 
 	if args.list:
@@ -322,7 +339,8 @@ def main():
 	print(f"set_host: {args.profile} — {profile['summary']}")
 
 	env_values = dict(profile["env"])
-	pools = rewrite_pools(strip_block(read(".env") or ""), profile["pools"])
+	env_before = read(".env") or ""
+	pools = rewrite_pools(strip_block(env_before), profile["pools"])
 	if pools:
 		env_values["FILE_POOLS"] = pools
 	env_values["FRONTEND_URL"] = profile["frontend_url"]
@@ -332,8 +350,13 @@ def main():
 	for key, value in render("frontend/.env", args.profile, profile["frontend_env"]):
 		print(f"  frontend/.env  {key}={value}")
 
-	if not args.keep_db:
+	if args.keep_db:
+		pass
+	elif photo_urls_move(env_before, read(".env") or ""):
 		clear_database()
+	else:
+		print("  kept the dev database: PICS_URL and FILE_POOLS did not change, "
+		      "so its photo URLs still hold")
 
 	ok = verify({
 		"PICS_URL": profile["env"]["PICS_URL"],
