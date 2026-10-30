@@ -68,3 +68,7 @@ data class PhotoDetailKey(val photoId: String) : NavKey
 /** How sharing and the contribution grant affect federation. */
 @Serializable
 data object PanoramaxInfoKey : NavKey
+
+/** Explanation of one upload grant, without accepting it. */
+@Serializable
+data class LicenseInfoKey(val licenseId: String) : NavKey

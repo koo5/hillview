@@ -19,6 +19,9 @@ export interface PublicPhoto {
 	keywords?: string[] | null;
 	place_name?: string | null;
 	license?: string | null;
+	license_granted?: string | null;
+	panoramax_share?: boolean;
+	panoramax_approved?: boolean;
 	is_public?: boolean;
 	featured?: boolean;
 	bestof_eligible?: boolean;
@@ -59,6 +62,7 @@ export interface PhotoLicenseChange {
 	new_license: string | null;
 	actor_was_owner: boolean;
 	created_at: string;
+	cause?: string;
 }
 
 export type AnnotationBodySegment =

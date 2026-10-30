@@ -1,3 +1,4 @@
+import { chooseUploadLicense } from './helpers/licenseChoice';
 import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 import path from 'path';
@@ -30,13 +31,12 @@ test.describe('Photo Upload Tests', () => {
     await page.goto('/photos');
 
     const uploadButton = page.locator('[data-testid="upload-submit-button"]');
-    const licenseCheckbox = page.locator('[data-testid="license-checkbox"]');
 
     // Button disabled without file or license
     await expect(uploadButton).toBeDisabled();
 
     // Check license first - button still disabled (no file)
-    await licenseCheckbox.check();
+    await chooseUploadLicense(page);
     await expect(uploadButton).toBeDisabled();
 
     // Wait for file input to be enabled (user auth + license must be set)
@@ -87,9 +87,8 @@ test.describe('Photo Upload Tests', () => {
     });
 
     // Check the license checkbox first (file input is disabled until license is set)
-    const licenseCheckbox = page.locator('[data-testid="license-checkbox"]');
-    await licenseCheckbox.check();
-    console.log('🢄License checkbox checked');
+    await chooseUploadLicense(page);
+    console.log('🢄Upload license chosen');
 
     // Select file (must be after license check)
     console.log('🢄Setting file:', photoPath);
@@ -130,8 +129,7 @@ test.describe('Photo Upload Tests', () => {
     await page.goto('/photos');
 
     // Check the license checkbox first (file input is disabled until license is set)
-    const licenseCheckbox = page.locator('[data-testid="license-checkbox"]');
-    await licenseCheckbox.check();
+    await chooseUploadLicense(page);
 
     // Select multiple files (must be after license check)
     const fileInput = page.locator('[data-testid="photo-file-input"]');
@@ -270,10 +268,7 @@ test.describe('Photo Upload Tests', () => {
       // Upload one photo first if none exist
       const photoPath = path.join(testAssetsDir, testPhotos[0]);
       // Check the license checkbox first (file input is disabled until license is set)
-      const licenseCheckbox = page.locator('[data-testid="license-checkbox"]');
-      if (!await licenseCheckbox.isChecked()) {
-        await licenseCheckbox.check();
-      }
+      await chooseUploadLicense(page);
       await safeSetInputFiles(page.locator('[data-testid="photo-file-input"]'), photoPath);
       await page.waitForTimeout(500);
       await page.locator('[data-testid="upload-submit-button"]').click();

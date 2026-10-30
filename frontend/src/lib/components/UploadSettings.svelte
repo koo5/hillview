@@ -7,7 +7,6 @@
 	import LicenseSelector from './LicenseSelector.svelte';
 	import {autoUploadLicense} from '$lib/data.svelte';
 	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
-	import MyExternalLink from "$lib/components/MyExternalLink.svelte";
 
 	export let onSaveSuccess = (_message: string) => {};
 
@@ -82,17 +81,18 @@
 </script>
 
 {#if TAURI || BROWSER}
+	<section class="automatic-uploads" data-testid="auto-upload-settings">
 	<SettingsSectionHeader>Auto-Upload</SettingsSectionHeader>
 		<p class="help-text">
-			Automatically upload photos taken with the app's camera, to be visible in <MyExternalLink href="https://hillview.cz" >hillview.cz</MyExternalLink>
-                and in the app.
+			Choose when camera photos upload to Hillview.
 		</p>
 
 	<div class="form-group">
 
-		<LicenseSelector />
+		{#if TAURI}<LicenseSelector />{/if}
+		{#if $autoUploadLicense === null}<p>Choose a license in Photo permissions to enable automatic uploads.</p>{/if}
 
-		<div class="radio-group" class:disabled={$autoUploadLicense === null}>
+		<div class="radio-group">
 			<label class="radio-option">
 				<input type="radio"
 					   name="autoUpload"
@@ -142,15 +142,15 @@
 			</div>
 		{/if}
 
-		{#if !isAuthenticated && autoUploadEnabled}
-			<div class="urgent-login-notice">
-				<p>Please
-					<button type="button" class="login-link" on:click={goToLogin}>log in</button>
-					to upload photos.
+		{#if !isAuthenticated}
+			<div class="login-notice" data-testid="contribution-login-notice">
+				<p><button type="button" class="login-link" on:click={goToLogin}>Sign in or create an account</button>
+					to upload. Your permissions stay as chosen; signing in does not enable automatic uploads.
 				</p>
 			</div>
 		{/if}
 	</div>
+	</section>
 
 
 {:else}
@@ -165,16 +165,13 @@
 
 
 <style>
+	.automatic-uploads { font: 1rem/1.5 system-ui, sans-serif; }
+	.login-link { border: 0; padding: 0; min-height: 44px; background: none; color: #1d4ed8; font: inherit; text-decoration: underline; cursor: pointer; }
 	.radio-group {
 		display: flex;
 		flex-direction: column;
 		gap: 0.75rem;
 		margin-top: 1rem;
-	}
-
-	.radio-group.disabled {
-		opacity: 0.5;
-		pointer-events: none;
 	}
 
 	.radio-option {
@@ -211,12 +208,12 @@
 
 	.option-title {
 		font-weight: 500;
-		font-size: 0.875rem;
+		font-size: 1rem;
 		color: #1f2937;
 	}
 
 	.option-description {
-		font-size: 0.75rem;
+		font-size: 1rem;
 		color: #6b7280;
 		line-height: 1.4;
 	}
@@ -243,14 +240,6 @@
 		padding: 0.75em;
 		border-radius: 6px;
 		margin-top: 0.5em;
-	}
-
-	.urgent-login-notice {
-		background: #f8d7da;
-		color: #721c24;
-		font-weight: bold;
-		border: 2px solid #dc3545;
-		animation: urgentPulse 1s infinite alternate;
 	}
 
 	.checkbox-option {

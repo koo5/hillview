@@ -6,7 +6,9 @@
 	import { RefreshCw, Download, Upload, Clock, MapPin, Camera, AlertCircle, ChevronLeft, ChevronRight, CheckCircle, MoreVertical } from 'lucide-svelte';
 	import { getDevicePhotoUrl } from '$lib/devicePhotoHelper';
 	import { formatDate as isoFormatDate, formatTimeSec } from '$lib/dateUtils';
-	import {app} from "$lib/data.svelte";
+	import {app, autoUploadLicense} from "$lib/data.svelte";
+	import { licenseLabelFor } from '$lib/photoUtils';
+	import PanoramaxShareControl from '$lib/components/PanoramaxShareControl.svelte';
 	import RetryUploadsButton from "$lib/components/RetryUploadsButton.svelte";
 	import DevicePhotoStats from "$lib/components/DevicePhotoStats.svelte";
 	import {fetchPhotoStats, getPlatformName} from "$lib/photoStatsAdapter";
@@ -38,6 +40,9 @@
 		// Browser-specific fields
 		blob?: Blob;
 		blobUrl?: string;
+		license?: string | null;
+		panoramax_share?: boolean;
+		server_photo_id?: string;
 	}
 
 	interface DevicePhotosResponse {
@@ -89,6 +94,9 @@
 			retry_count: bp.retry_count,
 			last_upload_attempt: bp.last_attempt ?? null,
 			blob: bp.blob,
+			license: bp.license,
+			panoramax_share: bp.panoramax_share ?? false,
+			server_photo_id: bp.server_photo_id,
 			blobUrl: URL.createObjectURL(bp.blob)
 		};
 	}
@@ -159,6 +167,12 @@
 				has_more: photosData?.has_more
 			}));
 		}
+	}
+
+	async function changePendingSharing(photo: DevicePhoto, sharing: boolean, grant?: string) {
+		await browserPhotoStorage.setPendingPanoramaxShare(photo.id, sharing, grant);
+		photosData = photosData && { ...photosData, photos: photosData.photos.map(p => p.id === photo.id
+			? { ...p, panoramax_share: sharing, ...(grant ? { license: grant } : {}) } : p) };
 	}
 
 	async function refreshDevicePhotos() {
@@ -401,6 +415,18 @@
 							</div>
 						{/if}
 						<RetryUploadsButton {photo} onSync={() => fetchDevicePhotos(1, false)} />
+						{#if BROWSER}
+							<p data-testid="device-photo-license">Upload grant: {licenseLabelFor(photo.license ?? $autoUploadLicense) ?? 'Choose a license in upload settings'}{photo.license == null && $autoUploadLicense ? ' (from upload settings)' : ''}</p>
+							{#if photo.server_photo_id}
+								<a href={`/photo/hillview-${photo.server_photo_id}`} data-testid="device-photo-sharing-link">View or change this photo’s Panoramax sharing</a>
+							{:else}
+								<PanoramaxShareControl sharing={photo.panoramax_share ?? false} license={photo.license ?? $autoUploadLicense}
+									buttonText={`Panoramax: ${photo.panoramax_share ? 'on' : 'off'}`} testId="photo-panoramax-share-button"
+									context={`Only ${photo.file_name}. Other photos and your capture defaults stay unchanged.`}
+									disabled={photo.upload_status === 'uploading'}
+									onChange={(sharing, grant) => changePendingSharing(photo, sharing, grant)} />
+							{/if}
+						{/if}
 					</div>
 				{/each}
 			</div>

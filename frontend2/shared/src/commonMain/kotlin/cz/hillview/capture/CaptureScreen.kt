@@ -489,7 +489,6 @@ fun CaptureScreen(
     var ladderPinned by remember { mutableStateOf(false) }
     // The 📷 selector's right edge in root px, for placing ⏱ beside it.
     var cameraButtonRight by remember { mutableStateOf<Float?>(null) }
-    var timerButtonRight by remember { mutableStateOf<Float?>(null) }
     // Null while the ladder is open = the finger is on the button's side
     // (CancelZone), the one release that does nothing. There used to be a
     // third answer, armedCapture — that side took one photo, and the cancel
@@ -786,8 +785,38 @@ fun CaptureScreen(
 
         // The 📷 selector, lower-left as in Tauri. Only resolutions for
         // now; the camera rows join when enumeration is ported.
-        if (state.availableResolutions.isNotEmpty()) {
-            Column(Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 6.dp)) {
+        Column(
+            Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            // Above the camera settings, clear of the centred shutter even
+            // in a narrow split pane. Long press keeps the sharing guide.
+            if (!ladderVisible && !ladderPinned && !showResolutionMenu) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(if (uploadSettings.shareToPanoramax) Color(0xCC4CAF50) else DarkGlass)
+                        .combinedClickable(
+                            onClick = { uploadSettingsRepo.update { it.copy(shareToPanoramax = !it.shareToPanoramax) } },
+                            onLongClick = onOpenPanoramaxInfo,
+                            role = Role.Button,
+                        )
+                        .semantics {
+                            selected = uploadSettings.shareToPanoramax
+                            contentDescription = "Panoramax sharing ${if (uploadSettings.shareToPanoramax) "on" else "off"}"
+                        }
+                        .testTag("capture-panoramax-toggle"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "P",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = if (uploadSettings.shareToPanoramax) Color.Black else Color.White,
+                    )
+                }
+            }
+            if (state.availableResolutions.isNotEmpty()) {
                 if (showResolutionMenu) {
                     Column(
                         Modifier
@@ -1274,33 +1303,10 @@ fun CaptureScreen(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(start = timerStart, bottom = 6.dp)
-                    .onGloballyPositioned { timerButtonRight = it.boundsInRoot().right }
                     .background(if (ladderPinned) Color(0xCC4CAF50) else LightGlass, CircleShape)
                     .semantics { selected = ladderPinned }
                     .testTag("capture-interval-button"),
             ) { Text("⏱", style = MaterialTheme.typography.titleMedium) }
-            val shareStart = timerButtonRight?.let {
-                with(androidx.compose.ui.platform.LocalDensity.current) { (it - paneOrigin.x).toDp() } + 4.dp
-            } ?: (timerStart + 52.dp)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(start = shareStart, bottom = 6.dp)
-                    .clip(CircleShape)
-                    .background(if (uploadSettings.shareToPanoramax) Color(0xCC4CAF50) else LightGlass)
-                    .combinedClickable(
-                        onClick = { uploadSettingsRepo.update { it.copy(shareToPanoramax = !it.shareToPanoramax) } },
-                        onLongClick = onOpenPanoramaxInfo,
-                        role = Role.Button,
-                    )
-                    .semantics {
-                        selected = uploadSettings.shareToPanoramax
-                        contentDescription = "Panoramax sharing ${if (uploadSettings.shareToPanoramax) "on" else "off"}"
-                    }
-                    .testTag("capture-panoramax-toggle")
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                contentAlignment = Alignment.Center,
-            ) { Text("P", style = MaterialTheme.typography.titleMedium) }
         }
 
         // Bottom-centre stack over the video: hints and gate escapes above

@@ -137,7 +137,11 @@ export async function uploadPendingPhotos(
                     continue;
                 }
 
-                const result = await uploader(photo);
+                // A sharing edit may have won the transaction immediately
+                // before our claim. Upload that value, not the earlier scan.
+                const claimedPhoto = await browserPhotoStorage.getPhoto(photo.id);
+                if (!claimedPhoto) continue;
+                const result = await uploader(claimedPhoto);
 
                 if (result.success && result.photo_id) {
                     await browserPhotoStorage.markPhotoAsUploaded(photo.id, result.photo_id);

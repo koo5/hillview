@@ -1,7 +1,8 @@
 """Upload Panoramax-sharing test photos through the real upload path, shaped so the
 sequencer has something interesting to split.
 
-Used by e2e_federation.sh. Goes through the full authorize → worker → process
+Standalone development seeder; the E2E suite uses isolated accounts in
+e2e_federation.py. Goes through the full authorize → worker → process
 flow (SecureUploadClient), so the photos end up with real derivatives in
 `sizes` — which is what the federation API serves as assets.
 

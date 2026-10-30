@@ -31,6 +31,9 @@ export interface StoredPhoto {
     uploaded_at?: number;
     server_photo_id?: string;
     added_at: number;
+    /** Captured upload consent; null / absent grant adopts the global choice at upload. */
+    license?: string | null;
+    panoramax_share?: boolean;
     last_attempt?: number;
     /** Re-upload version, bumped when settings change (mirrors PhotoEntity.version on Android). Absent = 1. */
     version?: number;
@@ -153,7 +156,8 @@ class BrowserPhotoStorage {
             location: CaptureLocation;
             captured_at: number;
             orientation_code: number;
-        }
+        },
+        consent: { license?: string | null; panoramax_share?: boolean } = {}
     ): Promise<void> {
         if (!this.db) await this.init();
 
@@ -195,7 +199,7 @@ class BrowserPhotoStorage {
             });
         }
 
-        await this.savePhoto(id, blob, imageData.width, imageData.height, metadata);
+        await this.savePhoto(id, blob, imageData.width, imageData.height, metadata, consent);
     }
 
     async savePhoto(
@@ -207,7 +211,8 @@ class BrowserPhotoStorage {
             location: CaptureLocation;
             captured_at: number;
             orientation_code: number;
-        }
+        },
+        consent: { license?: string | null; panoramax_share?: boolean } = {}
     ): Promise<void> {
         if (!this.db) await this.init();
 
@@ -217,6 +222,8 @@ class BrowserPhotoStorage {
             width,
             height,
             metadata,
+            license: consent.license ?? null,
+            panoramax_share: consent.panoramax_share ?? false,
             status: 'pending',
             deleted: false,
             retry_count: 0,
@@ -275,6 +282,33 @@ class BrowserPhotoStorage {
         // Oldest first
         candidates.sort((a, b) => a.added_at - b.added_at);
         return candidates[0] || null;
+    }
+
+    /** Keep saved server consent in step with a capture's later retries. */
+    async setContribution(photoId: string, consent: { license?: string | null; panoramax_share?: boolean }): Promise<void> {
+        if (!this.db) await this.init();
+        const transaction = this.db!.transaction([PHOTO_STORE], 'readwrite');
+        const store = transaction.objectStore(PHOTO_STORE);
+        const photo: StoredPhoto | undefined = await this.promisifyRequest(store.get(photoId));
+        if (!photo) return;
+        if (consent.license !== undefined) photo.license = consent.license;
+        if (consent.panoramax_share !== undefined) photo.panoramax_share = consent.panoramax_share;
+        await this.promisifyRequest(store.put(photo));
+    }
+
+    /** Only untouched captures can change consent locally. Once authorization
+     * starts, edits go through the server photo page with an explicit Save. */
+    async setPendingPanoramaxShare(photoId: string, sharing: boolean, grant?: string): Promise<void> {
+        if (!this.db) await this.init();
+        const transaction = this.db!.transaction([PHOTO_STORE], 'readwrite');
+        const store = transaction.objectStore(PHOTO_STORE);
+        const photo: StoredPhoto | undefined = await this.promisifyRequest(store.get(photoId));
+        if (!photo || photo.server_photo_id || !['pending', 'failed'].includes(photo.status)) {
+            throw new Error('This photo has started uploading. Change sharing on its server photo page.');
+        }
+        photo.panoramax_share = sharing;
+        if (grant !== undefined) photo.license = grant;
+        await this.promisifyRequest(store.put(photo));
     }
 
     private async iterateCursor(cursor: IDBCursorWithValue, callback: (value: StoredPhoto) => void): Promise<void> {

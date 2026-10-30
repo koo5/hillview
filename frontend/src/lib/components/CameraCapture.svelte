@@ -1,7 +1,9 @@
 <script lang="ts">
 	import {Car, ArrowRight, Compass, Leaf} from 'lucide-svelte';
 	import {createEventDispatcher, onDestroy, onMount} from 'svelte';
-	import {TAURI} from '$lib/tauri';
+	import {TAURI, BROWSER} from '$lib/tauri';
+	import {autoUploadLicense, capturePanoramaxShare} from '$lib/data.svelte';
+	import PanoramaxShareControl from './PanoramaxShareControl.svelte';
 	import {invoke} from '@tauri-apps/api/core';
 	import {get} from 'svelte/store';
 	import {playShutterSound} from '$lib/utils/shutterSound';
@@ -853,6 +855,7 @@
 		const {mode} = event.detail;
 
 		const timestamp = Date.now();
+		const uploadConsent = { license: get(autoUploadLicense), panoramax_share: get(capturePanoramaxShare) };
 		const captureStartTime = performance.now();
 
 		// Power saving parks the map, so spatialState (which feeds locationData)
@@ -972,6 +975,7 @@
 				image_data: imageData,
 				location: {...validLocation, alt_location: altLocation},
 				captured_at: timestamp,
+				...uploadConsent,
 				mode,
 				placeholder_id: sharedId, // Use sharedId as placeholder ID too
 				orientation_code: get(relativeOrientationExif) // Current device orientation
@@ -1662,8 +1666,20 @@
 
 			<!-- Camera selector button (lower-left) -->
 			<div class="camera-selector-container">
+				{#if BROWSER && !showCameraSelector}
+					<div class="capture-sharing-controls">
+						<PanoramaxShareControl sharing={$capturePanoramaxShare} license={$autoUploadLicense}
+							compact={true} testId="capture-panoramax-toggle"
+							onChange={(sharing, grant) => {
+								if (grant) autoUploadLicense.set(grant);
+								capturePanoramaxShare.set(sharing);
+							}} />
+						<a href="/settings/panoramax" class="panoramax-help" aria-label="About Panoramax sharing" data-testid="capture-panoramax-help">?</a>
+					</div>
+				{/if}
 				<button
 					class="camera-selector-button"
+					data-testid="camera-selector-button"
 					on:click={handleCameraSelectorToggle}
 					aria-label="Select camera"
 				>
@@ -1912,6 +1928,10 @@
 	}
 
 	.camera-selector-container {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 6px;
 		position: absolute;
 		z-index: 1003;
 		left: calc(0px + var(--safe-area-inset-left, 0px));
@@ -1925,6 +1945,9 @@
 		left: 50%;
 		transform: translateX(-50%);
 	}
+	.capture-sharing-controls { display: flex; align-items: center; gap: 4px; }
+	.panoramax-help { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: 50%; border: 1px solid #ffffff70; background: #000b; color: white; font-size: 1.1rem; text-decoration: none; cursor: pointer; }
+	.panoramax-help { width: 44px; height: 44px; }
 
 	.camera-selector-button {
 		background: rgba(255, 255, 255, 0.2);

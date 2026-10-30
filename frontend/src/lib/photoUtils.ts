@@ -4,6 +4,7 @@ import { get } from 'svelte/store';
 import { sources, type Source } from '$lib/data.svelte';
 import { constructUserProfileUrl } from '$lib/urlUtilsServer';
 import { parseInstant, isoDateTimeSec, formatDateTimeSec, viewerZoneInfo } from '$lib/dateUtils';
+import { UPLOAD_LICENSES } from './licenses';
 
 /**
  * Get the full-size URL for any photo type
@@ -225,6 +226,9 @@ const LICENSE_LABELS: Record<string, string> = {
 	'CC-BY-SA-4.0': 'CC BY-SA 4.0',
 	'CC-BY-4.0': 'CC BY 4.0',
 	'CC0-1.0': 'CC0 1.0 (public domain)',
+	'full1': 'Full rights to Hillview',
+	'panoramax_in': 'Panoramax contribution grant',
+	'panoramax': 'Panoramax (license wording pending)',
 };
 
 export function getLicenseId(photo: PhotoData | null): string | null {
@@ -239,18 +243,16 @@ export function getLicenseId(photo: PhotoData | null): string | null {
 /**
  * The licences a Hillview owner may grant, in the vocabulary WRITES take
  * (upload authorization and PATCH /photos/{id}). Reads speak a public name
- * instead — the two differ only in that the grant 'full1' reads as 'arr' —
- * so an edit form has to translate what it read back with [grantIdForLicense].
+ * instead. A 'panoramax' read value can come from two different grants, so
+ * editors must prefer the privileged `license_granted` field.
  * Keep in step with the backend's ALLOWED_LICENSES.
  */
-export const GRANTABLE_LICENSES: { id: string; label: string }[] = [
-	{ id: 'ccbysa4+osm', label: LICENSE_LABELS['ccbysa4+osm'] },
-	{ id: 'full1', label: LICENSE_LABELS['arr'] },
-];
+export const GRANTABLE_LICENSES: { id: string; label: string }[] = UPLOAD_LICENSES.map(({ id, label }) => ({ id, label }));
 
 /** A licence id as read → the grant identifier a write must send. */
 export function grantIdForLicense(id: string | null | undefined): string | null {
 	if (!id) return null;
+	if (id === 'panoramax') return null;
 	return id === 'arr' ? 'full1' : id;
 }
 

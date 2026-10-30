@@ -29,6 +29,7 @@ export interface UploadAuthorizationRequest {
 	description?: string;
 	is_public: boolean;
 	license?: string; // e.g. 'ccbysa4' — the license under which the user contributes this photo
+	panoramax_share?: boolean;
 	// Geolocation data for immediate map display
 	latitude?: number;
 	longitude?: number;

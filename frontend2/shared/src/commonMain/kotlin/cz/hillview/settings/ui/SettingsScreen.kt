@@ -8,7 +8,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContentPadding
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -17,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,6 +36,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import cz.hillview.core.permissions.rememberNotificationPermissionRequester
 import cz.hillview.settings.LICENSE_INFO
@@ -66,6 +73,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onOpenLogin: () -> Unit = {},
     onOpenPanoramaxInfo: () -> Unit = {},
+    onOpenLicenseInfo: (String) -> Unit = {},
     repository: UploadSettingsRepository = koinInject(),
     compassRepository: CompassSettingsRepository = koinInject(),
     mapRepository: cz.hillview.settings.MapSettingsRepository = koinInject(),
@@ -379,35 +387,64 @@ fun SettingsScreen(
             }
         }
 
-        Column {
-            Text("Upload license", style = MaterialTheme.typography.bodyLarge)
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Upload license", style = MaterialTheme.typography.titleLarge)
             if (settings.license == null) {
                 Text(
                     "Not accepted — uploads stay on this device until you pick one.",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.testTag("settings-license-unset"),
                 )
             }
             // Each grant with what it actually is (LicenseInfo): the choice
             // is made here, on a hill, without the web app's /licensing page
             // to hand — so its substance sits under the radio.
-            LICENSE_INFO.forEach { license ->
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    RadioButton(
-                        selected = settings.license == license.id,
-                        onClick = { repository.update { it.copy(license = license.id) } },
-                        modifier = Modifier.testTag("settings-license-${license.id}"),
-                    )
-                    Column(Modifier.weight(1f)) {
-                        Text(license.label, style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            license.explainer,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+            Column(
+                Modifier.selectableGroup(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                LICENSE_INFO.forEach { license ->
+                    val selected = settings.license == license.id
+                    Surface(
+                        shape = MaterialTheme.shapes.medium,
+                        color = if (selected) MaterialTheme.colorScheme.secondaryContainer
+                            else MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.outlineVariant),
+                    ) {
+                        Column(Modifier.fillMaxWidth()) {
+                            Row(
+                                verticalAlignment = Alignment.Top,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .selectable(
+                                        selected = selected,
+                                        role = Role.RadioButton,
+                                        onClick = { repository.update { it.copy(license = license.id) } },
+                                    )
+                                    .testTag("settings-license-${license.id}")
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                RadioButton(selected = selected, onClick = null)
+                                Column(
+                                    Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Text(license.label, style = MaterialTheme.typography.titleMedium)
+                                    Text(license.explainer, style = MaterialTheme.typography.bodyLarge)
+                                }
+                            }
+                            // Separate from the selectable area: reading the
+                            // explanation must never accept a grant.
+                            TextButton(
+                                onClick = { onOpenLicenseInfo(license.id) },
+                                modifier = Modifier
+                                    .padding(start = 40.dp, bottom = 4.dp)
+                                    .semantics { contentDescription = "Learn more about ${license.label}" }
+                                    .testTag("settings-license-help-${license.id}"),
+                            ) { Text("Learn more", style = MaterialTheme.typography.bodyLarge) }
+                        }
                     }
                 }
             }

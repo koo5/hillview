@@ -62,6 +62,10 @@ fun CaptureGuideScreen(onBack: () -> Unit) {
         Entry("Resolutions", "Pin a photo size, or Auto for the camera's best.")
         Entry("Focus Auto / ∞", "∞ pins the lens at infinity — for landscapes and vistas. Any tap on the viewfinder returns to Auto.")
 
+        Section("The P button (above 📷)")
+        Entry("Tap", "Toggle Panoramax sharing for future photos. Green means sharing is on. Each photo keeps its capture-time choice.")
+        Entry("Long-press", "Read how Panoramax contribution works, including licensing, eligibility and withdrawal.")
+
         Section("The ⚡ menu (bottom right)")
         Entry("Rule", "How hard the target time is defended. Pin = exactly that time (it WILL blow out in bright sun — the ISO floor runs out and a pinned shutter has nowhere left to give). Floor = that time or faster, which is the one to use outdoors. Sports = a floor that hands the shutter back, down to 1/125, rather than push ISO past 1600. Auto returns the camera to its own exposure.")
         Entry("Target", "The shutter time the rule aims at (1/125…1/2000) — for crisp shots from a moving vehicle. ISO follows automatically.")

@@ -32,6 +32,6 @@ class UploadConsentTest {
     fun theLicenceVocabularyIsTheBackends() {
         // user_routes.ALLOWED_LICENSES — a licence string the backend does
         // not know is an upload rejection later.
-        assertEquals(listOf("ccbysa4+osm", "full1", "panoramax_in"), ALLOWED_LICENSES)
+        assertEquals(listOf("full1", "panoramax_in", "ccbysa4+osm"), ALLOWED_LICENSES)
     }
 }

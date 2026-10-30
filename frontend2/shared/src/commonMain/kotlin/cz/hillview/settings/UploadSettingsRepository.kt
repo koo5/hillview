@@ -172,15 +172,8 @@ expect fun storageFolderName(hideFromGallery: Boolean): String
  */
 data class LicenseInfo(val id: String, val label: String, val explainer: String)
 
+// Broadest grant to Hillview first; this is not an ordering of public reuse rights.
 val LICENSE_INFO: List<LicenseInfo> = listOf(
-    LicenseInfo(
-        id = "ccbysa4+osm",
-        label = "CC BY-SA 4.0 + OSM mapping grant",
-        explainer = "You keep your copyright. Anyone may copy, share and " +
-            "remix the photo, commercially too, as long as they credit you " +
-            "and share alike; OpenStreetMap mappers may also trace map data " +
-            "from it into OSM. Choose this to contribute to the open commons.",
-    ),
     LicenseInfo(
         id = "full1",
         label = "Full rights to Hillview",
@@ -199,6 +192,14 @@ val LICENSE_INFO: List<LicenseInfo> = listOf(
             "Panoramax-compatible licence. Draft wording: the final licence text is pending. " +
             "The photo is published as Panoramax whether or not it qualifies for federation. " +
             "Turn on sharing separately to offer it to the federation.",
+    ),
+    LicenseInfo(
+        id = "ccbysa4+osm",
+        label = "CC BY-SA 4.0 + OSM mapping grant",
+        explainer = "You keep your copyright. Anyone may copy, share and " +
+            "remix the photo, commercially too, as long as they credit you " +
+            "and share alike; OpenStreetMap mappers may also trace map data " +
+            "from it into OSM. Choose this to contribute to the open commons.",
     ),
 )
 

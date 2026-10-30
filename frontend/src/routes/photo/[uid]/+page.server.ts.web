@@ -44,9 +44,9 @@ export const load: PageServerLoad = async ({ params, fetch, locals }) => {
 
 	const photo: PublicPhoto = await publicRes.json();
 	const annotations: PhotoAnnotation[] = annotationsRes.ok ? await annotationsRes.json() : [];
-	const licenseHistory: PhotoLicenseChange[] = licenseHistoryRes.ok
-		? ((await licenseHistoryRes.json()).entries ?? [])
-		: [];
+	const history = licenseHistoryRes.ok ? await licenseHistoryRes.json() : {};
+	const licenseHistory: PhotoLicenseChange[] = history.entries ?? [];
+	const outflowHistory: PhotoLicenseChange[] = history.outflow_entries ?? [];
 
-	return { photo, annotations, licenseHistory, viewer_id: viewerIdOf(photo) };
+	return { photo, annotations, licenseHistory, outflowHistory, viewer_id: viewerIdOf(photo) };
 };

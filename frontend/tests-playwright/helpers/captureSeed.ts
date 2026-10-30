@@ -1,3 +1,4 @@
+import { chooseUploadLicense } from './licenseChoice';
 /**
  * Shared seeding helpers for the timeline specs. See
  * ../../docs/playwright-map-tests.md for the recipe and the gotchas these encode.
@@ -57,9 +58,7 @@ export function dumpPhotos(page: any): Promise<Array<{ server: string | null; st
  */
 export async function ensureAutoUpload(page: any) {
 	await page.goto('/settings/upload');
-	const license = page.locator('[data-testid="license-checkbox"]');
-	await license.waitFor({ state: 'visible', timeout: T(10000) });
-	if (!(await license.isChecked())) await license.check();
+	await chooseUploadLicense(page);
 	const enabled = page.locator('[data-testid="auto-upload-enabled"]');
 	if (!(await enabled.isChecked())) {
 		await enabled.check();

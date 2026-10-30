@@ -114,7 +114,8 @@ export async function secureUploadFile(
 	reupload?: {            // Re-upload support (changed anonymization settings)
 		version?: number;   // Bump above server's stored version to replace a completed photo
 		anonymization_override?: string | null;  // JSON: null=auto, "[]"=none, "[{...}]"=specific
-	}
+	},
+	panoramaxShare: boolean = false
 ): Promise<SecureUploadResult> {
 	try {
 		console.log(`🢄🔐 Starting secure upload for: ${file.name}`);
@@ -150,6 +151,7 @@ export async function secureUploadFile(
 			description,
 			is_public: isPublic,
 			license,
+			panoramax_share: panoramaxShare,
 			version: reupload?.version,
 			...geolocation
 		};
@@ -205,7 +207,8 @@ export async function secureUploadFiles(
 	onProgress?: (completed: number, total: number, currentFile: string) => void,
 	onError?: (file: File, errorMessage: string) => void,
 	browserMetadata?: any,  // Metadata from browser capture that can't be written as EXIF
-	license?: string        // License identifier (e.g. 'ccbysa4')
+	license?: string,        // License identifier (e.g. 'ccbysa4')
+	panoramaxShare: boolean = false
 ): Promise<{
 	results: SecureUploadResult[];
 	successCount: number;
@@ -223,7 +226,7 @@ export async function secureUploadFiles(
 		// Report progress
 		onProgress?.(i, files.length, file.name);
 
-		const result = await secureUploadFile(file, description, isPublic, browserMetadata, license);
+		const result = await secureUploadFile(file, description, isPublic, browserMetadata, license, undefined, panoramaxShare);
 		results.push(result);
 
 		if (result.success) {

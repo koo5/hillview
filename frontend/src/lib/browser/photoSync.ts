@@ -13,6 +13,7 @@ import { auth } from '../authStore';
 import { getSettings } from '../settings';
 import { get } from 'svelte/store';
 import { autoUploadLicense } from '../data.svelte';
+import { photoUploadConsent } from '../licenses';
 import { initSyncStatusListener, isSwAlive, createFgStatusReporter } from '../syncStatus';
 
 const LOG_PREFIX = '🢄[PhotoSync]';
@@ -39,11 +40,7 @@ async function foregroundUploader(photo: StoredPhoto): Promise<UploadResult> {
         alt_location: photo.metadata.location.alt_location
     };
 
-    const license = get(autoUploadLicense);
-    if (!license) {
-        console.log(`${LOG_PREFIX} No auto-upload license selected, skipping`);
-        return { success: false, error: 'No license selected' };
-    }
+    const { license, panoramax_share } = photoUploadConsent(photo, get(autoUploadLicense));
 
     const result = await secureUploadFile(
         file,
@@ -54,7 +51,8 @@ async function foregroundUploader(photo: StoredPhoto): Promise<UploadResult> {
         {           // re-upload support (anonymization edits bump version)
             version: photo.version,
             anonymization_override: photo.anonymization_override
-        }
+        },
+        panoramax_share
     );
 
     return {
@@ -106,7 +104,13 @@ export async function triggerPhotoSync(): Promise<void> {
 
     if (isBackgroundSyncSupported()) {
         try {
-            const reg = await navigator.serviceWorker.ready;
+            // Dev servers and first visits may have no active worker. The
+            // `ready` promise never resolves in that case; use foreground.
+            const reg = await navigator.serviceWorker.getRegistration();
+            if (!reg?.active) {
+                startForegroundSync();
+                return;
+            }
             await (reg as any).sync.register('photo-upload');
             console.log(`${LOG_PREFIX} Background sync registered, probing SW...`);
 

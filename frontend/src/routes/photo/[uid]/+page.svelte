@@ -18,7 +18,12 @@
 	import { http, handleApiError, TokenExpiredError } from '$lib/http';
 	import { auth } from '$lib/auth.svelte';
 	import { constructPhotoMapUrl, constructUserProfileUrl, parsePhotoUidParts } from '$lib/urlUtils';
-	import { GRANTABLE_LICENSES, grantIdForLicense, licenseLabelFor } from '$lib/photoUtils';
+	import { licenseLabelFor } from '$lib/photoUtils';
+	import { uploadGrant, canGrantPanoramax } from '$lib/licenses';
+	import LicenseChoiceControl from '$lib/components/LicenseChoiceControl.svelte';
+	import ContributionSummary from '$lib/components/ContributionSummary.svelte';
+	import PanoramaxShareControl from '$lib/components/PanoramaxShareControl.svelte';
+	import { browserPhotoStorage } from '$lib/browser/photoStorage';
 	import { sharePhoto as sharePhotoUtil } from '$lib/shareUtils';
 	import { myGoto } from '$lib/navigation.svelte';
 	import { TAURI, BROWSER } from '$lib/tauri';
@@ -64,6 +69,7 @@
 				photo?: PublicPhoto;
 				annotations?: PhotoAnnotation[];
 				licenseHistory?: PhotoLicenseChange[];
+				outflowHistory?: PhotoLicenseChange[];
 				viewer_id?: string | null;
 		  }
 		| undefined = undefined;
@@ -92,6 +98,7 @@
 	// batch is the visitor's own, the client-side load that would otherwise fetch
 	// the trail (see loadPhoto) is skipped, and this is the only copy there is.
 	let licenseHistory: PhotoLicenseChange[] = data?.licenseHistory ?? [];
+	let outflowHistory: PhotoLicenseChange[] = data?.outflowHistory ?? [];
 	let showLicenseHistory = false;
 
 	$: photoUid = $page.params.uid;
@@ -191,6 +198,7 @@
 		// Same posture as annotations: independent, and silent on failure —
 		// the licence line above stands on its own without the history.
 		licenseHistory = [];
+		outflowHistory = [];
 		showLicenseHistory = false;
 		if (photo && parts?.id && parts.source === 'hillview') {
 			loadLicenseHistory(parts.id);
@@ -200,7 +208,11 @@
 	async function loadLicenseHistory(photoId: string) {
 		try {
 			const resp = await http.get(`/photos/${encodeURIComponent(photoId)}/license-history`);
-			if (resp.ok) licenseHistory = (await resp.json()).entries ?? [];
+			if (resp.ok && photo?.id === photoId) {
+				const history = await resp.json();
+				licenseHistory = history.entries ?? [];
+				outflowHistory = history.outflow_entries ?? [];
+			}
 		} catch (err) {
 			console.error('🢄 Error loading license history:', err);
 		}
@@ -336,14 +348,18 @@
 	let editBearing: number | null = null;
 	let editFeatured = false;
 	let editBestofEligible = true;
+	let editPanoramaxShare = false;
+	let editPanoramaxApproved = true;
 	// In the GRANT vocabulary writes take, not the public name reads return.
 	let editLicense = '';
 	let isSavingEdit = false;
 
-	$: canEditPhoto = !!photo && photo.source === 'hillview' && (photo.is_own_photo || $isModerator);
+	$: isPhotoOwner = !!photo && $auth.is_authenticated && photo.is_own_photo && photo.owner_id === $auth.user?.id;
+	$: canEditPhoto = !!photo && $auth.is_authenticated && photo.source === 'hillview' && (isPhotoOwner || $isModerator);
 
-	$: if (photo && photo.uid !== editUid) {
-		editUid = photo.uid;
+	$: editIdentity = photo ? `${photo.uid}:${photo.is_own_photo}:${$isModerator}:${photo.license_granted ?? ''}` : '';
+	$: if (photo && editIdentity !== editUid) {
+		editUid = editIdentity;
 		syncEditForm(photo);
 	}
 
@@ -353,11 +369,13 @@
 		editBearing = p.bearing;
 		editFeatured = p.featured ?? false;
 		editBestofEligible = p.bestof_eligible ?? true;
-		editLicense = grantIdForLicense(p.license) ?? '';
+		editLicense = uploadGrant(p.license_granted, p.license) ?? '';
+		editPanoramaxShare = p.panoramax_share ?? false;
+		editPanoramaxApproved = p.panoramax_approved ?? true;
 	}
 
 	async function saveEdit() {
-		if (!photo || isSavingEdit) return;
+		if (!photo || !canEditPhoto || isSavingEdit) return;
 
 		isSavingEdit = true;
 		try {
@@ -368,7 +386,9 @@
 				description: editDescription,
 				bearing: editBearing,
 				...(editLicense ? { license: editLicense } : {}),
-				...($isModerator ? { featured: editFeatured, bestof_eligible: editBestofEligible } : {})
+				...(isPhotoOwner && photo.panoramax_share !== undefined ? { panoramax_share: editPanoramaxShare } : {}),
+				...($isModerator ? { featured: editFeatured, bestof_eligible: editBestofEligible,
+					...(photo.panoramax_approved !== undefined ? { panoramax_approved: editPanoramaxApproved } : {}) } : {})
 			});
 			if (!response.ok) {
 				const errorText = await response.text();
@@ -382,12 +402,28 @@
 				featured: updated.featured,
 				bestof_eligible: updated.bestof_eligible,
 				bearing: updated.bearing,
-				license: updated.license
+				license: updated.license,
+				license_granted: updated.license_granted,
+				panoramax_share: updated.panoramax_share,
+				panoramax_approved: updated.panoramax_approved
 			};
 			syncEditForm(photo);
+			// Keep a local capture's retry / re-upload consent in step with
+			// the explicitly saved server grant and sharing choice.
+			if (BROWSER && photo.is_own_photo) {
+				try {
+					const local = await browserPhotoStorage.getPhotoByServerPhotoId(photo.id);
+					if (local) await browserPhotoStorage.setContribution(local.id, {
+						license: updated.license_granted,
+						panoramax_share: updated.panoramax_share
+					});
+				} catch (err) {
+					console.warn('Could not update local capture consent after saving:', err);
+				}
+			}
 			// A relicensing just added a row to the trail shown above — refresh
 			// it rather than leaving the page contradicting itself.
-			if (updated.changed.includes('license')) loadLicenseHistory(photo.id);
+			if (updated.changed.includes('license') || updated.changed.includes('panoramax_share')) loadLicenseHistory(photo.id);
 			setStatus(
 				updated.changed.length ? `Saved: ${updated.changed.join(', ')}` : 'No changes to save',
 				false,
@@ -528,7 +564,7 @@
 						<span class="detail">
 							<span class="detail-label">License</span>
 							<span data-testid="photo-detail-license">{licenseLabelFor(photo.license)}</span>
-							{#if licenseHistory.length > 0}
+							{#if licenseHistory.length + outflowHistory.length > 0}
 								<!-- A disclosure, not an always-open list: the trail matters
 								     to whoever comes looking for it, and would otherwise
 								     crowd the photo out for everyone else. -->
@@ -538,10 +574,13 @@
 									on:click={() => (showLicenseHistory = !showLicenseHistory)}
 									data-testid="photo-detail-license-history-toggle"
 								>
-									{showLicenseHistory ? 'hide' : 'changed'} ({licenseHistory.length})
+									{showLicenseHistory ? 'hide' : 'changed'} ({licenseHistory.length + outflowHistory.length})
 								</button>
 							{/if}
 						</span>
+					{/if}
+					{#if canEditPhoto && photo.license_granted}
+						<span class="detail"><span class="detail-label">Upload grant</span><span data-testid="photo-detail-license-granted">{licenseLabelFor(photo.license_granted)}</span></span>
 					{/if}
 				</div>
 
@@ -555,6 +594,17 @@
 								{licenseLabelFor(change.new_license) ?? 'none'}
 								<span class="license-history-actor"
 									>({change.actor_was_owner ? 'by the owner' : 'by a moderator'})</span>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+				{#if showLicenseHistory && outflowHistory.length > 0}
+					<h3>Published license changes</h3>
+					<ul class="license-history" data-testid="photo-detail-outflow-history">
+						{#each outflowHistory as change}
+							<li><span class="license-history-when">{formatDateTime(change.created_at)}</span>
+								{licenseLabelFor(change.old_license) ?? 'none'} → {licenseLabelFor(change.new_license) ?? 'none'}
+								<span class="license-history-actor">({change.cause === 'panoramax_share' ? 'sharing choice' : 'upload grant change'}; {change.actor_was_owner ? 'by the owner' : 'by a moderator'})</span>
 							</li>
 						{/each}
 					</ul>
@@ -688,14 +738,26 @@
 							data-testid="photo-edit-description-input"
 						></textarea>
 					</label>
-					<label class="edit-field">
-						<span>License</span>
-						<select bind:value={editLicense} data-testid="photo-edit-license-select">
-							{#each GRANTABLE_LICENSES as option}
-								<option value={option.id}>{option.label}</option>
-							{/each}
-						</select>
-					</label>
+					<LicenseChoiceControl license={editLicense || photo.license_granted || null} sharing={editPanoramaxShare}
+						context="Only this photo. Other photos and your capture defaults stay unchanged."
+						note="Changes apply when you save this photo." disabled={isSavingEdit}
+						testId="photo-edit-license-button" currentTestId="photo-edit-license-current"
+						onChange={(grant) => { editLicense = grant; if (!canGrantPanoramax(grant)) editPanoramaxShare = false; }} />
+					{#if isPhotoOwner && photo.panoramax_share !== undefined}
+						<PanoramaxShareControl sharing={editPanoramaxShare} license={editLicense || photo.license_granted || null}
+							label="Offer this photo to Panoramax" testId="photo-edit-panoramax-share" disabled={isSavingEdit}
+							context="Only this photo. Other photos and your capture defaults stay unchanged."
+							note="Changes apply when you save this photo."
+							onChange={(sharing, grant) => { if (grant) editLicense = grant; editPanoramaxShare = sharing; }} />
+						<ContributionSummary license={editLicense || photo.license_granted || null} sharing={editPanoramaxShare} showLogin={false} />
+						<p>Changes apply when you save. <a href="/settings/panoramax">About Panoramax sharing</a></p>
+					{/if}
+					{#if $isModerator && photo.panoramax_approved !== undefined}
+						<label class="edit-checkbox">
+							<input type="checkbox" bind:checked={editPanoramaxApproved} data-testid="photo-edit-panoramax-approved" />
+							<span>Approved for Panoramax (moderator)</span>
+						</label>
+					{/if}
 					<!-- Changing this is recorded — see the licence trail above. A
 					     photo may already have been copied under the licence it
 					     carried at the time, and that grant stands. -->

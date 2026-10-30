@@ -1,134 +1,18 @@
 <script lang="ts">
-    import type { Writable } from 'svelte/store';
+    import { writable, type Writable } from 'svelte/store';
     import { autoUploadLicense } from '$lib/data.svelte';
-    import { CreativeCommons, ExternalLink } from 'lucide-svelte';
-    import { openExternalUrl, HILLVIEW_BASE_URL } from '$lib/urlUtils';
-
+    import { canGrantPanoramax } from '$lib/licenses';
+    import LicenseChoiceControl from './LicenseChoiceControl.svelte';
     export let licenseStore: Writable<string | null> = autoUploadLicense;
-
-    $: isChecked = $licenseStore === 'ccbysa4+osm';
-    $: isLicenseSet = $licenseStore !== null;
-
-    function handleChange(event: Event) {
-        const target = event.target as HTMLInputElement;
-        licenseStore.set(target.checked ? 'ccbysa4+osm' : null);
-    }
-
-    async function openLicenseInfo(event: Event) {
-        event.preventDefault();
-        event.stopPropagation();
-        await openExternalUrl(`${HILLVIEW_BASE_URL}/licensing`);
+    export let shareStore: Writable<boolean> = writable(false);
+    export let disabled = false;
+    export let groupName = 'capture-upload-license';
+    export let context = 'Future camera photos. Existing photos keep their choices.';
+    export let note = 'This does not start an upload.';
+    function apply(license: string) {
+        licenseStore.set(license);
+        if (!canGrantPanoramax(license)) shareStore.set(false);
     }
 </script>
 
-<div class={isLicenseSet ? '' : 'requirement-notice'}>
-    <label class="checkbox-label">
-        <input
-            type="checkbox"
-            checked={isChecked}
-            on:change={handleChange}
-            data-testid="license-checkbox"
-        />
-
-        <div class="label-content">
-            <div class="label-text">
-                <CreativeCommons size={18} />
-                <span>Share as CC BY-SA 4.0 + OSM grant</span>
-                <button
-                    type="button"
-                    class="info-link"
-                    on:click={openLicenseInfo}
-                    title="Learn more about this license"
-                    tabindex={0}
-                >
-                    <ExternalLink size={14} />
-                </button>
-            </div>
-			{#if !isLicenseSet}
-					Select a license to enable uploads.
-
-			{/if}
-
-        </div>
-    </label>
-</div>
-<style>
-
-    .checkbox-label {
-        display: flex;
-        align-items: flex-start;
-        gap: 0.75rem;
-        padding: 0.75rem;
-        border: 1px solid #e5e7eb;
-        border-radius: 0.5rem;
-        cursor: pointer;
-        transition: border-color 0.2s, background-color 0.2s;
-    }
-
-    .checkbox-label:hover {
-        border-color: #d1d5db;
-        background-color: #f9fafb;
-    }
-
-    .checkbox-label:has(input:checked) {
-        border-color: #3b82f6;
-        background-color: #eff6ff;
-    }
-
-    input[type="checkbox"] {
-        margin-top: 0.125rem;
-        flex-shrink: 0;
-        cursor: pointer;
-    }
-
-    .label-content {
-        flex: 1;
-        min-width: 0;
-    }
-
-    .label-text {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin-bottom: 4px;
-    }
-
-    .info-link {
-        background: none;
-        border: none;
-        color: #6b7280;
-        cursor: pointer;
-        padding: 2px;
-        border-radius: 4px;
-        transition: color 0.2s ease;
-        display: flex;
-        align-items: center;
-    }
-
-    .info-link:hover {
-        color: #3b82f6;
-    }
-
-
-    .requirement-notice {
-        margin-top: 12px;
-        padding: 12px 16px;
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        border-radius: 8px;
-        color: #dc2626;
-        font-size: 0.875rem;
-        font-weight: 500;
-    }
-
-    @media (max-width: 640px) {
-        .checkbox-label {
-            padding: 12px;
-        }
-
-        .label-text {
-            flex-wrap: wrap;
-            gap: 6px;
-        }
-    }
-</style>
+<LicenseChoiceControl license={$licenseStore} sharing={$shareStore} {disabled} {groupName} {context} {note} onChange={apply} />

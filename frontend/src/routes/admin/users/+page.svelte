@@ -14,6 +14,7 @@
 		email: string | null;
 		role: string;
 		is_active: boolean;
+		panoramax_contributor?: boolean;
 		is_verified: boolean;
 		oauth_provider: string | null;
 		created_at: string;
@@ -87,6 +88,23 @@
 
 	function toggleActive(u: AdminUser) {
 		patchUser(u, { is_active: !u.is_active });
+	}
+
+	async function togglePanoramax(u: AdminUser) {
+		busyId = u.id;
+		error = '';
+		try {
+			const response = await http.put(`/admin/users/${u.id}/panoramax-contributor`, {
+				panoramax_contributor: !u.panoramax_contributor
+			});
+			if (!response.ok) throw new Error(`Panoramax update failed (${response.status})`);
+			const updated = await response.json();
+			users = users.map(user => user.id === u.id ? { ...user, ...updated } : user);
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'Could not update Panoramax contributions';
+		} finally {
+			busyId = null;
+		}
 	}
 
 	// Delete flow
@@ -182,6 +200,12 @@
 								</div>
 
 								<div class="user-actions">
+									{#if u.panoramax_contributor !== undefined}
+										<button class="action" data-testid="admin-user-panoramax" disabled={busyId === u.id}
+											aria-pressed={u.panoramax_contributor} on:click={() => togglePanoramax(u)}>
+											Panoramax: {u.panoramax_contributor ? 'enabled' : 'disabled'}
+										</button>
+									{/if}
 									{#if u.id === selfId}
 										<span class="role-static">{u.role}</span>
 									{:else}
