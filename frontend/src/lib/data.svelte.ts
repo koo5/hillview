@@ -141,12 +141,18 @@ export let showCalibrationView = writable(false);
 // License identifiers stored on uploaded photos as `legal_rights`:
 //   'full1'       — full rights granted to Hillview (the seed content, and a contributor's
 //                   choice in the web edit form and in frontend2's settings); published
-//                   as 'arr', which is all rights reserved PLUS the same OSM mapping grant
+//                   as 'arr' with sharing off (all rights reserved PLUS the OSM mapping grant),
+//                   or as 'panoramax' with sharing on
 //   'ccbysa4+osm' — CC BY-SA 4.0 + OSM mapping grant, granted by the contributor at upload time
+//   'panoramax_in' — Panoramax contribution grant; published as 'panoramax'
 // These stores hold the identifier string the user has consented to for a given upload path.
 // null means "no license selected" — upload is blocked for that path.
 export let autoUploadLicense = localStorageSharedStore<string | null>('autoUploadLicense', null);
 export let manualUploadLicense = localStorageSharedStore<string | null>('manualUploadLicense', null);
+// Browser-only contribution defaults. Every capture / manual upload snapshots
+// its choice; changing these never edits an existing photo.
+export const capturePanoramaxShare = localStorageSharedStore('capturePanoramaxShare', false);
+export const manualPanoramaxShare = localStorageSharedStore('manualPanoramaxShare', false);
 
 // Sync auto-upload license to Settings (bridges to Kotlin SharedPrefs on Android).
 // Also: clearing the license disables auto-upload (can't upload without a license).

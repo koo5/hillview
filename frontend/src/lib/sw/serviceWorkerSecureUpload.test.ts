@@ -2,6 +2,10 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // ── Mocks ──
 
+vi.mock('$lib/browser/settingsIndexedDb', () => ({
+	readSettings: vi.fn().mockResolvedValue({ auto_upload_license: 'ccbysa4+osm' })
+}));
+
 vi.mock('$lib/clientCrypto', () => ({
 	clientCrypto: {
 		getPublicKeyInfo: vi.fn().mockResolvedValue({
@@ -52,6 +56,7 @@ import {
 } from '$lib/uploadProtocol';
 import { authStorage } from '$lib/browser/authStorage';
 import type { StoredPhoto } from '$lib/browser/photoStorage';
+import { readSettings } from '$lib/browser/settingsIndexedDb';
 
 const mockRequestAuth = vi.mocked(requestUploadAuthorization);
 const mockUploadToWorker = vi.mocked(uploadToWorker);
@@ -124,6 +129,24 @@ describe('ServiceWorkerSecureUploader', () => {
 		expect(fileArg).toBeInstanceOf(File);
 		expect(fileArg.name).toBe('photo_abc-123.jpg');
 		expect(fileArg.type).toBe('image/jpeg');
+	});
+
+	it('sends the captured grant and sharing flag instead of current defaults', async () => {
+		await uploader.uploadPhoto(makeStoredPhoto({ license: 'full1', panoramax_share: true }));
+		expect(mockRequestAuth.mock.calls[0][1]).toMatchObject({ license: 'full1', panoramax_share: true });
+	});
+
+	it('uses the selected fallback grant for old captures, with sharing off', async () => {
+		await uploader.uploadPhoto(makeStoredPhoto());
+		expect(mockRequestAuth.mock.calls[0][1]).toMatchObject({ license: 'ccbysa4+osm', panoramax_share: false });
+	});
+
+	it('does not authorize or send files before a grant is chosen', async () => {
+		vi.mocked(readSettings).mockResolvedValueOnce(null);
+		const result = await uploader.uploadPhoto(makeStoredPhoto());
+		expect(result.success).toBe(false);
+		expect(mockRequestAuth).not.toHaveBeenCalled();
+		expect(mockUploadToWorker).not.toHaveBeenCalled();
 	});
 
 	it('should pass correct geo fields from photo metadata to auth request', async () => {

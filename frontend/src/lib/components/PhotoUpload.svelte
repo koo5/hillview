@@ -10,7 +10,7 @@
 	import { TAURI_MOBILE } from '$lib/tauri';
 	import { invoke } from '@tauri-apps/api/core';
 	import { track } from '$lib/analytics';
-	import { manualUploadLicense } from '$lib/data.svelte';
+	import { manualUploadLicense, manualPanoramaxShare } from '$lib/data.svelte';
 	import { get } from 'svelte/store';
 
 	export let user: User | null = null;
@@ -77,7 +77,8 @@
 					});
 				},
 				undefined, // browserMetadata
-				license
+				license,
+				get(manualPanoramaxShare)
 			);
 
 			// Process results

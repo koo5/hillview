@@ -3,12 +3,17 @@ package cz.hillview
 import android.content.Context
 import android.net.Uri
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.longClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
 import cz.hillview.capture.PhotoTableDump
@@ -100,13 +105,32 @@ class PanoramaxCaptureBehaviourTest {
     }
 
     @Test
+    fun sharingToggleIsAboveCameraSettingsAndReceivesRealTouches() {
+        compose.openCaptureAndAwaitCamera()
+        val toggle = compose.onNodeWithTag("capture-panoramax-toggle")
+        val toggleBounds = toggle.fetchSemanticsNode().boundsInRoot
+        val cameraBounds = compose.onNodeWithTag("camera-selector-button").fetchSemanticsNode().boundsInRoot
+        val shutterBounds = compose.onNodeWithTag("capture-shutter").fetchSemanticsNode().boundsInRoot
+        assertTrue("toggle must sit above camera settings", toggleBounds.bottom <= cameraBounds.top)
+        assertFalse("shutter must not cover the toggle", toggleBounds.overlaps(shutterBounds))
+        toggle.performTouchInput { click() }
+        toggle.assertIsSelected()
+        assertTrue(settings.settings.value.shareToPanoramax)
+        toggle.performTouchInput { click() }
+        toggle.assertIsNotSelected()
+        toggle.performTouchInput { longClick() }
+        compose.onNodeWithTag("panoramax-info").assertIsDisplayed()
+        assertFalse("help must not toggle sharing", settings.settings.value.shareToPanoramax)
+    }
+
+    @Test
     fun toggleIsSnapshottedAndExportedWithThePhoto() {
         compose.openCaptureAndAwaitCamera()
         compose.ensureCaptureReady()
-        compose.onNodeWithTag("capture-panoramax-toggle").performClick().assertIsSelected()
+        compose.onNodeWithTag("capture-panoramax-toggle").performTouchInput { click() }.assertIsSelected()
         val photo = compose.captureOnePhoto()
         assertTrue(photo.panoramaxShare)
-        compose.onNodeWithTag("capture-panoramax-toggle").performClick()
+        compose.onNodeWithTag("capture-panoramax-toggle").performTouchInput { click() }
         assertTrue(Behaviour.photoDao().getPhotoById(photo.id)!!.panoramaxShare)
 
         runBlocking { PhotoTableDump.dumpNowForResult(Behaviour.context) }

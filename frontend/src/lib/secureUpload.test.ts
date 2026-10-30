@@ -92,6 +92,11 @@ describe('secureUpload', () => {
 	describe('secureUploadFile', () => {
 		const file = new File(['photo data'], 'test.jpg', { type: 'image/jpeg' });
 
+		it('sends the explicit Panoramax choice to authorization', async () => {
+			await secureUploadFile(file, '', true, undefined, 'panoramax_in', undefined, true);
+			expect(mockRequestAuth.mock.calls[0][1]).toMatchObject({ license: 'panoramax_in', panoramax_share: true });
+		});
+
 		it('should call protocol functions in correct order with correct args', async () => {
 			await secureUploadFile(file, 'A photo', true);
 

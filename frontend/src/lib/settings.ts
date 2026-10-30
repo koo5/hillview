@@ -80,6 +80,13 @@ export async function updateSettings(newSettings: Partial<Settings>): Promise<vo
 		browserSettingsStore.set({...current, value: updated});
 		// Also persist to IndexedDB so the upload loop (which reads from IDB) sees the change
 		await writeSettings(updated);
+		// The drain reads IndexedDB, so start it only after that copy is
+		// committed. This also works when Settings was opened directly,
+		// before the capture screen (and its subscriptions) ever mounted.
+		if (newSettings.auto_upload_enabled === true && (await getSettings()).auto_upload_enabled) {
+			void import('./browser/photoSync').then(({ triggerPhotoSync }) => triggerPhotoSync())
+				.catch(error => console.error('Failed to start browser photo sync:', error));
+		}
 	} else if (TAURI) {
 		// Wait for the initial load before merging — otherwise `state.value` may still be
 		// undefined and the partial update collapses to just `newSettings`, stomping on

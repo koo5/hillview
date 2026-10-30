@@ -4,6 +4,8 @@
 import type { StoredPhoto } from '$lib/browser/photoStorage';
 import { clientCrypto } from '$lib/clientCrypto';
 import { authStorage } from '$lib/browser/authStorage';
+import { readSettings } from '$lib/browser/settingsIndexedDb';
+import { photoUploadConsent } from '$lib/licenses';
 import {
 	calculateFileHash,
 	generateClientSignature,
@@ -38,6 +40,7 @@ export class ServiceWorkerSecureUploader {
 		console.log(`${LOG_PREFIX} Starting secure upload for photo ${photo.id}`);
 
 		try {
+			const consent = photoUploadConsent(photo, (await readSettings())?.auto_upload_license);
 			const filename = `photo_${photo.id}.jpg`;
 			const file = new File([photo.blob], filename, {
 				type: 'image/jpeg',
@@ -58,6 +61,7 @@ export class ServiceWorkerSecureUploader {
 				file_md5: fileHash,
 				client_key_id: keyInfo.key_id,
 				is_public: true,
+				...consent,
 				latitude: photo.metadata.location.latitude,
 				longitude: photo.metadata.location.longitude,
 				altitude: photo.metadata.location.altitude ?? undefined,

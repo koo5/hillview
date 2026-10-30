@@ -1,3 +1,4 @@
+import { chooseUploadLicense } from './licenseChoice';
 /**
  * Photo upload utilities for Playwright tests
  */
@@ -119,12 +120,7 @@ export async function submitPhotoUpload(page: Page, photoPath: string): Promise<
   const photoName = path.basename(photoPath);
 
   // Check the license checkbox first (file input is disabled until license is set)
-  const licenseCheckbox = page.locator('[data-testid="license-checkbox"]');
-  await licenseCheckbox.waitFor({ state: 'visible', timeout: T(10000) });
-  const isChecked = await licenseCheckbox.isChecked();
-  if (!isChecked) {
-    await licenseCheckbox.check();
-  }
+  await chooseUploadLicense(page);
 
   // Wait for the file input to be enabled (user auth + license must be set)
   const fileInput = page.locator('[data-testid="photo-file-input"]');

@@ -18,7 +18,8 @@ export class BrowserCaptureAdapter {
                 location: item.location,
                 captured_at: item.captured_at,
                 orientation_code: item.orientation_code
-            }
+            },
+            { license: item.license, panoramax_share: item.panoramax_share }
         );
 
         console.log(`${this.LOG_PREFIX} Saved photo ${item.id}`, {

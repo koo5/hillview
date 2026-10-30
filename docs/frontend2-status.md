@@ -3456,3 +3456,19 @@ account-keyed photo outbox; pre-upload edits also update authorization's
 snapshot. Intake includes `panoramax_in`; public reads use `panoramax` as a
 separate outflow id. Post-upload intake editing remains outside this client.
 The licence wording and federation SPDX declaration remain provisional.
+
+Capture/settings follow-up (2026-10-30): P is now a 48 dp control above the
+camera settings button, clear of the centred shutter. It is hidden while
+the camera menu or interval ladder owns that space. Upload grants appear
+in broadest-to-narrowest permission to Hillview order: `full1`,
+`panoramax_in`, `ccbysa4+osm`. This is not a ranking of public reuse rights.
+Each option uses normal body-sized text, a selectable area and its own
+offline help page. Reading help never accepts a grant; the existing online
+licensing and Panoramax contribution guides remain accessible.
+
+Verified with 455 JVM tests, 548 Android host tests and three instrumented
+device tests: per-option help preserves consent, P receives real taps and
+long presses without shutter overlap, and the sharing snapshot survives
+capture and CSV export. JVM upload integration uses the local development
+CA in a temporary trust store; it requires the canonical test accounts.
+The real-touch placement test also passes in landscape on the final APK.

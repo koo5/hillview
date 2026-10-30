@@ -3,7 +3,8 @@
 </svelte:head>
 
 <script lang="ts">
-	import {app} from '$lib/data.svelte';
+	import {app, manualPanoramaxShare} from '$lib/data.svelte';
+	import PhotoPermissions from '$lib/components/PhotoPermissions.svelte';
 	import {formatTimeSec} from '$lib/dateUtils';
 	import {onMount} from 'svelte';
 	import {get} from 'svelte/store';
@@ -379,6 +380,7 @@
 
 	{#if (TAURI || BROWSER) && showSettings}
 		<div class="settings-panel">
+			{#if BROWSER}<PhotoPermissions />{/if}
 			<UploadSettingsComponent
 				onSaveSuccess={(message) => {
 					addLogEntry(message, 'success');
@@ -437,7 +439,8 @@
 			{#if !TAURI && activeTab === 'upload'}
 				<div class="tab-content">
 					{#if activeTab === 'upload'}
-						<LicenseSelector licenseStore={manualUploadLicense} />
+						<PhotoPermissions heading="File permissions" licenseStore={manualUploadLicense} shareStore={manualPanoramaxShare}
+							context="The next file-upload batch. Existing photos keep their choices." groupName="manual-upload-license" />
 						<PhotoUpload
 							{user}
 							onLogEntry={addLogEntry}
@@ -447,7 +450,7 @@
 						/>
 					{:else if activeTab === 'import'}
 						<div class="license-section">
-							<LicenseSelector licenseStore={manualUploadLicense} />
+							<LicenseSelector licenseStore={manualUploadLicense} groupName="manual-upload-license" />
 						</div>
 						<PhotoImport
 							{user}

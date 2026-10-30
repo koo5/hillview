@@ -23,6 +23,7 @@ import cz.hillview.lock.LockSettingsScreen
 import cz.hillview.main.MainScreen
 import cz.hillview.nav.CaptureGuideKey
 import cz.hillview.nav.PanoramaxInfoKey
+import cz.hillview.nav.LicenseInfoKey
 import cz.hillview.nav.UploadStatusKey
 import cz.hillview.nav.EventLogKey
 import cz.hillview.nav.CaptureKey
@@ -61,6 +62,7 @@ private val navSavedStateConfig = SavedStateConfiguration {
             subclass(UploadStatusKey::class)
             subclass(CaptureGuideKey::class)
             subclass(PanoramaxInfoKey::class)
+            subclass(LicenseInfoKey::class)
             subclass(PhotoDetailKey::class)
         }
     }
@@ -124,6 +126,7 @@ fun App() {
                         onBack = { pop() },
                         onOpenLogin = { backStack.add(LoginKey) },
                         onOpenPanoramaxInfo = { backStack.add(PanoramaxInfoKey) },
+                        onOpenLicenseInfo = { backStack.add(LicenseInfoKey(it)) },
                     )
                 }
                 entry<DevicePhotosKey> {
@@ -155,6 +158,13 @@ fun App() {
                 }
                 entry<PanoramaxInfoKey> {
                     cz.hillview.help.PanoramaxInfoScreen(onBack = { pop() })
+                }
+                entry<LicenseInfoKey> { key ->
+                    cz.hillview.help.LicenseInfoScreen(
+                        licenseId = key.licenseId,
+                        onBack = { pop() },
+                        onOpenPanoramaxInfo = { backStack.add(PanoramaxInfoKey) },
+                    )
                 }
                 entry<CaptureGuideKey> {
                     cz.hillview.help.CaptureGuideScreen(

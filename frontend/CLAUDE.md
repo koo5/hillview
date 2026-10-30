@@ -2,6 +2,8 @@
 
 ## Docs
 
+- **[Panoramax web contribution](../docs/panoramax-web.md)**: capture and file-upload consent, intake vs publication, login/opt-in behavior, photo editing and isolated browser scenarios
+
 - **[Photo sources: independent loading](../docs/sources-loading.md)**: the one contract all three marker pipelines follow — concurrent per-source loads, publish-on-arrival, deterministic cross-source cull, throttle policy — and how to test it (manual streams in the worker harness, the `hillview_stream`/`mapillary_stream` debug delay, the Panoramax route mock)
 - **[SSR auth ticket](../docs/ssr-auth-ticket.md)**: how the web server renders a signed-in visitor's own view — the read-only `ssr_read` token, the `hv_ssr` cookie the browser mirrors it into, the two allowlisted backend dependencies, `viewer_id` + `createSsrBackedLoad`, the `SSR_AUTH` runtime switch
 - **[Native Android Auth](../docs/native-auth.md)**: Credential Manager + Google ID-token login — concepts, security reasoning, and where everything lives

@@ -1,3 +1,4 @@
+import { chooseUploadLicense } from './helpers/licenseChoice';
 import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 import { loginAsTestUser } from './helpers/testUsers';
@@ -126,7 +127,7 @@ test.describe('Photo Detail Page', () => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 		await page.goto(`/photo/${uid}`);
 		await expect(page.getByTestId('photo-edit-form')).toBeVisible({ timeout: T(10000) });
-		await page.getByTestId('photo-edit-license-select').selectOption('full1');
+		await chooseUploadLicense(page, 'full1', page.getByTestId('photo-edit-license-button'));
 		await page.getByTestId('photo-edit-save-button').click();
 		// Wait for the save to land before reloading: a navigation while the
 		// PATCH is still in flight has the server-rendered reload reading the

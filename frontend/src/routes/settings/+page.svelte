@@ -9,7 +9,8 @@
 	import DebugSettings from '$lib/components/DebugSettings.svelte';
 	import type { Alert } from '$lib/alertSystem.svelte';
 	import {Database, Settings} from "lucide-svelte";
-	import {TAURI} from "$lib/tauri";
+	import {TAURI, BROWSER} from "$lib/tauri";
+	import PhotoPermissions from '$lib/components/PhotoPermissions.svelte';
 	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
 	import SettingsSectionDivider from "$lib/components/SettingsSectionDivider.svelte";
 
@@ -60,6 +61,7 @@
 		/>
 
 		<SettingsSectionDivider />
+		{#if BROWSER}<PhotoPermissions />{/if}
 		<UploadSettingsComponent
 			onSaveSuccess={(message) => showAlert(message, 'success')}
 		/>

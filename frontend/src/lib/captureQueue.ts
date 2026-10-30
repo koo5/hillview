@@ -9,7 +9,6 @@ import { TAURI, BROWSER } from './tauri';
 import { browserCaptureAdapter } from './browser/captureAdapter';
 import { triggerPhotoSync } from './browser/photoSync';
 import { auth } from './authStore';
-import { settings } from './settings';
 
 const doLog = false;
 
@@ -43,6 +42,8 @@ export interface CaptureQueueItem {
 	placeholder_id: string;
 	image_data: ImageData;
 	orientation_code: number; // EXIF orientation value (1, 3, 6, 8)
+	license?: string | null;
+	panoramax_share?: boolean;
 }
 
 export interface QueueStats {
@@ -420,13 +421,6 @@ if (BROWSER) {
 		wasAuthenticated = authState.is_authenticated;
 	});
 
-	let wasAutoUploadEnabled = false;
-	settings.subscribe(state => {
-		const enabled = state?.value?.auto_upload_enabled || false;
-		if (enabled && !wasAutoUploadEnabled) {
-			console.log('🢄[CaptureQueue] Auto-upload enabled, triggering pending uploads');
-			triggerPhotoSync();
-		}
-		wasAutoUploadEnabled = enabled;
-	});
+	// Enabling uploads triggers sync in settings.updateSettings, after the
+	// settings mirror is committed. Login still enters the same funnel here.
 }

@@ -8,6 +8,7 @@
 
 import { T } from './timeouts';
 import type { Page } from '@playwright/test';
+import { chooseUploadLicense } from './licenseChoice';
 
 /**
  * Wait for the auto-upload prompt and click "Configure auto-upload",
@@ -26,11 +27,7 @@ export async function clickConfigureAutoUpload(page: Page): Promise<void> {
  * Expects the page to already be on /settings/upload.
  */
 export async function enableAutoUpload(page: Page): Promise<void> {
-	const licenseCheckbox = page.locator('[data-testid="license-checkbox"]');
-	await licenseCheckbox.waitFor({ state: 'visible', timeout: T(10000) });
-	if (!(await licenseCheckbox.isChecked())) {
-		await licenseCheckbox.check();
-	}
+	await chooseUploadLicense(page);
 
 	const enabledRadio = page.locator('[data-testid="auto-upload-enabled"]');
 	await enabledRadio.check();

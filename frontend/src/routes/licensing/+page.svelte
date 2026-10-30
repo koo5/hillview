@@ -5,6 +5,7 @@
 	import { HILLVIEW_BASE_URL } from '$lib/urlUtilsServer';
 	import { CreativeCommons, Calendar, Copyright, MapPin, Mountain } from 'lucide-svelte';
 	import MyExternalLink from '$lib/components/MyExternalLink.svelte';
+	import { UPLOAD_LICENSES } from '$lib/licenses';
 </script>
 
 <PhotoHead
@@ -43,7 +44,20 @@
 				When you upload a photo to Hillview, you choose a license that determines how others may use it.
 				This page explains the licensing options available and what each one means.
 			</p>
+			<p>Your upload grant gives Hillview permission to use the photo. The public license says how others may reuse the published photo. These are separate choices from whether the photo is offered to the Panoramax federation.</p>
 		</section>
+		{#each UPLOAD_LICENSES as option}
+			<section class="document-section" id={option.id} data-testid={`license-info-${option.id}`}>
+				<h2>{option.label}</h2>
+				<p>{option.explainer}</p>
+				{#if option.id === 'ccbysa4+osm'}
+					<p>The full Creative Commons and OSM grant details follow below. Turning on Panoramax sharing does not change this grant or make the photo eligible for federation.</p>
+				{:else}
+					<p>Offering a photo to Panoramax requires a separate sharing choice. Anonymization, moderation and representative-view selection also apply. <a href="/settings/panoramax" class="legal-link">How Panoramax contribution works</a>.</p>
+				{/if}
+				<p>Reading this explanation does not select a license. Choose one in <a href="/settings/upload" class="legal-link">capture and upload settings</a> or on the file-upload form.</p>
+			</section>
+		{/each}
 
 		<section class="document-section">
 			<h2>
@@ -51,7 +65,7 @@
 				CC BY-SA 4.0 + OSM grant
 			</h2>
 			<p>
-				The primary license for user-contributed photos on Hillview. It consists of two parts:
+				This license consists of two parts:
 			</p>
 
 			<h3>Part 1 — Creative Commons Attribution-ShareAlike 4.0 International</h3>
@@ -103,7 +117,7 @@
 			</h2>
 			<p>
 				Photos whose contributor granted Hillview full rights instead of a Creative Commons
-				licence — and the founder's seed content — are displayed under all rights reserved,
+				licence and have Panoramax sharing off — and the founder's seed content — are displayed under all rights reserved,
 				with one deliberate exception: the <strong>OpenStreetMap mapping grant</strong> described
 				in Part 2 above applies to these photos exactly as it does to CC-licensed ones. Hillview
 				holds full rights to them and grants it on the contributor's behalf, so OpenStreetMap

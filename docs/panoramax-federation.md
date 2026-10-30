@@ -65,7 +65,9 @@ is the licence Hillview publishes on every read (`license`). These are separate:
 The `panoramax` wording is still a placeholder. The federation's declared SPDX
 `CC-BY-SA-4.0`, URL and configuration description remain provisional until
 that wording is settled. Installed Tauri clients show unfamiliar outflow ids
-as unknown until their next release; the prototype controls are in frontend2.
+as unknown until their next release. Contribution controls are implemented in
+frontend2 and the [web frontend](panoramax-web.md); Tauri completion remains
+outside the browser follow-up.
 
 ### How our grant compares
 
