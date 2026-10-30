@@ -48,7 +48,6 @@ def test_root_passes_an_unserved_photo_to_the_frontend():
     assert root_redirect(pic=pic)[1] == {'photo': f'hillview-{pic}'}
     assert root_redirect(pic=pic, map='17/50.08/14.42')[1] == \
         {'lat': '50.08', 'lon': '14.42', 'zoom': '18', 'photo': f'hillview-{pic}'}
-    assert root_redirect(pic=pic, focus='meta') == (f'/photo/hillview-{pic}', {})
 
 
 def test_root_sends_a_served_photo_to_its_place_on_the_map():
@@ -59,13 +58,9 @@ def test_root_sends_a_served_photo_to_its_place_on_the_map():
     items = requests.get(f'{PANORAMAX_URL}/api/collections/{seq}/items', params={'limit': 1}, timeout=10).json()
     pic = items['features'][0]['id']
 
-    # focus=map: the map at the photo's own position, the photo selected.
-    path, query = root_redirect(focus='map', pic=pic, seq=seq, map='3/0/0')
+    # The map at the photo's own position, the photo selected, whatever the
+    # explorer's focus (the link always says focus=pic).
+    path, query = root_redirect(focus='pic', pic=pic, seq=seq, map='3/0/0')
     assert query['photo'] == f'hillview-{pic}' and query['zoom'] == '18'
-    assert 'lat' in query and 'lon' in query and 'x1' not in query
+    assert 'lat' in query and 'lon' in query
     assert query['lat'] != '0'  # the photo's position, not the explorer's map
-    # focus=pic: Hillview's zoom view on the whole photo.
-    path, query = root_redirect(focus='pic', pic=pic, seq=seq)
-    assert (query['x1'], query['y1'], query['x2']) == ('0', '0', '1') and float(query['y2']) > 0
-    # focus=meta: the photo's detail page.
-    assert root_redirect(focus='meta', pic=pic) == (f'/photo/hillview-{pic}', {})

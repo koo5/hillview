@@ -18,7 +18,7 @@ import math
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
 from typing import Any
-from urllib.parse import quote, urlencode, urlsplit
+from urllib.parse import urlencode, urlsplit
 
 STAC_VERSION = '1.0.0'
 
@@ -60,14 +60,12 @@ HILLVIEW_ZOOM_RANGE = (3, 23)
 
 def hillview_map_url(
 	viewer_url: str, lat: float | None = None, lon: float | None = None, zoom: float = 18,
-	bearing: float | None = None, photo_id: str | None = None, zoom_view_height: float | None = None,
+	bearing: float | None = None, photo_id: str | None = None,
 ) -> str:
 	"""A Hillview map URL in the frontend's own shape (constructPhotoMapPath in
-	urlUtilsServer.ts, the share URL in urlUtils.ts): position, bearing, the
-	photo, then the zoom view rectangle. That rectangle is in OpenSeadragon
-	coordinates with the width normalized to 1, so the whole photo runs from
-	0,0 to 1,height/width. Without a position the frontend locates the photo
-	itself; with nothing at all it is the start page."""
+	urlUtilsServer.ts): position, bearing, then the photo. Without a position
+	the frontend locates the photo itself; with nothing at all it is the start
+	page."""
 	params: dict[str, Any] = {}
 	if lat is not None and lon is not None:
 		params.update(lat=round(lat, 7), lon=round(lon, 7), zoom=zoom)
@@ -75,14 +73,7 @@ def hillview_map_url(
 		params['bearing'] = bearing
 	if photo_id:
 		params['photo'] = f'hillview-{photo_id}'
-		if zoom_view_height:
-			params.update(x1=0, y1=0, x2=1, y2=round(zoom_view_height, 6))
 	return f'{viewer_url}/?{urlencode(params)}' if params else viewer_url
-
-
-def photo_detail_url(viewer_url: str, photo_id: str) -> str:
-	"""Hillview's detail page of one photo (getPhotoDetailUrl in photoUtils.ts)."""
-	return f"{viewer_url}/photo/{quote(f'hillview-{photo_id}', safe='')}"
 
 
 def explorer_map_view(value: str | None) -> tuple[float, float, float] | None:

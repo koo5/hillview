@@ -56,16 +56,17 @@ Hillview (`_viewer_target` in main.py):
 
 - a photo we serve: that photo on Hillview's map at its own position and
   bearing (`/?lat=…&lon=…&zoom=18&bearing=…&photo=hillview-<id>`, the
-  frontend's `constructPhotoMapPath` shape); with `focus=pic` (the explorer
-  showed the photo large) also `x1=0&y1=0&x2=1&y2=<h/w>`, which opens
-  Hillview's zoom view on the whole photo;
-- `focus=meta` (the explorer showed the details): `/photo/hillview-<id>`;
+  frontend's `constructPhotoMapPath` shape);
 - any other well-formed `pic`: that photo id at the explorer's own map
   position, one zoom level up (MapLibre's 512 px tiles vs Leaflet's 256). The
   frontend then checks it with the visitor's own access
   (`verifyUrlRequestedPhoto`), so a photo that is public on Hillview but not
   federated still opens, and the redirect adds nothing the URL did not hold;
 - no usable `pic`: the explorer's map position, else the start page.
+
+`focus` is ignored: the link sits in the photo's metadata panel, reachable
+only with the photo large, so it always says `focus=pic` (and the viewer
+rewrites `focus=meta` to `pic` on load).
 
 On a dev vhost the registered URL ends in `/geovisio` with no slash, which the
 `handle_path /geovisio/*` route does not match: the vhost also needs
