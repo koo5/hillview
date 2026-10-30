@@ -146,10 +146,14 @@ Done:
   `postgres` service (docker-compose.yml, `.env.example`), each defaulting to
   the Postgres default: `synchronous_commit`, `fsync`, `full_page_writes`,
   `wal_writer_delay`, `commit_delay`, `max_wal_size`, `checkpoint_timeout`,
-  `checkpoint_completion_target`, `log_min_duration_statement`. The dev box
-  runs `POSTGRES_SYNCHRONOUS_COMMIT=off` and nothing else; `fsync=off` stays
-  available but risks an inconsistent data directory on a crash for no
-  further gain in commit latency.
+  `checkpoint_completion_target`, `log_min_duration_statement`. The main dev
+  box runs `POSTGRES_SYNCHRONOUS_COMMIT=off` and nothing else, because its
+  database holds the prod dump. dev4-3, whose database is throwaway test
+  data, also runs `fsync=off` and `full_page_writes=off`. Those do not shorten
+  a commit any further, but they remove the flush storm at each checkpoint
+  and the burst of full-page images after it, which is the IO a contended
+  disk chokes on. The price is that an OS or host crash (not a Postgres or
+  container crash) can corrupt the cluster.
 - `verify_password` and `get_password_hash` now run via `asyncio.to_thread`
   at their three call sites (`authenticate_user`, `register_user`,
   recreate-test-users), so bcrypt no longer blocks the event loop.
