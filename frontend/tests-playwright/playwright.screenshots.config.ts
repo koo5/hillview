@@ -2,6 +2,7 @@ import { T } from './helpers/timeouts';
 import { defineConfig, devices } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { chromiumHostResolverArgs, resolveFrontendUrl } from './helpers/target';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -13,9 +14,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  *  - It runs multiple viewport "projects" so every spec captures at
  *    each defined screen size.
  *
- * Targets the local dev server by default. It will reuse an already
- * running dev server if present, otherwise it starts one. Override
- * with SCREENSHOT_URL if you want to point it elsewhere.
+ * Targets the same origin as the main suite: SCREENSHOT_URL if set, else
+ * FRONTEND_URL (the host profile's, via helpers/target.ts), else the local dev
+ * server, which it reuses if running and starts otherwise. Same-origin matters:
+ * from the dev server on :8212 the app calls the profile's API origin
+ * cross-origin, which on the Caddy profiles also needs that origin's name
+ * resolved and its `tls internal` certificate accepted.
  *
  * Usage:
  *   bun run screenshots                       # all viewports, all specs
@@ -25,7 +29,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  *
  * Output: docs/screenshots/<project>/<name>.png
  */
-const BASE_URL = process.env.SCREENSHOT_URL || 'http://localhost:8212';
+const TARGET_URL = process.env.SCREENSHOT_URL || resolveFrontendUrl();
+const BASE_URL = TARGET_URL || 'http://localhost:8212';
+const CHROMIUM_HOST_RESOLVER_ARGS = await chromiumHostResolverArgs(BASE_URL);
 
 export default defineConfig({
   testDir: './tests-screenshots',
@@ -45,12 +51,21 @@ export default defineConfig({
   maxFailures: 1,
   use: {
     baseURL: BASE_URL,
+    // As in playwright.config.ts: the Caddy origins use `tls internal`, and
+    // ignoreHTTPSErrors does not cover service-worker script fetches, which
+    // --ignore-certificate-errors does. Every project here runs on Chromium.
+    ignoreHTTPSErrors: true,
+    launchOptions: {
+      args: ['--ignore-certificate-errors', ...CHROMIUM_HOST_RESOLVER_ARGS],
+    },
     // Traces / videos aren't needed — we only save explicit screenshots.
     trace: 'off',
     video: 'off',
     screenshot: 'off',
   },
-  webServer: {
+  // No webServer against an explicit origin: Playwright's readiness probe is
+  // Node-side and ignores ignoreHTTPSErrors (see playwright.config.ts).
+  webServer: TARGET_URL ? undefined : {
     command: 'bun run dev',
     cwd: path.resolve(__dirname, '..'),
     url: BASE_URL,

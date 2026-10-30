@@ -1,4 +1,4 @@
-import { chromium } from '@playwright/test';
+import { chromium, type FullConfig } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -26,9 +26,12 @@ import { uploadPhoto } from './photoUpload';
 export const SCREENSHOT_FIXTURE_INFO_PATH = path.join(os.tmpdir(), 'hillview-screenshot-fixture.json');
 const FIXTURE_FILENAME = 'prosecke-skaly-fixture.jpg';
 
-async function seedFixturePhoto(baseURL: string, password: string): Promise<string> {
-  const browser = await chromium.launch();
-  const context = await browser.newContext({ baseURL });
+async function seedFixturePhoto(config: FullConfig, password: string): Promise<string> {
+  // The config's own target, certificate handling and Chromium resolver rules,
+  // so the seeding login reaches the same origin the specs then capture.
+  const { baseURL, ignoreHTTPSErrors, launchOptions } = config.projects[0].use;
+  const browser = await chromium.launch(launchOptions);
+  const context = await browser.newContext({ baseURL, ignoreHTTPSErrors });
   const page = await context.newPage();
   try {
     await loginAsTestUser(page, password);
@@ -41,7 +44,7 @@ async function seedFixturePhoto(baseURL: string, password: string): Promise<stri
   }
 }
 
-async function globalSetup() {
+async function globalSetup(config: FullConfig) {
   console.log('Screenshots Global Setup: Acquiring test lock...');
   await acquireTestLock();
   console.log('Screenshots Global Setup: Lock acquired');
@@ -50,8 +53,7 @@ async function globalSetup() {
     console.log('Screenshots Global Setup: MOCK_SCREENSHOTS_DATA=1 — seeding fixture photo (DB not wiped)');
     const { passwords } = await recreateTestUsers();
 
-    const baseURL = process.env.SCREENSHOT_URL || 'http://localhost:8212';
-    const photoId = await seedFixturePhoto(baseURL, passwords.test);
+    const photoId = await seedFixturePhoto(config, passwords.test);
     fs.writeFileSync(SCREENSHOT_FIXTURE_INFO_PATH, JSON.stringify({ photoId }));
     console.log(`Screenshots Global Setup: seeded fixture photo ${photoId} → ${SCREENSHOT_FIXTURE_INFO_PATH}`);
   } else {
