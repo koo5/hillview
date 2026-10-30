@@ -14,6 +14,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from utils.base_test import BaseUserManagementTest
 from utils.auth_utils import auth_helper, TEST_CREDENTIALS
+from utils.secure_upload_utils import tls_verify
+from utils.timeouts import HTTP_REQUEST_TIMEOUT_SECONDS
 
 API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 
@@ -206,16 +208,12 @@ class TestAccountDeletion(BaseUserManagementTest):
         # Verify physical files are also deleted by checking URLs
         files_deleted_count = 0
         for url in photo_urls:
-            try:
-                file_response = requests.get(url, timeout=5)
-                if file_response.status_code == 404:
-                    files_deleted_count += 1
-                else:
-                    print(f"⚠️  File still accessible: {url} (status: {file_response.status_code})")
-            except requests.RequestException as e:
-                # Connection error likely means file is deleted (good)
-                files_deleted_count += 1
-                print(f"📁 File inaccessible (expected): {url} - {e}")
+            file_response = requests.get(
+                url, timeout=HTTP_REQUEST_TIMEOUT_SECONDS, verify=tls_verify()
+            )
+            assert file_response.status_code == 404, \
+                f"Deleted photo file should return 404: {url} (status: {file_response.status_code})"
+            files_deleted_count += 1
 
         print(f"✅ Cascading delete test passed: User and photo {photo_id} both deleted")
         print(f"📁 Physical files deleted: {files_deleted_count}/{len(photo_urls)}")

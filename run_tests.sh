@@ -13,6 +13,7 @@
 # profile_for() in scripts/host_profiles.py.
 #
 #   ANDROID=0 ./run_tests.sh    web leg only, leaving the host profile alone
+#   RUN_STRESS_TESTS=1 ./run_tests.sh    include stress/performance tests
 #
 set -e
 cd "$(dirname "$(readlink -f -- "$0")")"

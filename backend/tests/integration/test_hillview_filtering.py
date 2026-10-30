@@ -572,9 +572,17 @@ class TestHillviewFiltering(BaseUserManagementTest):
         }
         requests.delete(f"{API_URL}/hidden/photos", json=unhide_request, headers=self.test_headers)
     
+    def test_filtering_with_many_hidden_items(self):
+        """Verify multiple hidden photos are filtered, regardless of response time."""
+        self._check_filtering_with_many_hidden_items()
+
+    @pytest.mark.stress
     def test_performance_with_many_hidden_items(self):
         """Test filtering performance when user has many hidden items."""
-        print("\n--- Testing Performance with Many Hidden Items ---")
+        self._check_filtering_with_many_hidden_items(check_performance=True)
+
+    def _check_filtering_with_many_hidden_items(self, check_performance=False):
+        print("\n--- Testing Filtering with Many Hidden Items ---")
         
         username = self.test_users[0]["username"]
         
@@ -620,11 +628,10 @@ class TestHillviewFiltering(BaseUserManagementTest):
         
         print(f"Filtered query: {len(filtered_photos)} photos in {filtered_time:.3f}s")
         
-        # Absolute ceiling, not a ratio: single ~15ms samples jitter well past 2x
-        # (seen 0.030s vs 0.014s), so a relative bound only measures noise.
-        # assert filtered_time <= baseline_time * 2, f"Performance degradation ({filtered_time:.3f}s vs {baseline_time:.3f}s)"
-        assert filtered_time < 1.0, f"Filtered query too slow ({filtered_time:.3f}s, baseline {baseline_time:.3f}s)"
-        print(f"✓ Performance acceptable ({filtered_time:.3f}s vs {baseline_time:.3f}s)")
+        if check_performance:
+            # A ratio between single samples mostly measures timing noise.
+            assert filtered_time < 1.0, f"Filtered query too slow ({filtered_time:.3f}s, baseline {baseline_time:.3f}s)"
+            print(f"✓ Performance acceptable ({filtered_time:.3f}s vs {baseline_time:.3f}s)")
         
         # Verify filtering worked
         filtered_ids = [p["id"] for p in filtered_photos]
@@ -739,16 +746,8 @@ class TestHillviewFiltering(BaseUserManagementTest):
 
 
 def main():
-    """Run the comprehensive Hillview filtering tests."""
-    print("🧪 Starting Comprehensive Hillview Filtering Tests")
-    print("=" * 60)
-    
-    # Clear database first
-    clear_test_database()
-    
-    test_runner = TestHillviewFiltering()
-    success = test_runner.run_all_tests()
-    return 0 if success else 1
+    """Use pytest so standalone runs honor the stress-test opt-in too."""
+    return pytest.main([__file__, "-v", *sys.argv[1:]])
 
 
 if __name__ == "__main__":

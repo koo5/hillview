@@ -13,6 +13,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from utils.secure_upload_utils import SecureUploadClient
+from utils.timeouts import HTTP_REQUEST_TIMEOUT_SECONDS
 
 
 class TestUploadLicense:
@@ -105,7 +106,7 @@ class TestUploadLicense:
         photo_id = auth['photo_id']
         url = f"{upload_client.api_url}/photos/public/hillview-{photo_id}"
         headers = {'Authorization': f'Bearer {auth_token}'}
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=HTTP_REQUEST_TIMEOUT_SECONDS) as client:
             try:
                 owner = await client.get(url, headers=headers)
                 assert owner.status_code == 200, owner.text

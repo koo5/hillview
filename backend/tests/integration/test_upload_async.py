@@ -36,6 +36,9 @@ from utils.secure_upload_utils import dev_origin_client
 from utils.test_utils import API_URL, wait_for_photo_processing
 
 WORKER_URL = os.getenv("TEST_WORKER_URL", "http://localhost:8056")
+# This verifies eventual completion, including cleanup and the API callback.
+# A busy dev host can take longer than 60s even when image processing succeeds.
+PROCESSING_TIMEOUT_SECONDS = 180
 
 
 async def post_upload_async(upload_client, image_data: bytes, auth_data: dict,
@@ -94,7 +97,7 @@ class TestUploadAsync(BasePhotoTest):
 		# that's what distinguishes it from the sync /upload contract.
 		assert response.json() == {"success": True}
 
-		photo = wait_for_photo_processing(auth_data["photo_id"], self.test_token, timeout=60)
+		photo = wait_for_photo_processing(auth_data["photo_id"], self.test_token, timeout=PROCESSING_TIMEOUT_SECONDS)
 		assert photo["processing_status"] == "completed", f"Expected completed, got {photo['processing_status']} (error: {photo.get('error')})"
 		assert photo.get("error") is None
 		assert photo.get("latitude") is not None, "Expected latitude extracted from EXIF"
@@ -118,7 +121,7 @@ class TestUploadAsync(BasePhotoTest):
 		assert response.status_code == 200, f"Async upload rejected: {response.status_code} - {response.text}"
 		assert response.json() == {"success": True}
 
-		photo = wait_for_photo_processing(auth_data["photo_id"], self.test_token, timeout=60)
+		photo = wait_for_photo_processing(auth_data["photo_id"], self.test_token, timeout=PROCESSING_TIMEOUT_SECONDS)
 		assert photo["processing_status"] == "error", f"Expected error, got {photo['processing_status']}"
 		assert "No EXIF data found" in (photo.get("error") or ""), f"Expected EXIF error message, got: {photo.get('error')}"
 

@@ -31,6 +31,7 @@ sys.path.append(backend_dir)
 
 from common.jwt_utils import generate_ecdsa_key_pair, serialize_private_key, serialize_public_key
 from .test_utils import recreate_test_users
+from .timeouts import HTTP_REQUEST_TIMEOUT_SECONDS
 
 
 # TLS verification is ON unless explicitly disabled, and that default matters:
@@ -61,6 +62,7 @@ def dev_origin_client(**kwargs) -> httpx.AsyncClient:
 
 	Verification still applies unless HILLVIEW_INSECURE_TLS is set — see above.
 	"""
+	kwargs.setdefault("timeout", HTTP_REQUEST_TIMEOUT_SECONDS)
 	return httpx.AsyncClient(verify=tls_verify(), **kwargs)
 
 
@@ -154,7 +156,8 @@ class SecureUploadClient:
 		if not setup_result:
 			raise Exception("Test environment not available")
 
-		async with httpx.AsyncClient(verify=tls_verify()) as client:
+		async with httpx.AsyncClient(verify=tls_verify(), timeout=HTTP_REQUEST_TIMEOUT_SECONDS) as client:
+			# Login is functional setup; a busy API can exceed HTTPX's 5s default.
 			response = await client.post(f"{self.api_url}/auth/token", data={
 				"username": "test",
 				"password": "StrongTestPassword123!"
@@ -217,7 +220,7 @@ class SecureUploadClient:
 			client_key_pair = self.generate_client_keys()
 
 		# Test authentication first
-		async with httpx.AsyncClient(verify=tls_verify()) as client:
+		async with httpx.AsyncClient(verify=tls_verify(), timeout=HTTP_REQUEST_TIMEOUT_SECONDS) as client:
 			response = await client.get(
 				f"{self.api_url}/auth/me/",
 				headers={"Authorization": f"Bearer {auth_token}"},
@@ -258,7 +261,7 @@ class SecureUploadClient:
 
 	async def _request_upload_authorization(self, auth_token: str, upload_request: dict):
 		"""Internal method to make upload authorization request and handle response."""
-		async with httpx.AsyncClient(verify=tls_verify()) as client:
+		async with httpx.AsyncClient(verify=tls_verify(), timeout=HTTP_REQUEST_TIMEOUT_SECONDS) as client:
 
 			request_start_time = utcnow()
 
@@ -570,7 +573,7 @@ class SecureUploadClient:
 
 	async def test_api_server_connectivity(self):
 		"""Test basic API server health."""
-		async with httpx.AsyncClient(verify=tls_verify()) as client:
+		async with httpx.AsyncClient(verify=tls_verify(), timeout=HTTP_REQUEST_TIMEOUT_SECONDS) as client:
 			response = await client.get(f"{self.api_url}/debug")
 			assert response.status_code == 200
 			assert response.json()["status"] == "ok"

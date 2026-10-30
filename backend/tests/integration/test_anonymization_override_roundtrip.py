@@ -36,6 +36,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utils.secure_upload_utils import SecureUploadClient, generate_test_captured_at
 from utils.secure_upload_utils import dev_origin_client
 from utils.test_utils import wait_for_photo_processing
+from utils.timeouts import HTTP_REQUEST_TIMEOUT_SECONDS
 
 ASSET = os.path.join(os.path.dirname(__file__), '..', 'assets', 'truck.jpg')
 
@@ -107,7 +108,7 @@ class TestAnonymizationOverrideRoundtrip:
 			return auth_data["photo_id"], photo
 
 		async def detections_of(photo_id):
-			async with httpx.AsyncClient() as client:
+			async with httpx.AsyncClient(timeout=HTTP_REQUEST_TIMEOUT_SECONDS) as client:
 				response = await client.get(
 					f"{upload_client.api_url}/photos/{photo_id}/detections",
 					headers={"Authorization": f"Bearer {auth_token}"},

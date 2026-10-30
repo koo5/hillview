@@ -288,6 +288,7 @@ class TestParallelPhotoUploads(BasePhotoTest):
 		# Basic assertions
 		assert len(successful_results) >= 4, f"Expected at least 4 successful uploads despite rate limiting, got {len(successful_results)}"
 
+	@pytest.mark.stress
 	@pytest.mark.asyncio
 	async def test_parallel_upload_large_batch(self):
 		"""Test uploading 100 photos in parallel - large load test to stress the system."""
@@ -399,4 +400,4 @@ class TestParallelPhotoUploads(BasePhotoTest):
 
 
 if __name__ == "__main__":
-	pytest.main([__file__, "-v", "--tb=short"])
+	pytest.main([__file__, "-v", "--tb=short", *sys.argv[1:]])

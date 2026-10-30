@@ -271,6 +271,7 @@ class TestMultiClientUploads(BasePhotoTest):
 		total_successful = sum(s.successful for s in stats.values())
 		assert total_successful >= 10, f"Expected at least 10 successful, got {total_successful}"
 
+	@pytest.mark.stress
 	@pytest.mark.asyncio
 	async def test_multi_client_large(self):
 		"""Test 5 clients × 20 photos = 100 total uploads."""
@@ -300,4 +301,4 @@ class TestMultiClientUploads(BasePhotoTest):
 
 
 if __name__ == "__main__":
-	pytest.main([__file__, "-v", "--tb=short"])
+	pytest.main([__file__, "-v", "--tb=short", *sys.argv[1:]])

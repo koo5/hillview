@@ -16,6 +16,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from utils.secure_upload_utils import SecureUploadClient
+from utils.timeouts import HTTP_REQUEST_TIMEOUT_SECONDS
 
 class TestSecureUploadWorkflow:
 	"""Integration tests for the real secure upload workflow using SecureUploadClient utility."""
@@ -164,7 +165,7 @@ class TestSecureUploadWorkflow:
 		print("\n--- Phase 4: Final Verification ---")
 
 		photo_id = auth_data["photo_id"]
-		async with httpx.AsyncClient() as client:
+		async with httpx.AsyncClient(timeout=HTTP_REQUEST_TIMEOUT_SECONDS) as client:
 			# Check that the photo appears in user's photo list
 			response = await client.get(
 				f"{upload_client.api_url}/photos",

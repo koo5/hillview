@@ -8,6 +8,7 @@ import logging
 from typing import Optional, Dict, Any, List
 from .auth_utils import auth_helper
 from .test_utils import API_URL
+from .timeouts import HTTP_REQUEST_TIMEOUT_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ class APIClient:
 		return {"Authorization": f"Bearer {token}"}
 
 	# Photo Operations
-	def get_photos(self, token: str, limit: int = 20, cursor: Optional[str] = None, timeout: float = 5.0) -> Dict[str, Any]:
+	def get_photos(self, token: str, limit: int = 20, cursor: Optional[str] = None, timeout: float = HTTP_REQUEST_TIMEOUT_SECONDS) -> Dict[str, Any]:
 		"""Get user's photos with pagination."""
 		params = {"limit": limit}
 		if cursor:
@@ -41,7 +42,7 @@ class APIClient:
 		response.raise_for_status()
 		return response.json()
 
-	def get_photo_details(self, photo_id: str, token: str, timeout: float = 5.0) -> Dict[str, Any]:
+	def get_photo_details(self, photo_id: str, token: str, timeout: float = HTTP_REQUEST_TIMEOUT_SECONDS) -> Dict[str, Any]:
 		"""Get detailed info about a specific photo."""
 		url = f"{self.api_url}/photos/{photo_id}"
 		logger.debug(f"GET {url} (timeout={timeout}s)")
@@ -53,7 +54,7 @@ class APIClient:
 		response.raise_for_status()
 		return response.json()
 
-	def delete_photo(self, photo_id: str, token: str, timeout: float = 5.0) -> Dict[str, Any]:
+	def delete_photo(self, photo_id: str, token: str, timeout: float = HTTP_REQUEST_TIMEOUT_SECONDS) -> Dict[str, Any]:
 		"""Delete a photo."""
 		url = f"{self.api_url}/photos/{photo_id}"
 		logger.debug(f"DELETE {url} (timeout={timeout}s)")
@@ -66,7 +67,7 @@ class APIClient:
 		return response.json()
 
 	# User Operations
-	def get_user_profile(self, token: str, timeout: float = 5.0) -> Dict[str, Any]:
+	def get_user_profile(self, token: str, timeout: float = HTTP_REQUEST_TIMEOUT_SECONDS) -> Dict[str, Any]:
 		"""Get user profile."""
 		url = f"{self.api_url}/user/profile"
 		logger.debug(f"GET {url} (timeout={timeout}s)")
@@ -78,7 +79,7 @@ class APIClient:
 		response.raise_for_status()
 		return response.json()
 
-	def delete_user(self, token: str, timeout: float = 5.0) -> Dict[str, Any]:
+	def delete_user(self, token: str, timeout: float = HTTP_REQUEST_TIMEOUT_SECONDS) -> Dict[str, Any]:
 		"""Delete user account."""
 		url = f"{self.api_url}/user/delete"
 		logger.debug(f"DELETE {url} (timeout={timeout}s)")
@@ -90,7 +91,7 @@ class APIClient:
 		response.raise_for_status()
 		return response.json()
 
-	def get_activity(self, token: str, limit: int = 20, timeout: float = 5.0) -> Dict[str, Any]:
+	def get_activity(self, token: str, limit: int = 20, timeout: float = HTTP_REQUEST_TIMEOUT_SECONDS) -> Dict[str, Any]:
 		"""Get user activity feed."""
 		params = {"limit": limit}
 		url = f"{self.api_url}/activity"
@@ -105,7 +106,7 @@ class APIClient:
 		return response.json()
 
 	# Debug Operations
-	def recreate_test_users(self, timeout: float = 5.0) -> Dict[str, Any]:
+	def recreate_test_users(self, timeout: float = HTTP_REQUEST_TIMEOUT_SECONDS) -> Dict[str, Any]:
 		"""Recreate test users."""
 		url = f"{self.api_url}/debug/recreate-test-users"
 		logger.debug(f"POST {url} (timeout={timeout}s)")
@@ -113,7 +114,7 @@ class APIClient:
 		response.raise_for_status()
 		return response.json()
 
-	def clear_database(self, timeout: float = 5.0) -> Dict[str, Any]:
+	def clear_database(self, timeout: float = HTTP_REQUEST_TIMEOUT_SECONDS) -> Dict[str, Any]:
 		"""Clear database."""
 		url = f"{self.api_url}/debug/clear-database"
 		logger.debug(f"POST {url} (timeout={timeout}s)")
@@ -122,7 +123,7 @@ class APIClient:
 		return response.json()
 
 	# Mock Mapillary Operations
-	def set_mock_mapillary_data(self, mock_data: Dict[str, Any], timeout: float = 5.0) -> Dict[str, Any]:
+	def set_mock_mapillary_data(self, mock_data: Dict[str, Any], timeout: float = HTTP_REQUEST_TIMEOUT_SECONDS) -> Dict[str, Any]:
 		"""Set mock Mapillary data."""
 		url = f"{self.api_url}/debug/mock-mapillary"
 		logger.debug(f"POST {url} (timeout={timeout}s)")
@@ -130,7 +131,7 @@ class APIClient:
 		response.raise_for_status()
 		return response.json()
 
-	def clear_mock_mapillary_data(self, timeout: float = 5.0) -> Dict[str, Any]:
+	def clear_mock_mapillary_data(self, timeout: float = HTTP_REQUEST_TIMEOUT_SECONDS) -> Dict[str, Any]:
 		"""Clear mock Mapillary data."""
 		url = f"{self.api_url}/debug/mock-mapillary"
 		logger.debug(f"DELETE {url} (timeout={timeout}s)")
@@ -140,7 +141,7 @@ class APIClient:
 
 	def get_mapillary_photos_by_bbox(self, top_left_lat: float, top_left_lng: float,
 									bottom_right_lat: float, bottom_right_lng: float,
-									timeout: float = 5.0) -> Dict[str, Any]:
+									timeout: float = HTTP_REQUEST_TIMEOUT_SECONDS) -> Dict[str, Any]:
 		"""Get Mapillary photos by bounding box (handles SSE stream)."""
 		import json
 
@@ -178,13 +179,13 @@ class APIClient:
 		}
 
 	# Convenience Methods
-	def get_error_photos(self, token: str, timeout: float = 5.0) -> List[Dict[str, Any]]:
+	def get_error_photos(self, token: str, timeout: float = HTTP_REQUEST_TIMEOUT_SECONDS) -> List[Dict[str, Any]]:
 		"""Get all photos with processing errors."""
 		photos_data = self.get_photos(token, limit=100, timeout=timeout)
 		return [p for p in photos_data.get('photos', [])
 				if p.get('processing_status') == 'error']
 
-	def cleanup_user_photos(self, token: str, timeout: float = 5.0) -> int:
+	def cleanup_user_photos(self, token: str, timeout: float = HTTP_REQUEST_TIMEOUT_SECONDS) -> int:
 		"""Delete all user's photos. Returns count of deleted photos."""
 		photos_data = self.get_photos(token, limit=100, timeout=timeout)
 		photos = photos_data.get('photos', [])
@@ -224,14 +225,14 @@ api_client = APIClient()
 
 
 # Convenience functions for backward compatibility
-def get_photos_with_client(token: str, timeout: float = 5.0) -> List[Dict[str, Any]]:
+def get_photos_with_client(token: str, timeout: float = HTTP_REQUEST_TIMEOUT_SECONDS) -> List[Dict[str, Any]]:
 	"""Get photos using the centralized client."""
 	return api_client.get_photos(token, timeout=timeout).get('photos', [])
 
-def get_photo_details_with_client(photo_id: str, token: str, timeout: float = 5.0) -> Dict[str, Any]:
+def get_photo_details_with_client(photo_id: str, token: str, timeout: float = HTTP_REQUEST_TIMEOUT_SECONDS) -> Dict[str, Any]:
 	"""Get photo details using the centralized client."""
 	return api_client.get_photo_details(photo_id, token, timeout=timeout)
 
-def cleanup_all_photos(token: str, timeout: float = 5.0) -> int:
+def cleanup_all_photos(token: str, timeout: float = HTTP_REQUEST_TIMEOUT_SECONDS) -> int:
 	"""Clean up all photos for a user."""
 	return api_client.cleanup_user_photos(token, timeout=timeout)

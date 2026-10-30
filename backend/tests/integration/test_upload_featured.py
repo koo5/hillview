@@ -18,12 +18,14 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from utils.secure_upload_utils import SecureUploadClient
+from utils.timeouts import HTTP_REQUEST_TIMEOUT_SECONDS
 
 API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 
 
 async def _login(username: str, password: str) -> str:
-    async with httpx.AsyncClient() as client:
+    # Login is functional setup and may exceed HTTPX's 5s default on a busy API.
+    async with httpx.AsyncClient(timeout=HTTP_REQUEST_TIMEOUT_SECONDS) as client:
         resp = await client.post(f"{API_URL}/auth/token", data={
             "username": username, "password": password,
         })

@@ -35,18 +35,37 @@ Swagger UI is at `http://localhost:8055/docs` — outside the `/api` prefix.
 
 ```bash
 ./run_tests.sh                               # everything: api unit, worker unit, integration
+RUN_STRESS_TESTS=1 ./run_tests.sh             # include stress/performance tests
 ./api/run_unit_tests.sh                      # api unit tests; paths are relative to api/app
 ./api/run_unit_tests.sh tests/unit/test_photo_ratings.py -v
 ./worker/run_unit_tests.sh                   # worker unit tests
 ./tests/run_integration_tests.sh             # integration tests, against the running stack
 ./tests/run_integration_tests.sh integration/test_content_filtering.py -v
 ./tests/run_integration_tests.sh integration/test_user_profile.py::TestAccountDeletion::test_delete_account_cascades_photos -v -s
+RUN_STRESS_TESTS=1 ./tests/run_integration_tests.sh integration/ -m stress -v  # stress/performance only
 ```
+
+Stress and performance tests are marked `@pytest.mark.stress` and skipped by
+default, including when selected explicitly by path or `-m stress`. Set
+`RUN_STRESS_TESTS=1` to enable them (`true` and `yes` also work); add `-m stress`
+to run only those tests with the integration runner. The environment variable is
+inherited by nested runners, so from the repository root use
+`RUN_STRESS_TESTS=1 ./run_tests.sh` to include them in the entire suite. These tests
+include the two 100-photo upload cases and the hidden-item filtering latency
+check. Small/medium concurrent uploads, upload rate-limit behavior, and filtering
+correctness still run by default. Run stress tests against an otherwise idle stack
+after prior processing has drained.
+Direct pytest runs also accept `--run-stress`.
 
 Each script `uv sync`s its own workspace package first. Integration tests talk
 to the live API (`API_URL`, default `http://localhost:8055/api`) and share the
 dev database with whatever else is in it, so a test that asserts on global
 state clears the database itself (`clear_test_database` in `tests/utils/test_utils.py`).
+
+HTTPX helpers and the shared API client use the 60-second functional-request
+default in `tests/utils/timeouts.py`. Explicit request overrides and the polling
+client's short per-attempt timeout remain separate from its overall processing
+deadline.
 
 ## Debug CLI
 
