@@ -12,16 +12,19 @@ maintained by the in-process sequencer (sequencer.py).
 """
 import asyncio
 import contextlib
+import html
 import logging
 import uuid as uuid_mod
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import text
 
+import dev_report
 import sequencer
 import settings
 from cql import FilterParseError, parse_collections_filter
@@ -143,6 +146,45 @@ async def root(
 	# Send them to the matching place in Hillview, never to STAC JSON (the
 	# harvester only ever requests /api/*).
 	return RedirectResponse(url=await _viewer_target(pic, map_view))
+
+
+@app.get('/dev/suspicious', response_class=HTMLResponse)
+async def dev_suspicious() -> HTMLResponse:
+	"""DEV_MODE only: the served photos and sequences most likely to look wrong
+	in Panoramax (dev_report.py), each linked to Hillview, its STAC record and,
+	with PANORAMAX_EXPLORER_URL set, the explorer."""
+	if not settings.dev_mode():
+		raise HTTPException(status_code=404, detail='Not Found')
+	scope = settings.active_scope()
+	async with get_engine().connect() as conn:
+		rows = (await conn.execute(text(dev_report.MEMBERS_SQL),
+			{'scope_legal_rights': list(scope.legal_rights)})).mappings().all()
+	now = datetime.now(timezone.utc).replace(tzinfo=None)  # captured_at is naive UTC
+	findings, summaries = dev_report.analyze([dev_report.Member(**r) for r in rows], now)
+	viewer, base, explorer = settings.viewer_url(), _base_url(), settings.explorer_url()
+
+	def links(pairs: list[tuple[str, str]]) -> str:
+		return ' · '.join(f'<a href="{html.escape(url)}" target="_blank">{label}</a>' for label, url in pairs)
+
+	def photo_links(m: dev_report.Member) -> str:
+		pairs = [
+			('Hillview', hillview_map_url(viewer, m.lat, m.lon, bearing=m.bearing, photo_id=m.id)),
+			('STAC', f'{base}/api/collections/{m.sequence_id}/items/{m.id}'),
+		]
+		if explorer:
+			pairs.append(('explorer', f'{explorer}/en/index?' + urlencode({'focus': 'pic', 'pic': m.id, 'seq': m.sequence_id})))
+		return links(pairs)
+
+	def sequence_links(first: dev_report.Member) -> str:
+		pairs = [
+			('first photo', hillview_map_url(viewer, first.lat, first.lon, bearing=first.bearing, photo_id=first.id)),
+			('STAC', f'{base}/api/collections/{first.sequence_id}'),
+		]
+		if explorer:
+			pairs.append(('explorer', f'{explorer}/en/index?' + urlencode({'focus': 'pic', 'pic': first.id, 'seq': first.sequence_id})))
+		return f'{html.escape(first.sequence_id[:8])}<br>{links(pairs)}'
+
+	return HTMLResponse(dev_report.render(findings, summaries, photo_links, sequence_links, now))
 
 
 @app.get('/api/health')

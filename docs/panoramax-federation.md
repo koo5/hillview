@@ -484,6 +484,14 @@ refresh. The meta-catalog API's own landing page is the explorer
 origin-absolute `/api`, so it needs the root of its own hostname, not a path
 prefix.
 
+With `DEV_MODE` on, the Panoramax service also serves **`/dev/suspicious`**
+(`dev_report.py`): served photos whose sequence jumps faster than 150 km/h,
+spikes out and back, far jumps that keep one coordinate exactly (a corrupted
+fix), and impossible capture times, plus every sequence ranked by its longest
+jump with the share of gaps the explorer draws as dots. Each row links to
+Hillview, the STAC record and, with `PANORAMAX_EXPLORER_URL` set, the
+explorer. Without `DEV_MODE` the route is a 404.
+
 End-to-end against the **real harvester**, fully scripted:
 
 ```bash

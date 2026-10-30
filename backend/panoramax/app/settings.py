@@ -78,6 +78,17 @@ def logo_url() -> str:
 	return os.getenv('PANORAMAX_LOGO_URL', 'https://hillview.cz/favicon.png')
 
 
+def dev_mode() -> bool:
+	"""DEV_MODE, the same switch the api reads; it gates the /dev/ pages."""
+	return os.getenv('DEV_MODE', 'false').lower() in ('true', '1', 'yes')
+
+
+def explorer_url() -> str:
+	"""A Panoramax explorer showing this instance's harvested data (a local
+	meta-catalog, say), linked from /dev/suspicious; empty for none."""
+	return os.getenv('PANORAMAX_EXPLORER_URL', '').rstrip('/')
+
+
 def instance_name() -> str:
 	# Unique key in the meta-catalog's `instances` table (the URL is not
 	# unique, the name is).

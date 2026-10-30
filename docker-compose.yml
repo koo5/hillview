@@ -343,6 +343,10 @@ services:
       - PANORAMAX_INSTANCE_NAME=${PANORAMAX_INSTANCE_NAME:-Hillview}
       # The logo the meta-catalog shows for us (/api/configuration `logo`)
       - PANORAMAX_LOGO_URL=${PANORAMAX_LOGO_URL:-https://hillview.cz/favicon.png}
+      # DEV_MODE (the api's switch) enables /dev/ pages such as /dev/suspicious,
+      # which links to an explorer when PANORAMAX_EXPLORER_URL names one
+      - DEV_MODE=${DEV_MODE:-}
+      - PANORAMAX_EXPLORER_URL=${PANORAMAX_EXPLORER_URL:-}
       - PANORAMAX_SCOPE=${PANORAMAX_SCOPE:-p1}
       - PANORAMAX_BEARING_BUCKETS=${PANORAMAX_BEARING_BUCKETS:-8}
       - PANORAMAX_SESSION_GAP_HOURS=${PANORAMAX_SESSION_GAP_HOURS:-0.25}
