@@ -441,6 +441,18 @@ Unit: `./backend/panoramax/run_unit_tests.sh` (CQL subset, session
 splitting/identity/diffing, STAC serialization incl. asset fallbacks and
 tombstones) and `frontend`: `bun run test:unit -- src/lib/sources/PanoramaxSourceLoader.test.ts`.
 
+A **browsable mirror of prod**: restore a prod dump into the dev DB and let the
+api start (it migrates the dump), then
+`./backend/panoramax/scripts/share_all_photos_dev.py` turns on the one
+eligibility flag that defaults off and runs a sequencer pass (it refuses on a
+stack without `DEBUG_ENDPOINTS`). On the meta-catalog's box, `stac-harvester
+harvest <instance>` and then `stac-harvester refresh-database-views`: the
+harvester only marks map grid cells expired, so the map stays empty until the
+refresh. The meta-catalog API's own landing page is the explorer
+(explore.panoramax.fr runs the same page). Its web viewer calls the
+origin-absolute `/api`, so it needs the root of its own hostname, not a path
+prefix.
+
 End-to-end against the **real harvester**, fully scripted:
 
 ```bash
