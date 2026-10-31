@@ -22,13 +22,14 @@ const config = {
 		// See https://svelte.dev/docs/kit/adapters for more information about adapters.
 		adapter,
 
-		// Cross-app shared zoomview modules (tile source, label layout/paint,
-		// annotation targets, viewer init) — consumed by the enrichment workbench
-		// too (enrich/web). The docker build COPYies this dir to /shared/zoomview
-		// (see Dockerfile; build context is the repo root for that reason).
+		// Cross-app shared modules (the zoom view's tile source, label layout/paint,
+		// annotation targets, viewer init; the terrain overlay's labels) live in the
+		// hillview_common submodule, which the recon workbench includes too. The
+		// docker build COPYies it to /hillview_common (see Dockerfile; build context
+		// is the repo root for that reason).
 		alias: {
-			$zoomview: '../shared/zoomview',
-			$terrain: '../shared/terrain'
+			$zoomview: '../hillview_common/zoomview',
+			$terrain: '../hillview_common/terrain'
 		},
 
 		/*experimental: {

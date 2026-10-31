@@ -10,7 +10,7 @@ true everywhere.
 - `frontend/` — SvelteKit + Tauri v2: the web app and the current Android app → `frontend/CLAUDE.md`
 - `frontend2/` — the KMP/Compose rewrite of the Android app → `frontend2/CLAUDE.md`
 - `shared-kt/` — Kotlin compiled as source into both Android apps → `shared-kt/CLAUDE.md`
-- `shared/` — Svelte/TS modules (`$zoomview`, `$terrain`) used by both `frontend/` and `enrich/web`
+- `hillview_common/` — git submodule (github.com/koo5/hillview_common): Svelte/TS modules (`$zoomview`, `$terrain`) shared with the recon workbench. Move its pointer only to reviewed commits on its `main`
 - `backend/` — FastAPI + PostgreSQL/PostGIS: api, photo worker, Panoramax federation, analyzer → `backend/CLAUDE.md`
 - `enrich/` — the enrichment workbench: terrain renders, matching, 3-D reconstruction → `enrich/CLAUDE.md`
 - `scripts/` — repo-wide tooling: dependencies, pano pipeline, EXIF backfill, geotagging
