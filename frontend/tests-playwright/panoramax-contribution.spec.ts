@@ -280,7 +280,7 @@ test.describe('Panoramax browser contribution', () => {
 		await expect(page.getByTestId('photo-detail-status')).toContainText('Saved:');
 		await expect(page.getByTestId('photo-edit-license-current')).toHaveText('Full rights to Hillview');
 		await page.getByTestId('photo-detail-license-history-toggle').click();
-		await expect(page.getByTestId('photo-detail-outflow-history')).toContainText('sharing choice');
+		await expect(page.getByTestId('photo-detail-license-history')).toContainText('sharing choice');
 		expect((await localPhotos(page)).find(photo => photo.server_photo_id === capturedServerId)).toMatchObject({ license: 'full1', panoramax_share: false });
 	});
 

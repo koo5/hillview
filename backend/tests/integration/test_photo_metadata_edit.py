@@ -422,6 +422,8 @@ class TestPhotoMetadataEdit(BasePhotoTest):
 		entry = history["entries"][0]
 		assert entry["old_license"] == "ccbysa4+osm", entry
 		assert entry["new_license"] == "arr", entry
+		# ...and the grant ids alongside, for the owner's Upload grant trail.
+		assert (entry["old_grant"], entry["new_grant"]) == ("ccbysa4+osm", "full1"), entry
 		assert entry["actor_username"] == "test", entry
 		assert entry["actor_was_owner"] is True, entry
 		assert entry["reason"] == "integration test: pulling it back", entry

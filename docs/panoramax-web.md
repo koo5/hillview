@@ -90,8 +90,13 @@ editor preserves ambiguous grants rather than submitting a new one.
 Only the owner gets the sharing control. Moderators get the independent
 approval control; administrators can enable or disable an account's
 contributions in User management. Published license changes and their causes
-appear in the photo's history, including the SSR batch. Successful owner edits
-also update a matching local capture's consent for later re-uploads.
+appear in the photo's history, including the SSR batch: the "changed (N)"
+disclosure on the License line, for everyone. The upload grant's own trail
+sits by the Upload grant line, for the owner and moderators only, in grant
+names (`old_grant`/`new_grant`); a grant change that moves the published
+license writes a row to each, and listing both under License showed it twice.
+Successful owner edits also update a matching local capture's consent for later
+re-uploads.
 
 Uploaded-photo edits do not have frontend2's offline outbox. They require a
 successful server Save. Tauri completion is outside this browser follow-up;

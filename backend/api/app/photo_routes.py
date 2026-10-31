@@ -871,6 +871,10 @@ async def list_license_history(
 			"old_license": r.old_license if outflow else legal_rights_to_license(r.old_license) if r.old_license else None,
 			"new_license": r.new_license if outflow else legal_rights_to_license(r.new_license) if r.new_license else None,
 			**({"cause": r.cause} if outflow else {}),
+			# The grant trail also in grant ids: old_license/new_license above
+			# speak public names (full1 reads 'arr'), which is what released
+			# clients render, but the Upload grant line names the grant itself.
+			**({} if outflow else {"old_grant": r.old_license, "new_grant": r.new_license}),
 			"actor_was_owner": bool(r.actor_was_owner),
 			"created_at": format_utc(r.created_at),
 			**({"actor_username": r.actor_username, "actor_role": r.actor_role, "reason": r.reason}

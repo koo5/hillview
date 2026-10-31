@@ -97,9 +97,14 @@
 	// Hydrated from the server batch like photo and annotations above: when that
 	// batch is the visitor's own, the client-side load that would otherwise fetch
 	// the trail (see loadPhoto) is skipped, and this is the only copy there is.
+	// Two trails: outflowHistory is the published licence's (the License line),
+	// licenseHistory the upload grant's (the Upload grant line, owner and
+	// moderators only). A grant change that moves the published licence writes
+	// a row to each; showing both under License listed it twice.
 	let licenseHistory: PhotoLicenseChange[] = data?.licenseHistory ?? [];
 	let outflowHistory: PhotoLicenseChange[] = data?.outflowHistory ?? [];
 	let showLicenseHistory = false;
+	let showGrantHistory = false;
 
 	$: photoUid = $page.params.uid;
 	$: isAuthenticated = $auth.is_authenticated;
@@ -200,6 +205,7 @@
 		licenseHistory = [];
 		outflowHistory = [];
 		showLicenseHistory = false;
+		showGrantHistory = false;
 		if (photo && parts?.id && parts.source === 'hillview') {
 			loadLicenseHistory(parts.id);
 		}
@@ -564,7 +570,7 @@
 						<span class="detail">
 							<span class="detail-label">License</span>
 							<span data-testid="photo-detail-license">{licenseLabelFor(photo.license)}</span>
-							{#if licenseHistory.length + outflowHistory.length > 0}
+							{#if outflowHistory.length > 0}
 								<!-- A disclosure, not an always-open list: the trail matters
 								     to whoever comes looking for it, and would otherwise
 								     crowd the photo out for everyone else. -->
@@ -574,37 +580,50 @@
 									on:click={() => (showLicenseHistory = !showLicenseHistory)}
 									data-testid="photo-detail-license-history-toggle"
 								>
-									{showLicenseHistory ? 'hide' : 'changed'} ({licenseHistory.length + outflowHistory.length})
+									{showLicenseHistory ? 'hide' : 'changed'} ({outflowHistory.length})
 								</button>
 							{/if}
 						</span>
 					{/if}
 					{#if canEditPhoto && photo.license_granted}
-						<span class="detail"><span class="detail-label">Upload grant</span><span data-testid="photo-detail-license-granted">{licenseLabelFor(photo.license_granted)}</span></span>
+						<span class="detail">
+							<span class="detail-label">Upload grant</span>
+							<span data-testid="photo-detail-license-granted">{licenseLabelFor(photo.license_granted)}</span>
+							{#if licenseHistory.length > 0}
+								<button
+									type="button"
+									class="license-history-toggle"
+									on:click={() => (showGrantHistory = !showGrantHistory)}
+									data-testid="photo-detail-grant-history-toggle"
+								>
+									{showGrantHistory ? 'hide' : 'changed'} ({licenseHistory.length})
+								</button>
+							{/if}
+						</span>
 					{/if}
 				</div>
 
-				{#if showLicenseHistory && licenseHistory.length > 0}
-					<ul class="license-history" data-testid="photo-detail-license-history">
-						{#each licenseHistory as change}
-							<li>
-								<span class="license-history-when">{formatDateTime(change.created_at)}</span>
-								{licenseLabelFor(change.old_license) ?? 'none'}
-								→
-								{licenseLabelFor(change.new_license) ?? 'none'}
-								<span class="license-history-actor"
-									>({change.actor_was_owner ? 'by the owner' : 'by a moderator'})</span>
-							</li>
-						{/each}
-					</ul>
-				{/if}
 				{#if showLicenseHistory && outflowHistory.length > 0}
-					<h3>Published license changes</h3>
-					<ul class="license-history" data-testid="photo-detail-outflow-history">
+					<ul class="license-history" data-testid="photo-detail-license-history">
 						{#each outflowHistory as change}
 							<li><span class="license-history-when">{formatDateTime(change.created_at)}</span>
 								{licenseLabelFor(change.old_license) ?? 'none'} → {licenseLabelFor(change.new_license) ?? 'none'}
 								<span class="license-history-actor">({change.cause === 'panoramax_share' ? 'sharing choice' : 'upload grant change'}; {change.actor_was_owner ? 'by the owner' : 'by a moderator'})</span>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+				{#if canEditPhoto && showGrantHistory && licenseHistory.length > 0}
+					<h3>Upload grant changes</h3>
+					<ul class="license-history" data-testid="photo-detail-grant-history">
+						{#each licenseHistory as change}
+							<li>
+								<span class="license-history-when">{formatDateTime(change.created_at)}</span>
+								{licenseLabelFor(change.old_grant ?? change.old_license) ?? 'none'}
+								→
+								{licenseLabelFor(change.new_grant ?? change.new_license) ?? 'none'}
+								<span class="license-history-actor"
+									>({change.actor_was_owner ? 'by the owner' : 'by a moderator'})</span>
 							</li>
 						{/each}
 					</ul>

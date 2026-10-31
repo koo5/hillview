@@ -143,7 +143,9 @@ test.describe('Photo Detail Page', () => {
 			{ timeout: T(10000) }
 		);
 
-		// Collapsed by default; the trail is a click away.
+		// Collapsed by default; the trail is a click away. One save moved both
+		// the grant and the published licence, and the License line counts
+		// only the published one: the change is listed once, not twice.
 		const toggle = page.getByTestId('photo-detail-license-history-toggle');
 		await expect(toggle).toContainText('changed (1)');
 		await expect(page.getByTestId('photo-detail-license-history')).toHaveCount(0);
@@ -154,6 +156,14 @@ test.describe('Photo Detail Page', () => {
 		await expect(history).toContainText('CC BY-SA 4.0 + OSM mapping grant');
 		await expect(history).toContainText('All rights reserved + OSM mapping grant');
 		await expect(history).toContainText('by the owner');
+		await expect(page.getByTestId('photo-detail-grant-history')).toHaveCount(0);
+
+		// The grant's own trail sits by the Upload grant line, for the owner,
+		// in grant names rather than published ones.
+		const grantToggle = page.getByTestId('photo-detail-grant-history-toggle');
+		await expect(grantToggle).toContainText('changed (1)');
+		await grantToggle.click();
+		await expect(page.getByTestId('photo-detail-grant-history')).toContainText('Full rights to Hillview');
 	});
 
 	test('should navigate to user profile when owner link is clicked', async ({ page }) => {

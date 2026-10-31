@@ -63,6 +63,9 @@ export interface PhotoLicenseChange {
 	actor_was_owner: boolean;
 	created_at: string;
 	cause?: string;
+	/** Grant-trail rows only: the grant ids (old/new_license read as public names). */
+	old_grant?: string | null;
+	new_grant?: string | null;
 }
 
 export type AnnotationBodySegment =
