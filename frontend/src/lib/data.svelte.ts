@@ -196,6 +196,14 @@ export let app = writable<{
 	activity: 'view',
 });
 
+// A saved activity this build cannot show (its service is not configured: no button to leave it, an
+// empty pane where the gallery was) opens as the photo view instead.
+function availableActivity(activity: AppActivity): AppActivity {
+	if (activity === 'world' && !import.meta.env.VITE_EARTH_URL) return 'view';
+	if (activity === 'terrain' && !import.meta.env.VITE_TERRAIN_API) return 'view';
+	return activity;
+}
+
 // Sync persisted settings with main app store
 appSettings.subscribe(settings => {
 	const currentApp = get(app);
@@ -207,7 +215,7 @@ appSettings.subscribe(settings => {
 			...a,
 			debug: settings.debug,
 			debug_enabled: settings.debug_enabled,
-			activity: !!import.meta.env.VITE_PICS_OFF ? 'view' : settings.activity
+			activity: !!import.meta.env.VITE_PICS_OFF ? 'view' : availableActivity(settings.activity)
 		}));
 	}
 });

@@ -1,11 +1,14 @@
 <script lang="ts">
 	/**
 	 * The 3D world beside the map (recon ea05). The observer stands where the map's one location
-	 * state says, facing its one bearing (docs/one-state.md); turning the view writes the bearing
-	 * back through the same funnel as every other writer, so the map's arrow follows.
+	 * state says, facing its one bearing (docs/one-state.md); turning the view is a hand turn like the
+	 * map's arrow drag (userTurn: the compass stops, car mode moves the mount offset), so the map's
+	 * arrow follows and nothing automatic turns it back.
 	 */
 	import WorldScene from '$world/WorldScene.svelte';
-	import { bearingState, spatialState, updateBearing } from '$lib/mapState';
+	import { get } from 'svelte/store';
+	import { bearingState, spatialState } from '$lib/mapState';
+	import { userTurn } from '$lib/userTurn';
 	import { earthUrl } from '$lib/world';
 
 	let pitch = $state(-5);
@@ -23,7 +26,7 @@
 			{eyeM}
 			onlook={(look) => {
 				pitch = look.pitch;
-				updateBearing(look.bearing, 'world3d');
+				userTurn(get(bearingState).bearing, look.bearing, 'world3d');
 			}}
 			oneye={(m) => (eyeM = m)}
 			testid="world-scene"

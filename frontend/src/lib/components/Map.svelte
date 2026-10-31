@@ -53,13 +53,13 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 	import { overrideFilters } from '$lib/components/filters-modal/filtersStore';
 	import {featuredPhotoData, maybeFetchFeaturedPhoto} from "$lib/featuredPhoto";
 	import {updateBearingWithPhoto, disableBearingTracking} from "$lib/bearingTracking";
-	import {adjustMountOffset, gpsOrientationEnabled} from "$lib/gpsOrientation.svelte";
-	import {getAngularDistance} from "$lib/utils/bearingUtils";
+	import {gpsOrientationEnabled} from "$lib/gpsOrientation.svelte";
 	import {enableSourceForPhotoUid, sources, showPhotoInfoWindow, togglePhotoInfoWindow} from "$lib/data.svelte.js";
 	import { simplePhotoWorker } from '$lib/simplePhotoWorker';
 	import { turn_to_photo_to, app, sourceLoadingStatus, powerSavingActive } from "$lib/data.svelte.js";
 	import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation, locationTracking, lastKnownGpsLocation, backgroundLocationTracking, setBackgroundLocationTracking } from "$lib/location.svelte.js";
-	import { isOnMapRoute, compassEnabled, disableCompass } from "$lib/compass.svelte.js";
+	import { isOnMapRoute } from "$lib/compass.svelte.js";
+	import { stopBearingProducers, userTurn } from '$lib/userTurn';
 	import { optimizedMarkerSystem, setupMarkerClickDelegation } from '$lib/optimizedMarkers';
 	import '$lib/styles/optimizedMarkers.css';
 	import type { PhotoData } from '$lib/types/photoTypes';
@@ -1241,10 +1241,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 		arrowDragging = true;
 
 		// Disable compass tracking (same as rotate buttons)
-		if ($compassEnabled) {
-			console.log('🢄🧭 Disabling compass tracking due to arrow drag');
-			disableCompass();
-		}
+		stopBearingProducers();
 
 		// Disable map dragging during arrow drag
 		if (map) map.dragging.disable();
@@ -1269,14 +1266,8 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 
 		function applyBearing(cx: number, cy: number) {
 			const bearing = pointerBearing(cx, cy);
-			if ($bearingMode === 'car' && $gpsOrientationEnabled) {
-				// Translate drag into a mount-offset change so Kotlin (Tauri) /
-				// the subsequent gps-kalman diffs (browser) stay consistent.
-				adjustMountOffset(getAngularDistance(prevPointerBearing, bearing));
-				prevPointerBearing = bearing;
-			} else {
-				updateBearing(bearing, 'arrow_drag');
-			}
+			userTurn(prevPointerBearing, bearing, 'arrow_drag');
+			prevPointerBearing = bearing;
 		}
 
 		function onPointerMove(ev: PointerEvent) {
