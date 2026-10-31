@@ -11,7 +11,7 @@
 		Bug,
 		Maximize2,
 		Minimize2
-	, Mountain} from 'lucide-svelte';
+	, Mountain, Globe} from 'lucide-svelte';
 	import {
 		app,
 		sources,
@@ -39,6 +39,8 @@
 	import CompassCalibration from './CompassCalibration.svelte';
 	import Lines from './Lines.svelte';
 	import TerrainPane from './TerrainPane.svelte';
+	import WorldPane from './WorldPane.svelte';
+	import { worldModeAvailable } from '$lib/world';
 	import { terrainModeAvailable, terrainViewRect } from '$lib/terrain.svelte';
 import TimelinePanel from './TimelinePanel.svelte';
 	import PhotoInfoWindow from './PhotoInfoWindow.svelte';
@@ -70,6 +72,13 @@ import TimelinePanel from './TimelinePanel.svelte';
 	$: showCameraView = $app.activity === 'capture';
 	$: showLinesEditor = $app.activity === 'lines';
 	$: showTerrainPane = $app.activity === 'terrain';
+	$: showWorldPane = $app.activity === 'world';
+
+	function toggleWorld() {
+		const mode = showWorldPane ? 'view' : 'world';
+		track(mode === 'world' ? 'activityWorld' : 'activityView');
+		app.update(a => ({...a, activity: mode}));
+	}
 
 	function toggleTerrain() {
 		const mode = showTerrainPane ? 'view' : 'terrain';
@@ -574,6 +583,19 @@ import TimelinePanel from './TimelinePanel.svelte';
 </button>
 {/if}
 
+{#if worldModeAvailable}
+<button
+	class="world-button {showWorldPane ? 'active' : ''}"
+	on:click={toggleWorld}
+	on:keydown={(e) => e.key === 'Enter' && toggleWorld()}
+	aria-label="{showWorldPane ? 'Close 3D world' : 'Show 3D world'}"
+	title="{showWorldPane ? 'Close 3D world' : 'Show 3D world'}"
+	data-testid="world-button"
+>
+	<Globe size={24} />
+</button>
+{/if}
+
 
 <!--{#if BROWSER}
 	<button
@@ -642,6 +664,8 @@ import TimelinePanel from './TimelinePanel.svelte';
 			<Lines />
 		{:else if showTerrainPane}
 			<TerrainPane />
+		{:else if showWorldPane}
+			<WorldPane />
 		{:else}
 			<PhotoGallery/>
 		{/if}
@@ -844,6 +868,35 @@ import TimelinePanel from './TimelinePanel.svelte';
 	}
 
 	.terrain-button:hover {
+		transform: scale(1.05);
+	}
+
+	.world-button {
+		position: absolute;
+		top: calc(0px + var(--safe-area-inset-top, 10px));
+		left: calc(200px + var(--safe-area-inset-left, 10px));
+		z-index: 30001;
+		background: white;
+		border-radius: 50%;
+		width: 40px;
+		height: 40px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+		cursor: pointer;
+		border: none;
+		padding: 0;
+		transition: all 0.2s ease;
+		color: #3a7d44;
+	}
+
+	.world-button.active {
+		background: #3a7d44;
+		color: white;
+	}
+
+	.world-button:hover {
 		transform: scale(1.05);
 	}
 

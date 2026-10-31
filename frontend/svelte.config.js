@@ -29,7 +29,16 @@ const config = {
 		// is the repo root for that reason).
 		alias: {
 			$zoomview: '../hillview_common/zoomview',
-			$terrain: '../hillview_common/terrain'
+			$terrain: '../hillview_common/terrain',
+			// the 3D world (WorldScene and its layers), shared with the workbench's atlas viewer
+			$world: '../hillview_common/world'
+		},
+		// hillview_common/world imports three (for types) from outside this tree: resolve it to this
+		// app's copy, as vite's resolve.dedupe does at run time
+		typescript: {
+			config: (c) => {
+				c.compilerOptions.paths.three = ['../node_modules/@types/three'];
+			}
 		},
 
 		/*experimental: {

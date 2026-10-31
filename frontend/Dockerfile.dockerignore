@@ -5,6 +5,7 @@
 !frontend
 !hillview_common/zoomview
 !hillview_common/terrain
+!hillview_common/world
 frontend/**/.github
 frontend/**/.claude
 frontend/**/.idea

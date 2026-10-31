@@ -10,6 +10,7 @@ WORKDIR /app
 COPY frontend/ ./
 COPY hillview_common/zoomview /hillview_common/zoomview
 COPY hillview_common/terrain /hillview_common/terrain
+COPY hillview_common/world /hillview_common/world
 
 COPY frontend/src/routes/+page.svelte.web        src/routes/+page.svelte
 COPY frontend/src/routes/+page.ts.web            src/routes/+page.ts
