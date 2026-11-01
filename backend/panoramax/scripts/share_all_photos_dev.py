@@ -13,11 +13,16 @@ prod dump federates nothing until it is flipped. Every subcommand first disables
 	regrant <from> <to>
 	                 rewrite every <from> intake grant to <to>, leaving sharing
 	                 as it is (e.g. ccbysa4+osm panoramax_in, so CC photos can
-	                 federate). It rewrites what the owners granted and writes
-	                 no licence history, which only a dev mirror may do
+	                 federate), or turning it off as well with --unshare. It
+	                 rewrites what the owners granted and writes no licence
+	                 history, which only a dev mirror may do
 
 `--max-width <w>` limits any of them to photos at most <w> pixels wide (the
-original's `photos.width`; photos without a width are left alone). Then it
+original's `photos.width`; photos without a width are left alone).
+`--feature <name>` limits them to photos whose LLM analysis lists that feature
+(`photos.analysis->'features'`, the names in SCHEMA_FEATURES in
+backend/analyzer/analyze_photo.py, e.g. signage); repeat it to match any of
+several. Photos the analyzer has not reached are left alone. Then it
 runs one sequencer pass so the result is visible at once instead of on the
 next PANORAMAX_SEQUENCER_INTERVAL_S tick.
 
@@ -39,6 +44,7 @@ the same switch that enables /api/debug/clear-database.
 	backend/panoramax/scripts/share_all_photos_dev.py all --max-width 8192
 	backend/panoramax/scripts/share_all_photos_dev.py regrant ccbysa4+osm panoramax_in
 	backend/panoramax/scripts/share_all_photos_dev.py none --sql unshare.sql
+	backend/panoramax/scripts/share_all_photos_dev.py regrant panoramax_in ccbysa4+osm --unshare --feature signage --sql signage.sql
 
 Afterwards recrawl from the catalog: `stac-harvester harvest <instance>`, then
 `stac-harvester refresh-database-views` (the harvester only marks map grid
@@ -47,6 +53,7 @@ regrant use `--full-harvest`: a grant change that keeps a photo in its sequence
 does not move the sequence's `updated`, so an incremental harvest skips it.
 """
 import argparse
+import re
 import subprocess
 import sys
 import textwrap
@@ -75,6 +82,8 @@ def main() -> int:
 	common = argparse.ArgumentParser(add_help=False)
 	common.add_argument('--max-width', type=int, metavar='W',
 		help='only act on photos at most W pixels wide')
+	common.add_argument('--feature', action='append', metavar='NAME',
+		help='only act on photos whose analysis lists this feature (e.g. signage); repeat for any of several')
 	common.add_argument('--sql', metavar='FILE',
 		help='write the statements to FILE (- for stdout) instead of running them')
 	commands = parser.add_subparsers(dest='command', required=True)
@@ -85,9 +94,13 @@ def main() -> int:
 	regrant = commands.add_parser('regrant', parents=[common], help='rewrite every <from> intake grant to <to>')
 	regrant.add_argument('old', metavar='from', choices=GRANTS, help=', '.join(GRANTS))
 	regrant.add_argument('new', metavar='to', choices=GRANTS, help=', '.join(GRANTS))
+	regrant.add_argument('--unshare', action='store_true', help='also turn Panoramax sharing off for them')
 	args = parser.parse_args()
 	if args.command == 'regrant' and args.old == args.new:
 		parser.error('regrant: <from> and <to> are the same grant')
+	for name in args.feature or ():
+		if not re.fullmatch(r'[a-z_]+', name):
+			parser.error(f'--feature: {name!r} is not a feature name')
 
 	exclude = """
 		WITH excluded AS (
@@ -100,26 +113,38 @@ def main() -> int:
 		)
 		SELECT count(*) AS users_excluded FROM excluded
 	"""
-	# Grants come from argparse choices and the width is an int, never free
-	# text, so they may be inlined.
-	width = f'AND width <= {args.max_width}' if args.max_width is not None else ''
+	# Grants come from argparse choices, the width is an int and feature names
+	# are checked above, never free text, so they may be inlined.
+	def only(table: str = '') -> str:
+		col = f'{table}.' if table else ''
+		conditions = ''
+		if args.max_width is not None:
+			conditions += f' AND {col}width <= {args.max_width}'
+		if args.feature:
+			names = ', '.join(f"'{name}'" for name in args.feature)
+			conditions += f" AND {col}analysis->'features' ?| array[{names}]"
+		return conditions
 	if args.command == 'regrant':
+		unshare = ', panoramax_owner_share = false' if args.unshare else ''
+		# The old sharing flag comes from a self-join, since RETURNING sees the new one.
 		change = f"""
 			WITH regranted AS (
-				UPDATE photos SET legal_rights = '{args.new}'
-				WHERE legal_rights = '{args.old}' {width}
-				RETURNING 1
+				UPDATE photos SET legal_rights = '{args.new}'{unshare}
+				FROM photos AS before
+				WHERE before.id = photos.id AND photos.legal_rights = '{args.old}'{only('photos')}
+				RETURNING before.panoramax_owner_share AS was_shared
 			)
-			SELECT count(*) AS photos_regranted FROM regranted
+			SELECT count(*) AS photos_regranted, count(*) FILTER (WHERE was_shared) AS {"photos_unshared" if args.unshare else "photos_shared"} FROM regranted
 		"""
-		done = f'regranted {{}} photos from {args.old} to {args.new}'
+		done = (f'regranted {{}} photos from {args.old} to {args.new}'
+			+ (', turning sharing off for the {} shared ones' if args.unshare else ', {} of them shared'))
 	else:
 		share = args.command != 'none'
 		where = f"AND legal_rights = '{args.grant}'" if args.command == 'license' else ''
 		change = f"""
 			WITH flipped AS (
 				UPDATE photos SET panoramax_owner_share = {str(share).lower()}
-				WHERE panoramax_owner_share = {str(not share).lower()} {where} {width}
+				WHERE panoramax_owner_share = {str(not share).lower()} {where}{only()}
 				RETURNING 1
 			)
 			SELECT count(*) AS photos_{"shared" if share else "unshared"} FROM flipped
@@ -151,7 +176,7 @@ def main() -> int:
 			'DEBUG_ENDPOINTS on, so this may not be a dev stack')
 
 	print(f'disabled Panoramax contributions for {psql(exclude)} more users')
-	print(done.format(psql(change)))
+	print(done.format(*psql(change).split('|')))
 	total, shared = psql(totals).split('|')
 	print(f'{shared} of {total} photos are shared')
 
