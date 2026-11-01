@@ -19,7 +19,13 @@ prod dump federates nothing until it is flipped. Every subcommand first disables
 `--max-width <w>` limits any of them to photos at most <w> pixels wide (the
 original's `photos.width`; photos without a width are left alone). Then it
 runs one sequencer pass so the result is visible at once instead of on the
-next PANORAMAX_SEQUENCER_INTERVAL_S tick. Photos still have to pass every other
+next PANORAMAX_SEQUENCER_INTERVAL_S tick.
+
+`--sql <file>` (`-` for stdout) writes the same statements, in one
+transaction, to a script for psql instead of running anything: for a database
+this cannot reach through `docker exec hillview_postgres`, or to read first.
+That skips the DEBUG_ENDPOINTS check below, which cannot travel with the file,
+and the sequencer pass, so whoever runs the script owns both. Photos still have to pass every other
 gate in eligibility.py: full1 / panoramax_in intake, a capture time, a detector
 run with nothing blurred, and the rest.
 
@@ -32,6 +38,7 @@ the same switch that enables /api/debug/clear-database.
 	backend/panoramax/scripts/share_all_photos_dev.py none
 	backend/panoramax/scripts/share_all_photos_dev.py all --max-width 8192
 	backend/panoramax/scripts/share_all_photos_dev.py regrant ccbysa4+osm panoramax_in
+	backend/panoramax/scripts/share_all_photos_dev.py none --sql unshare.sql
 
 Afterwards recrawl from the catalog: `stac-harvester harvest <instance>`, then
 `stac-harvester refresh-database-views` (the harvester only marks map grid
@@ -42,6 +49,7 @@ does not move the sequence's `updated`, so an incremental harvest skips it.
 import argparse
 import subprocess
 import sys
+import textwrap
 
 TRUTHY = ('true', '1', 'yes')
 # The intake grants, as LEGAL_RIGHTS_TO_LICENSE in api/app/hillview_routes.py
@@ -67,6 +75,8 @@ def main() -> int:
 	common = argparse.ArgumentParser(add_help=False)
 	common.add_argument('--max-width', type=int, metavar='W',
 		help='only act on photos at most W pixels wide')
+	common.add_argument('--sql', metavar='FILE',
+		help='write the statements to FILE (- for stdout) instead of running them')
 	commands = parser.add_subparsers(dest='command', required=True)
 	commands.add_parser('all', parents=[common], help='share every photo')
 	commands.add_parser('none', parents=[common], help='unshare every photo')
@@ -79,12 +89,7 @@ def main() -> int:
 	if args.command == 'regrant' and args.old == args.new:
 		parser.error('regrant: <from> and <to> are the same grant')
 
-	debug = run('docker', 'exec', 'hillview_api', 'printenv', 'DEBUG_ENDPOINTS').stdout.strip()
-	if debug.lower() not in TRUTHY:
-		sys.exit('share_all_photos_dev: refusing — hillview_api does not run with '
-			'DEBUG_ENDPOINTS on, so this may not be a dev stack')
-
-	excluded = psql("""
+	exclude = """
 		WITH excluded AS (
 			UPDATE users SET panoramax_contributor = false
 			WHERE id IN (
@@ -93,38 +98,61 @@ def main() -> int:
 			) AND panoramax_contributor
 			RETURNING 1
 		)
-		SELECT count(*) FROM excluded
-	""")
-	print(f'disabled Panoramax contributions for {excluded} more users')
-
+		SELECT count(*) AS users_excluded FROM excluded
+	"""
 	# Grants come from argparse choices and the width is an int, never free
 	# text, so they may be inlined.
 	width = f'AND width <= {args.max_width}' if args.max_width is not None else ''
 	if args.command == 'regrant':
-		regranted = psql(f"""
+		change = f"""
 			WITH regranted AS (
 				UPDATE photos SET legal_rights = '{args.new}'
 				WHERE legal_rights = '{args.old}' {width}
 				RETURNING 1
 			)
-			SELECT count(*) FROM regranted
-		""")
-		print(f'regranted {regranted} photos from {args.old} to {args.new}')
+			SELECT count(*) AS photos_regranted FROM regranted
+		"""
+		done = f'regranted {{}} photos from {args.old} to {args.new}'
 	else:
 		share = args.command != 'none'
 		where = f"AND legal_rights = '{args.grant}'" if args.command == 'license' else ''
-		flipped = psql(f"""
+		change = f"""
 			WITH flipped AS (
 				UPDATE photos SET panoramax_owner_share = {str(share).lower()}
 				WHERE panoramax_owner_share = {str(not share).lower()} {where} {width}
 				RETURNING 1
 			)
-			SELECT count(*) FROM flipped
-		""")
-		print(f'{"shared" if share else "unshared"} {flipped} more photos')
-	total, shared = psql(
-		'SELECT count(*), count(*) FILTER (WHERE panoramax_owner_share) FROM photos'
-	).split('|')
+			SELECT count(*) AS photos_{"shared" if share else "unshared"} FROM flipped
+		"""
+		done = f'{"shared" if share else "unshared"} {{}} more photos'
+	totals = 'SELECT count(*) AS photos, count(*) FILTER (WHERE panoramax_owner_share) AS shared FROM photos'
+
+	if args.sql:
+		script = '\n'.join([
+			f'-- share_all_photos_dev.py {" ".join(sys.argv[1:])}',
+			'-- Dev only: this changes what every owner shares or granted. Afterwards run',
+			'-- the sequencer (sequencer.py --once) and harvest, as the script\'s docstring says.',
+			'BEGIN;',
+			*(textwrap.dedent(sql).strip() + ';' for sql in (exclude, change, totals)),
+			'COMMIT;',
+			'',
+		])
+		if args.sql == '-':
+			sys.stdout.write(script)
+		else:
+			with open(args.sql, 'w') as f:
+				f.write(script)
+			print(f'wrote {args.sql}', file=sys.stderr)
+		return 0
+
+	debug = run('docker', 'exec', 'hillview_api', 'printenv', 'DEBUG_ENDPOINTS').stdout.strip()
+	if debug.lower() not in TRUTHY:
+		sys.exit('share_all_photos_dev: refusing — hillview_api does not run with '
+			'DEBUG_ENDPOINTS on, so this may not be a dev stack')
+
+	print(f'disabled Panoramax contributions for {psql(exclude)} more users')
+	print(done.format(psql(change)))
+	total, shared = psql(totals).split('|')
 	print(f'{shared} of {total} photos are shared')
 
 	sequencer = run('docker', 'exec', 'hillview_panoramax', 'python', '/app/app/sequencer.py', '--once')
