@@ -41,4 +41,16 @@
 		width: 100%;
 		height: 100%;
 	}
+	/* the split's divider (22 px, centred on the split) covers this pane's bottom edge in portrait and its right
+	   edge in landscape: the scene's credit line moves clear of it */
+	@media (orientation: portrait) {
+		.world-pane {
+			--world-scene-credits-bottom: 12px;
+		}
+	}
+	@media (orientation: landscape) {
+		.world-pane {
+			--world-scene-credits-right: 12px;
+		}
+	}
 </style>
