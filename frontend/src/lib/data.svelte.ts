@@ -147,7 +147,7 @@ export let showCalibrationView = writable(false);
 //                   as 'arr' with sharing off (all rights reserved PLUS the OSM mapping grant),
 //                   or as 'panoramax' with sharing on
 //   'ccbysa4+osm' — CC BY-SA 4.0 + OSM mapping grant, granted by the contributor at upload time
-//   'panoramax_in' — Panoramax contribution grant; published as 'panoramax'
+//   'panoramax_in' — CC BY-SA 4.0 + LO derivatives; published as 'panoramax'
 // These stores hold the identifier string the user has consented to for a given upload path.
 // null means "no license selected" — upload is blocked for that path.
 export let autoUploadLicense = localStorageSharedStore<string | null>('autoUploadLicense', null);

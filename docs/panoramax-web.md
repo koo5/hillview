@@ -39,8 +39,9 @@ still cannot federate on the strength of that grant alone.
 
 The summary beside the controls explains the current combination. Sharing
 offers eligible views; approval, account contribution status, anonymization
-and representative-view selection still apply. Final Panoramax license
-wording remains pending.
+and representative-view selection still apply. The published licence is
+"CC BY-SA 4.0 + LO derivatives"; /licensing explains it and carries the
+Licence Ouverte warning (see [panoramax-federation.md](panoramax-federation.md)).
 
 Signing in, choosing a grant, enabling automatic upload and offering a photo
 to Panoramax are independent. Fresh browser preferences select no grant,

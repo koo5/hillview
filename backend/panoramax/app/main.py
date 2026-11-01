@@ -237,14 +237,16 @@ async def configuration() -> dict:
 	return {
 		'name': settings.instance_name(),
 		'logo': settings.logo_url(),
-		# Placeholder declaration until the panoramax outflow wording is final.
+		# The SPDX slot holds one id, so the derived-data part of the outflow
+		# licence (Hillview's "CC BY-SA 4.0 + LO derivatives") is stated here.
 		'description': (
 			'Hillview (https://hillview.cz) serves a Panoramax-compatible read API. '
-			'Owners opt in per photo under the full1 or panoramax_in intake grant; '
-			'only approved contributions with no anonymization doodles are federated. '
-			'Photos remain hosted on Hillview. The Panoramax outflow licence wording '
-			f'and this {scope.license} declaration are placeholders pending final terms. '
-			'Full terms: https://hillview.cz/licensing'
+			'Owners opt in per photo; only approved contributions with no anonymization '
+			'doodles are federated. Photos remain hosted on Hillview. '
+			f'They are published under {scope.license} and may be used to create derived '
+			'data, including AI models, under Licence Ouverte 2.0, CC-BY 4.0 or ODbL 1.0. '
+			'The metadata this API serves is published by Hillview under Licence Ouverte 2.0. '
+			'Full terms: https://hillview.cz/licensing#lo-derivatives'
 		),
 		'license': {'id': scope.license, 'url': scope.license_url},
 		'auth': {'enabled': False},
@@ -419,7 +421,7 @@ _ITEMS_SQL = f"""
 		p.id, sp.rank,
 		ST_X(p.geometry) AS lon, ST_Y(p.geometry) AS lat,
 		p.effective_at, p.uploaded_at, p.compass_angle,
-		p.width, p.height, p.original_filename, p.title, p.description,
+		p.width, p.height, p.original_filename,
 		p.sizes, u.username, p.owner_id
 	FROM panoramax.sequence_photos sp
 	JOIN photos p ON p.id = sp.photo_id
@@ -461,8 +463,8 @@ async def items(
 			lon=r[2], lat=r[3],
 			effective_at=r[4], uploaded_at=r[5],
 			compass_angle=r[6], width=r[7], height=r[8],
-			original_filename=r[9], title=r[10], description=r[11],
-			sizes=r[12] or {}, username=r[13], owner_id=r[14],
+			original_filename=r[9],
+			sizes=r[10] or {}, username=r[11], owner_id=r[12],
 			license_id=scope.license, base_url=base,
 		)
 		if feature:
@@ -502,7 +504,7 @@ async def item(seq_id: str, item_id: str) -> dict:
 				p.id, sp.rank,
 				ST_X(p.geometry) AS lon, ST_Y(p.geometry) AS lat,
 				p.effective_at, p.uploaded_at, p.compass_angle,
-				p.width, p.height, p.original_filename, p.title, p.description,
+				p.width, p.height, p.original_filename,
 				p.sizes, u.username, p.owner_id
 			FROM panoramax.sequence_photos sp
 			JOIN photos p ON p.id = sp.photo_id
@@ -520,8 +522,8 @@ async def item(seq_id: str, item_id: str) -> dict:
 		lon=r[2], lat=r[3],
 		effective_at=r[4], uploaded_at=r[5],
 		compass_angle=r[6], width=r[7], height=r[8],
-		original_filename=r[9], title=r[10], description=r[11],
-		sizes=r[12] or {}, username=r[13], owner_id=r[14],
+		original_filename=r[9],
+		sizes=r[10] or {}, username=r[11], owner_id=r[12],
 		license_id=scope.license, base_url=_base_url(),
 	)
 	if feature is None:

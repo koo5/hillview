@@ -44,7 +44,7 @@
 	on:cancel|preventDefault={() => { if (!busy) onClose(); }} data-testid="license-dialog">
 	<form on:submit|preventDefault={confirm}>
 		<header>
-			<h2>{!forPanoramax ? 'Choose an upload license' : current ? 'CC needs a different grant for Panoramax' : 'Choose a license for Panoramax'}</h2>
+			<h2>{!forPanoramax ? 'Choose an upload license' : current ? 'CC BY-SA 4.0 + OSM doesn’t cover Panoramax' : 'Choose a license for Panoramax'}</h2>
 			<p class="context" data-testid="license-dialog-context">{context}</p>
 			{#if forPanoramax && !current}
 				<p>Sharing with Panoramax needs one of the grants below. Choose one to turn sharing on, or cancel to leave it off.</p>

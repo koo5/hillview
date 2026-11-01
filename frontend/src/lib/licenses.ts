@@ -5,13 +5,13 @@ export const UPLOAD_LICENSES = [
 		id: 'full1',
 		label: 'Full rights to Hillview',
 		summary: 'Give Hillview full reuse rights, including commercial use.',
-		explainer: 'You keep your copyright and grant Hillview full rights to the photo, including paid tiers later. With Panoramax sharing on, Hillview publishes it as Panoramax. With sharing off, it publishes as all rights reserved plus the OpenStreetMap mapping grant. Choose this to support the project.'
+		explainer: 'You keep your copyright and grant Hillview full rights to the photo, including paid tiers later. With Panoramax sharing on, Hillview publishes it under CC BY-SA 4.0 + LO derivatives. With sharing off, it publishes as all rights reserved plus the OpenStreetMap mapping grant. Choose this to support the project.'
 	},
 	{
 		id: 'panoramax_in',
-		label: 'Panoramax contribution grant',
-		summary: 'Allow Panoramax-compatible publication. Final license wording is pending.',
-		explainer: 'You keep your copyright and permit Hillview to publish under a Panoramax-compatible license. The final license wording is pending. The photo is published as Panoramax even with sharing off. Turn on sharing separately to offer it to the federation.'
+		label: 'CC BY-SA 4.0 + LO derivatives',
+		summary: 'Allow public reuse with attribution and share-alike, plus derived data under Licence Ouverte.',
+		explainer: 'You keep your copyright. Anyone may copy, share and remix the photo, commercially too, with attribution and share-alike. Data derived from it, including AI models, may be published under Licence Ouverte 2.0, CC BY 4.0 or ODbL 1.0, as Panoramax requires. The photo is published under this license even with sharing off. Turn on sharing separately to offer it to the federation.'
 	},
 	{
 		id: 'ccbysa4+osm',

@@ -109,7 +109,7 @@ test.describe('Panoramax browser contribution', () => {
         await dialog.getByTestId('license-checkbox').check();
         await expect(dialog).toContainText('sharing will be turned off');
         await dialog.getByTestId('license-dialog-cancel').click();
-        await expect(page.getByTestId('license-current')).toHaveText('Panoramax contribution grant');
+        await expect(page.getByTestId('license-current')).toHaveText('CC BY-SA 4.0 + LO derivatives');
         await expect(page.getByTestId('panoramax-sharing-checkbox')).toBeChecked();
         await chooseUploadLicense(page, 'ccbysa4+osm');
         await expect(page.getByTestId('panoramax-sharing-checkbox')).not.toBeChecked();
@@ -159,7 +159,7 @@ test.describe('Panoramax browser contribution', () => {
 			await expect(page.getByTestId('login-success-message')).toContainText('Registration successful');
 			await login(page, newName);
 			await ready(page, '/settings/upload');
-			await expect(page.getByTestId('license-current')).toHaveText('Panoramax contribution grant');
+			await expect(page.getByTestId('license-current')).toHaveText('CC BY-SA 4.0 + LO derivatives');
 			await expect(page.getByTestId('panoramax-sharing-checkbox')).toBeChecked();
 			await expect(page.getByTestId('auto-upload-enabled')).not.toBeChecked();
 		} finally {
@@ -323,7 +323,7 @@ test.describe('Panoramax browser contribution', () => {
 		await expect(page.getByTestId('photo-edit-panoramax-share')).not.toBeChecked();
 		await page.getByTestId('photo-edit-panoramax-share').click();
 		await confirmLicenseChoice(page, 'panoramax_in');
-		await expect(page.getByTestId('photo-edit-license-current')).toHaveText('Panoramax contribution grant');
+		await expect(page.getByTestId('photo-edit-license-current')).toHaveText('CC BY-SA 4.0 + LO derivatives');
 		await expect(page).toHaveURL(new RegExp(`/photo/hillview-${capturedServerId}$`));
 		const beforeSave = await request.get(`${API}/photos/public/hillview-${capturedServerId}`, { headers: { Authorization: `Bearer ${token}` } });
 		expect(await beforeSave.json()).toMatchObject({ license_granted: 'ccbysa4+osm', panoramax_share: false });
@@ -373,7 +373,7 @@ test.describe('Panoramax browser contribution', () => {
 		await login(page, 'admin', 'StrongAdminPassword123!');
 		await ready(page, `/photo/hillview-${photoId}`);
 		await expect(page.getByTestId('photo-edit-panoramax-share')).toHaveCount(0);
-		await expect(page.getByTestId('photo-edit-license-current')).toHaveText(capturedServerId && capturedGrant === 'full1' ? 'Full rights to Hillview' : 'Panoramax contribution grant');
+		await expect(page.getByTestId('photo-edit-license-current')).toHaveText(capturedServerId && capturedGrant === 'full1' ? 'Full rights to Hillview' : 'CC BY-SA 4.0 + LO derivatives');
 		await page.getByTestId('photo-edit-panoramax-approved').uncheck();
 		await page.getByTestId('photo-edit-save-button').click();
 		await expect(page.getByTestId('photo-detail-status')).toContainText('Saved: panoramax_approved');

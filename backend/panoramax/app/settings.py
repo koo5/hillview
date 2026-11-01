@@ -2,7 +2,8 @@
 
 Only intake grants allowing Hillview to publish under a Panoramax-compatible
 licence qualify. Owner consent and moderation further gate participation.
-The SPDX declaration remains a placeholder until the outflow wording is final.
+The outflow is CC BY-SA 4.0 + LO derivatives; the SPDX slot carries the first
+part and the configuration description states the second.
 """
 import os
 from dataclasses import dataclass
