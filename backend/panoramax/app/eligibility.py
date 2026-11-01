@@ -22,9 +22,18 @@ and left the photo up; flags resolved by deletion are covered by p.deleted).
 Note ratings/flags don't touch the photos row, so they propagate to the
 catalog on the sequencer's cadence (membership prune bumps updated_at), while
 serve-time filtering hides the item immediately.
+
+A fix the receiver itself put more than MAX_LOCATION_ACCURACY_M off excludes
+the photo too: the selection places one photo per 5 m cell, and Panoramax
+readers take the position as given. An unknown radius passes, since no photo
+captured before 2026-09-13 carries one. The radius is photos.location_accuracy_m
+(migration 039), and exif_data changes don't bump the sequence either, so a
+change reaches the catalog on the sequencer's cadence like the ratings above.
 """
 
-ELIGIBLE_PHOTO_WHERE = """
+MAX_LOCATION_ACCURACY_M = 5
+
+ELIGIBLE_PHOTO_WHERE = f"""
 	p.legal_rights = ANY(:scope_legal_rights)
 	AND p.panoramax_owner_share
 	AND p.panoramax_moderator_approved
@@ -43,6 +52,7 @@ ELIGIBLE_PHOTO_WHERE = """
 	AND p.effective_at IS NOT NULL
 	AND p.captured_at IS NOT NULL
 	AND p.sizes IS NOT NULL
+	AND COALESCE(p.location_accuracy_m, 0) <= {MAX_LOCATION_ACCURACY_M}
 	AND u.is_active = true
 	AND u.is_test = false
 	AND NOT EXISTS (

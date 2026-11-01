@@ -564,6 +564,13 @@
 							<span class="detail-label">Location</span>
 							<a href={constructPhotoMapUrl(photo)} data-testid="photo-detail-view-on-map"
 								>{photo.latitude.toFixed(4)}, {photo.longitude.toFixed(4)}</a>
+							{#if photo.location_accuracy_m != null}
+								<span
+									class="location-accuracy"
+									title="Horizontal accuracy the device reported for its location fix"
+									data-testid="photo-detail-location-accuracy"
+								>±{photo.location_accuracy_m} m</span>
+							{/if}
 						</span>
 					{/if}
 					{#if licenseLabelFor(photo.license)}
@@ -940,6 +947,11 @@
 
 	.detail a:hover {
 		color: #0d47a1;
+	}
+
+	.location-accuracy {
+		color: #999;
+		margin-left: 4px;
 	}
 
 	.license-history-toggle {

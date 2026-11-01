@@ -4,7 +4,7 @@ from typing import Optional, List, Any
 import uuid
 import enum
 
-from sqlalchemy import String, Float, Integer, Boolean, DateTime, Text, JSON, Enum, ForeignKey, CheckConstraint, ARRAY, Index, text
+from sqlalchemy import String, Float, Integer, Boolean, DateTime, Text, JSON, Enum, ForeignKey, CheckConstraint, ARRAY, Index, Computed, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -126,6 +126,12 @@ class Photo(Base):
 	error: Mapped[Optional[str]] = mapped_column(Text)  # Detailed error message if any operation fails
 	retry_after_minutes: Mapped[Optional[int]] = mapped_column(Integer)  # Retry hint for a failed processing: None = permanent (don't retry), >0 = retry after N minutes
 	exif_data: Mapped[Optional[dict]] = mapped_column(JSON)
+	# The capture fix's horizontal accuracy radius in metres, read out of
+	# exif_data's UserComment by the database so SQL can gate on it (Panoramax
+	# eligibility). NULL when unknown, which is every photo before 2026-09-13.
+	# Migration 039.
+	location_accuracy_m: Mapped[Optional[float]] = mapped_column(
+		Float, Computed('photo_location_accuracy_m(exif_data)', persisted=True))
 	detected_objects: Mapped[Optional[dict]] = mapped_column(JSON)
 	sizes: Mapped[Optional[dict]] = mapped_column(JSON)
 	# URL of the gzipped raw IMU window (accelerometer + gyroscope) captured

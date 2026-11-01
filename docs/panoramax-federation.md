@@ -116,6 +116,13 @@ A photo is **eligible for selection** iff (one definition in
   order an upload batch as if it were a walk (a 2026-10-30 mirror of prod had
   2,654 of 10,920 published photos like that, one "sequence" jumping 68 km in
   97 s).
+- Its location fix, where the device reported an accuracy, was within 5 m
+  (`MAX_LOCATION_ACCURACY_M`; `photos.location_accuracy_m`, a column generated
+  from the capture app's UserComment by migration 039). Selection keeps one
+  photo per 5 m cell, so a wider fix lands in a cell it may not belong to.
+  An unknown accuracy passes: no photo captured before 2026-09-13 carries one.
+  The 2026-10-30 prod mirror had 25,552 photos with a radius, of which 1,385
+  were over 5 m (476 in September, 909 in October).
 - All existing gates pass: not deleted, public, processing completed, geometry,
   capture/upload effective time and renditions present, owner active and not a
   test user, no thumbs-down rating and no unresolved flag.

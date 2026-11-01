@@ -36,6 +36,12 @@ from panoramax.app.eligibility import ELIGIBLE_PHOTO_WHERE
     # published as the Panoramax datetime and order an upload batch as a walk.
     ({'captured_at': None}, {}, False),
     ({'sizes': None}, {}, False),
+    # The receiver's own error bar: the selection places one photo per 5 m
+    # cell. Unknown passes — nothing before 2026-09-13 carries a radius.
+    ({'location_accuracy_m': 5.0}, {}, True),
+    ({'location_accuracy_m': 5.1}, {}, False),
+    ({'location_accuracy_m': 21.3}, {}, False),
+    ({'location_accuracy_m': None}, {}, True),
     ({}, {'is_active': False}, False),
     ({}, {'is_test': True}, False),
 ])
@@ -64,9 +70,36 @@ def test_federation_eligibility(patch, user_patch, expected):
         JOIN json_populate_record(NULL::public.users, {literal(user)}) u ON u.id = p.owner_id
         WHERE {predicate};
     """
+    assert psql(query) == ('1' if expected else '0')
+
+
+@pytest.mark.parametrize('user_comment,expected', [
+    ('{"location_accuracy_m": 21.3}', '21.3'),
+    ('{"location_accuracy_m": "4.5"}', '4.5'),
+    # The capture table's "unknown" sentinel, never a real radius.
+    ('{"location_accuracy_m": 0}', ''),
+    ('{"location_accuracy_m": -1}', ''),
+    ('{"location_accuracy_m": "NaN"}', ''),
+    ('{"location_accuracy_m": "Infinity"}', ''),
+    ('{"location_accuracy_m": "far"}', ''),
+    ('{"location_accuracy_m": null}', ''),
+    ('{"attitude": {}}', ''),
+    # Another camera's free text, and text that only looks like JSON: a cast
+    # that raised here would fail every query reading the column.
+    ('Canon EOS 5DS R', ''),
+    ('{not json', ''),
+    (None, ''),
+])
+def test_location_accuracy_column(user_comment, expected):
+    exif = {'data': {'UserComment': user_comment}} if user_comment is not None else {'data': {}}
+    literal = "'" + json.dumps(exif).replace("'", "''") + "'::json"
+    assert psql(f'SELECT photo_location_accuracy_m({literal});') == expected
+
+
+def psql(query):
     default = ['docker', 'exec', '-i', 'hillview_postgres', 'psql',
                '-U', os.getenv('POSTGRES_USER', 'hillview'), '-d', os.getenv('POSTGRES_DB', 'hillview')]
     command = shlex.split(os.environ['PANORAMAX_TEST_PSQL']) if 'PANORAMAX_TEST_PSQL' in os.environ else default
     result = subprocess.run(command + ['-v', 'ON_ERROR_STOP=1', '-tA'], input=query, text=True, capture_output=True)
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == ('1' if expected else '0')
+    return result.stdout.strip()
