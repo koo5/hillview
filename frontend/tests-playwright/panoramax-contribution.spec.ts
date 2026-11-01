@@ -205,7 +205,10 @@ test.describe('Panoramax browser contribution', () => {
 		await page.getByTestId('capture-panoramax-toggle').click();
 		await expect(page.getByTestId('license-dialog-context')).toContainText('Future camera photos');
 		await page.getByTestId('license-dialog-cancel').click();
-		await expect(page).toHaveURL(/\/$/);
+		// Still on the capture screen. The path, not the whole URL: a photo an
+		// earlier test uploaded nearby may have finished processing, and the map
+		// writes the one it shows into ?photo=.
+		await expect(page).toHaveURL(url => url.pathname === '/');
 		await expect(page.getByTestId('capture-panoramax-toggle')).toHaveAttribute('aria-pressed', 'false');
 		expect((await localPhotos(page))[0]).toMatchObject({ id: original.id, license: 'ccbysa4+osm', panoramax_share: false });
 		await page.getByTestId('capture-panoramax-toggle').click();
