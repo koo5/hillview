@@ -53,7 +53,7 @@ export interface Source {
 	backend_url?: string;
 }
 
-const baseSources: Source[] = [
+const baseSources: Source[] = ([
 	{
 		id: 'hillview',
 		name: 'Hillview',
@@ -83,7 +83,7 @@ const baseSources: Source[] = [
 // Mapillary is dev-only for now: outside dev mode the source does not exist at
 // all, so no toggle, hotkey or ?photo= auto-enable can reach it (the backend
 // stream also answers empty unless DEV_MODE).
-].filter(src => src.id !== 'mapillary' || import.meta.env.VITE_DEV_MODE === 'true');
+] satisfies Source[]).filter(src => src.id !== 'mapillary' || import.meta.env.VITE_DEV_MODE === 'true');
 
 const deviceSources: Source[] = TAURI ? [
 	{
