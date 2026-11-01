@@ -5,7 +5,7 @@ describe('contextual sharing consent', () => {
 	it.each([
 		['ccbysa4+osm', true, true], ['ccbysa4+osm', false, false],
 		['full1', true, false], ['panoramax_in', true, false],
-		[null, true, false], [undefined, true, false]
+		[null, true, true], [undefined, true, true], [null, false, false]
 	])('requires a license choice for %s, sharing=%s: %s', (license, sharing, expected) => {
 		expect(needsPanoramaxLicenseChoice(license as string | null | undefined, sharing as boolean)).toBe(expected);
 	});

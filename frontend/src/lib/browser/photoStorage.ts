@@ -390,7 +390,8 @@ class BrowserPhotoStorage {
         await this.updateQueueStatus();
     }
 
-    async markPhotoAsUploaded(photoId: string, serverPhotoId: string): Promise<void> {
+    async markPhotoAsUploaded(photoId: string, serverPhotoId: string,
+        consent?: { license: string; panoramax_share: boolean }): Promise<void> {
         if (!this.db) await this.init();
 
         const transaction = this.db!.transaction([PHOTO_STORE], 'readwrite');
@@ -401,6 +402,10 @@ class BrowserPhotoStorage {
             photo.status = 'processing';
             photo.uploaded_at = Date.now();
             photo.server_photo_id = serverPhotoId;
+            if (consent) {
+                photo.license = consent.license;
+                photo.panoramax_share = consent.panoramax_share;
+            }
             await this.promisifyRequest(photoStore.put(photo));
         }
 

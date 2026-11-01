@@ -77,11 +77,17 @@ test.describe('Panoramax browser contribution', () => {
         await expect(page.getByTestId('auto-upload-enabled')).toBeDisabled();
         await expect(page.getByTestId('auto-upload-settings').getByTestId('license-summary')).toHaveCount(0);
         await expect(page.getByTestId('photo-permissions-settings').getByTestId('auto-upload-enabled')).toHaveCount(0);
-        await page.getByTestId('panoramax-sharing-checkbox').check();
+        // Sharing without a grant asks for one first; Cancel leaves both unset.
+        const dialog = page.getByTestId('license-dialog');
+        await page.getByTestId('panoramax-sharing-checkbox').click();
+        await expect(dialog.getByRole('heading')).toHaveText('Choose a license for Panoramax');
+        await expect(dialog.getByTestId('license-checkbox')).toHaveCount(0);
+        await dialog.getByTestId('license-dialog-cancel').click();
+        await expect(page.getByTestId('panoramax-sharing-checkbox')).not.toBeChecked();
+        await expect(page.getByTestId('license-unset')).toBeVisible();
         await expect(page.getByTestId('auto-upload-enabled')).toBeDisabled();
         await expect(page.getByTestId('contribution-login-notice')).toBeVisible();
         await page.getByTestId('license-change-button').click();
-        const dialog = page.getByTestId('license-dialog');
         const ids = await dialog.locator('input[type=radio]').evaluateAll(inputs => inputs.map(input => (input as HTMLInputElement).value));
         expect(ids).toEqual(['full1', 'panoramax_in', 'ccbysa4+osm']);
         await dialog.getByText('Full rights to Hillview', { exact: true }).click();
@@ -175,6 +181,13 @@ test.describe('Panoramax browser contribution', () => {
 		const uploaded = (await localPhotos(page))[0];
 		const photo = await request.get(`${API}/photos/public/hillview-${uploaded.server_photo_id}`, { headers: { Authorization: `Bearer ${token}` } });
 		expect(await photo.json()).toMatchObject({ license_granted: 'full1', panoramax_share: false, license: 'arr' });
+		// The grant came from upload settings; the stored photo now records it, so
+		// a later settings change cannot relabel what this photo was uploaded with.
+		expect(uploaded).toMatchObject({ license: 'full1', panoramax_share: false });
+		await chooseUploadLicense(page, 'panoramax_in');
+		await ready(page, '/device-photos');
+		await expect(page.getByTestId('device-photo-license')).toHaveText('Upload grant: Full rights to Hillview');
+		await expect(page.getByTestId('device-photo-sharing-link')).toContainText('Uploaded');
 	});
 
 	test('CC prompts preserve the capture screen and change only the selected queued photo', async ({ page, browserName }) => {
@@ -236,11 +249,19 @@ test.describe('Panoramax browser contribution', () => {
 		const bounds = await toggle.boundingBox();
 		const camera = await page.getByTestId('camera-selector-button').boundingBox();
 		expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(camera!.y);
+		// No grant chosen yet: P asks for one before sharing, and Cancel leaves it off.
 		await toggle.click();
+		await expect(page.getByTestId('license-dialog').getByRole('heading')).toHaveText('Choose a license for Panoramax');
+		// The explanation the capture screen's old "?" button linked to.
+		await expect(page.getByTestId('license-dialog-panoramax-info-link')).toHaveAttribute('href', '/settings/panoramax');
+		await page.getByTestId('license-dialog-cancel').click();
+		await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+		await toggle.click();
+		await confirmLicenseChoice(page, 'panoramax_in');
 		await expect(toggle).toHaveAttribute('aria-pressed', 'true');
 		await page.getByTestId('single-capture-button').click();
 		await waitForPhotoCount(page, 1);
-		expect((await localPhotos(page))[0]).toMatchObject({ license: null, panoramax_share: true, status: 'pending' });
+		expect((await localPhotos(page))[0]).toMatchObject({ license: 'panoramax_in', panoramax_share: true, status: 'pending' });
 		await ready(page, '/settings/upload');
 		await chooseUploadLicense(page, 'full1');
 		await page.getByTestId('panoramax-sharing-checkbox').uncheck();
@@ -268,8 +289,8 @@ test.describe('Panoramax browser contribution', () => {
 				return response.ok() ? (await response.json()).processing_status : response.status();
 			}, { timeout: 90_000 }).toBe('completed');
 		}
-		const preChoice = uploaded.find(photo => photo.license === null);
-		const server = await request.get(`${API}/photos/public/hillview-${preChoice.server_photo_id}`, { headers: { Authorization: `Bearer ${token}` } });
+		const sharedAtCapture = uploaded.find(photo => photo.license === 'panoramax_in');
+		const server = await request.get(`${API}/photos/public/hillview-${sharedAtCapture.server_photo_id}`, { headers: { Authorization: `Bearer ${token}` } });
 		expect(await server.json()).toMatchObject({ license_granted: 'panoramax_in', panoramax_share: true, license: 'panoramax' });
 		await ready(page, `/photo/hillview-${capturedServerId}`);
 		await expect(page.getByTestId('photo-edit-license-current')).toHaveText('Full rights to Hillview');

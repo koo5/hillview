@@ -25,9 +25,12 @@ export function canGrantPanoramax(license: string | null | undefined): boolean {
 	return license === 'full1' || license === 'panoramax_in';
 }
 
-/** An unset grant may record a future preference; uploads still need a grant. */
+/** Turning sharing on asks for a compatible grant unless one is already chosen —
+ * CC, or none yet: the moment someone offers photos to Panoramax is the moment
+ * to choose what they grant, rather than discovering at upload time that their
+ * shared photos are blocked on a missing grant. */
 export function needsPanoramaxLicenseChoice(license: string | null | undefined, sharing: boolean): boolean {
-	return sharing && !!license && !canGrantPanoramax(license);
+	return sharing && !canGrantPanoramax(license);
 }
 
 export function publishedLicense(grant: string | null | undefined, sharing: boolean): string | null {

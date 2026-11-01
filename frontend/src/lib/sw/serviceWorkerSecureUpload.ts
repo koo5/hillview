@@ -36,7 +36,8 @@ export const swAuthFetch: AuthFetch = async (url: string, init: RequestInit): Pr
 };
 
 export class ServiceWorkerSecureUploader {
-	async uploadPhoto(photo: StoredPhoto): Promise<{ success: boolean; photoId?: string; error?: string; busy?: boolean }> {
+	async uploadPhoto(photo: StoredPhoto): Promise<{ success: boolean; photoId?: string; error?: string; busy?: boolean;
+		consent?: { license: string; panoramax_share: boolean } }> {
 		console.log(`${LOG_PREFIX} Starting secure upload for photo ${photo.id}`);
 
 		try {
@@ -104,7 +105,7 @@ export class ServiceWorkerSecureUploader {
 
 			if (result.success) {
 				console.log(`${LOG_PREFIX} Photo ${photo.id} uploaded successfully as ${authResponse.photo_id}`);
-				return { success: true, photoId: authResponse.photo_id };
+				return { success: true, photoId: authResponse.photo_id, consent };
 			} else {
 				return { success: false, error: result.error || result.message };
 			}

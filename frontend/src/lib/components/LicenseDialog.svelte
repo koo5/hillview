@@ -44,10 +44,15 @@
 	on:cancel|preventDefault={() => { if (!busy) onClose(); }} data-testid="license-dialog">
 	<form on:submit|preventDefault={confirm}>
 		<header>
-			<h2>{forPanoramax ? 'CC needs a different grant for Panoramax' : 'Choose an upload license'}</h2>
+			<h2>{!forPanoramax ? 'Choose an upload license' : current ? 'CC needs a different grant for Panoramax' : 'Choose a license for Panoramax'}</h2>
 			<p class="context" data-testid="license-dialog-context">{context}</p>
-			{#if forPanoramax}
+			{#if forPanoramax && !current}
+				<p>Sharing with Panoramax needs one of the grants below. Choose one to turn sharing on, or cancel to leave it off.</p>
+			{:else if forPanoramax}
 				<p>CC BY-SA 4.0 + OSM does not cover Panoramax’s derived-data uses. To turn sharing on, choose one of the compatible grants below, or cancel to keep your current choices.</p>
+			{/if}
+			{#if forPanoramax}
+				<p><a href="/settings/panoramax" data-testid="license-dialog-panoramax-info-link">How licenses and Panoramax sharing work</a></p>
 			{/if}
 			<p>You keep your copyright. Choose what permission to give Hillview.</p>
 		</header>
