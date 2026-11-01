@@ -101,7 +101,7 @@ test.describe('Panoramax browser contribution', () => {
             await chooseUploadLicense(page, grant);
             for (const sharing of [false, true]) {
                 await page.getByTestId('panoramax-sharing-checkbox').setChecked(sharing);
-                await expect(page.getByTestId('contribution-published-license')).toContainText(grant === 'full1' && !sharing ? 'All rights reserved' : 'Panoramax');
+                await expect(page.getByTestId('contribution-published-license')).toContainText(grant === 'full1' && !sharing ? 'All rights reserved' : 'CC BY-SA 4.0 + LO derivatives');
             }
         }
         // Choosing CC explicitly offers to turn sharing off; Cancel preserves both.
@@ -297,7 +297,7 @@ test.describe('Panoramax browser contribution', () => {
 		expect(await server.json()).toMatchObject({ license_granted: 'panoramax_in', panoramax_share: true, license: 'panoramax' });
 		await ready(page, `/photo/hillview-${capturedServerId}`);
 		await expect(page.getByTestId('photo-edit-license-current')).toHaveText('Full rights to Hillview');
-		await expect(page.getByTestId('photo-detail-license')).toContainText('Panoramax');
+		await expect(page.getByTestId('photo-detail-license')).toContainText('CC BY-SA 4.0 + LO derivatives');
 		await page.getByTestId('photo-edit-panoramax-share').uncheck();
 		await page.getByTestId('photo-edit-save-button').click();
 		await expect(page.getByTestId('photo-detail-license')).toContainText('All rights reserved');
@@ -328,7 +328,7 @@ test.describe('Panoramax browser contribution', () => {
 		const beforeSave = await request.get(`${API}/photos/public/hillview-${capturedServerId}`, { headers: { Authorization: `Bearer ${token}` } });
 		expect(await beforeSave.json()).toMatchObject({ license_granted: 'ccbysa4+osm', panoramax_share: false });
 		await page.getByTestId('photo-edit-save-button').click();
-		await expect(page.getByTestId('photo-detail-license')).toContainText('Panoramax');
+		await expect(page.getByTestId('photo-detail-license')).toContainText('CC BY-SA 4.0 + LO derivatives');
 		await expect(page.getByTestId('photo-detail-status')).toContainText('Saved:');
 		const afterSave = await request.get(`${API}/photos/public/hillview-${capturedServerId}`, { headers: { Authorization: `Bearer ${token}` } });
 		expect(await afterSave.json()).toMatchObject({ id: capturedServerId, license_granted: 'panoramax_in', panoramax_share: true });
