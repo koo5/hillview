@@ -317,6 +317,9 @@
         border: none;
         background: none;
         width: 100%;
+        /* Buttons are border-box by default and links are not: without this a
+           link's padding sits outside its 100% and the drawer scrolls sideways. */
+        box-sizing: border-box;
         text-align: left;
         cursor: pointer;
         -webkit-user-select: none;
@@ -349,10 +352,18 @@
         -webkit-user-select: text;
     }
 
+    /* On a narrow drawer the description gives way, never the label: without
+       this "Best of" broke across two lines beside a still-roomy description. */
+    .menu-list li a:has(.menu-desc) {
+        white-space: nowrap;
+    }
+
     .menu-desc {
         font-size: 0.7rem;
         color: #9ca3af;
         font-weight: normal;
+        white-space: normal;
+        min-width: 0;
     }
 
     .unread-badge {

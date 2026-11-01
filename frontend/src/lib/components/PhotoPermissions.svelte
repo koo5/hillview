@@ -7,7 +7,7 @@
 	export let licenseStore: Writable<string | null> = autoUploadLicense;
 	export let shareStore: Writable<boolean> = capturePanoramaxShare;
 	export let heading = 'Photo permissions';
-	export let context = 'Future camera photos. Existing photos keep their choices.';
+	export let context = 'Existing photos keep their choices.';
 	export let groupName = 'capture-upload-license';
 </script>
 

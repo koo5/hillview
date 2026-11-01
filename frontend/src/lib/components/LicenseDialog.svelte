@@ -4,7 +4,7 @@
 	export let current: string | null = null;
 	export let forPanoramax = false;
 	export let sharing = false;
-	export let context = 'Future camera photos. Existing photos keep their choices.';
+	export let context = 'Existing photos keep their choices.';
 	export let note = 'This does not start an upload.';
 	export let onConfirm: (license: string) => void | Promise<void>;
 	export let onClose: () => void;

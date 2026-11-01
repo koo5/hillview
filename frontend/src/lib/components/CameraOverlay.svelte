@@ -179,7 +179,7 @@
         left: 60px;
         padding: 0rem;
         border-radius: 8px;
-        font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+        font-family: monospace;
         font-size: 0.85rem;
         max-width: 90%;
         cursor: pointer;

@@ -203,7 +203,7 @@ test.describe('Panoramax browser contribution', () => {
 		await waitForPhotoCount(page, 1);
 		const original = (await localPhotos(page))[0];
 		await page.getByTestId('capture-panoramax-toggle').click();
-		await expect(page.getByTestId('license-dialog-context')).toContainText('Future camera photos');
+		await expect(page.getByTestId('license-dialog-context')).toHaveText('Existing photos keep their choices.');
 		await page.getByTestId('license-dialog-cancel').click();
 		// Still on the capture screen. The path, not the whole URL: a photo an
 		// earlier test uploaded nearby may have finished processing, and the map

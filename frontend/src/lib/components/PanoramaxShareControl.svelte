@@ -3,7 +3,7 @@
 	import { needsPanoramaxLicenseChoice } from '$lib/licenses';
 	export let sharing = false;
 	export let license: string | null = null;
-	export let context = 'Future camera photos. Existing photos keep their choices.';
+	export let context = 'Existing photos keep their choices.';
 	export let note = 'This does not start an upload.';
 	export let label = 'Panoramax sharing';
 	export let compact = false;
