@@ -7,6 +7,8 @@
       "dependencies": {
         "@annotorious/openseadragon": "^3.7.20",
         "@lucide/svelte": "^0.577.0",
+        "copc": "0.0.9",
+        "laz-perf": "0.0.7",
         "leaflet-textpath": "^1.3.0",
         "openseadragon": "^6.0.1",
         "pannellum": "^2.5.7",
@@ -561,6 +563,10 @@
 
     "cookie": ["cookie@0.7.2", "", {}, "sha512-yki5XnKuf750l50uGTllt6kKILY4nQ1eNIQatoXEByZ5dWgnKqbnqmTrBE5B4N7lrMJKQ2ytWMiTO2o0v6Ew/w=="],
 
+    "copc": ["copc@0.0.9", "", { "dependencies": { "cross-fetch": "^4.1.0", "laz-perf": "^0.0.7" } }, "sha512-10wWYz05hRuJ2um30fxCzumJzkBZUxMft2y7FGCv4RQfdA5gG22mKqb9VspEpXOdyRy1bRFSgIbDHOjWKNtHtw=="],
+
+    "cross-fetch": ["cross-fetch@4.1.0", "", { "dependencies": { "node-fetch": "^2.7.0" } }, "sha512-uKm5PU+MHTootlWEY+mZ4vvXoCn4fLQxT9dSc1sXVMSFkINTJVN8cAQROpwcKm8bJ/c7rgZVIBWzH5T78sNZZw=="],
+
     "crypto-js": ["crypto-js@4.2.0", "", {}, ""],
 
     "css.escape": ["css.escape@1.5.1", "", {}, ""],
@@ -682,6 +688,8 @@
     "json5": ["json5@2.2.3", "", { "bin": "lib/cli.js" }, ""],
 
     "kleur": ["kleur@4.1.5", "", {}, ""],
+
+    "laz-perf": ["laz-perf@0.0.7", "", {}, "sha512-2xRqm/f/2UqDS5qqkjOyDb6uVIjkVw6SGmQlMoTQliVWkZhPfIbUJTubUl3mTloaWqKcjlS/urmP1CYoxelsEg=="],
 
     "leaflet": ["leaflet@1.9.4", "", {}, ""],
 

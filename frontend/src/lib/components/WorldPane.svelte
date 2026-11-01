@@ -9,7 +9,7 @@
 	import { get } from 'svelte/store';
 	import { bearingState, spatialState } from '$lib/mapState';
 	import { userTurn } from '$lib/userTurn';
-	import { earthUrl } from '$lib/world';
+	import { atlasChannel, atlasUrl, earthUrl } from '$lib/world';
 
 	let pitch = $state(-5);
 	let eyeM = $state(2);
@@ -29,6 +29,8 @@
 				userTurn(get(bearingState).bearing, look.bearing, 'world3d');
 			}}
 			oneye={(m) => (eyeM = m)}
+			atlasUrl={atlasUrl ?? undefined}
+			{atlasChannel}
 			testid="world-scene"
 		/>
 	{/if}

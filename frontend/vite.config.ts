@@ -17,9 +17,9 @@ const watchShared: Plugin = {
 
 export default defineConfig({
 	plugins: [sentrySvelteKit(), sveltekit(), watchShared],
-	// hillview_common has a node_modules of its own (for its own tests): its three must never be a
-	// second copy beside this app's (vite-plugin-svelte dedupes svelte itself)
-	resolve: { dedupe: ['three'] },
+	// hillview_common has a node_modules of its own (for its own tests): its three, copc or laz-perf
+	// must never be a second copy beside this app's (vite-plugin-svelte dedupes svelte itself)
+	resolve: { dedupe: ['three', 'copc', 'laz-perf'] },
 	server: {
 		allowedHosts: ["dev.hillview.cz","jj.hillview.cz","hv.dev4.local","hv.jj.internal","hv.dev4.jj.internal"],
 		host: true,
