@@ -80,7 +80,10 @@ const baseSources: Source[] = [
 		color: '#3a8',
 		url: 'https://api.panoramax.xyz'
 	}
-];
+// Mapillary is dev-only for now: outside dev mode the source does not exist at
+// all, so no toggle, hotkey or ?photo= auto-enable can reach it (the backend
+// stream also answers empty unless DEV_MODE).
+].filter(src => src.id !== 'mapillary' || import.meta.env.VITE_DEV_MODE === 'true');
 
 const deviceSources: Source[] = TAURI ? [
 	{

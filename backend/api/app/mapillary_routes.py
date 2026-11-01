@@ -245,6 +245,8 @@ def get_mapillary_token():
 ENABLE_MAPILLARY_CACHE = os.getenv("ENABLE_MAPILLARY_CACHE", "false").lower() in ("true", "1", "yes")
 ENABLE_MAPILLARY_LIVE = os.getenv("ENABLE_MAPILLARY_LIVE", "false").lower() in ("true", "1", "yes")
 MAX_PHOTOS_PER_REQUEST = int(os.getenv("MAX_MAPILLARY_PHOTOS", "1000"))
+# Outside DEV_MODE the stream ends immediately with 0 items (see produce_events).
+MAPILLARY_DEV_MODE = os.getenv("DEV_MODE", "false").lower() in ("true", "1", "yes")
 
 clients = {}
 
@@ -312,6 +314,13 @@ async def stream_mapillary_images(
 		bottom_right_lon = -180
 
 	async def produce_events(emit, user: Optional[User] = None):
+		# Mapillary is dev-only for now (the frontend hides the source unless
+		# VITE_DEV_MODE): outside DEV_MODE end the stream at once with 0 items —
+		# no cache query, no live API call, regardless of the ENABLE_MAPILLARY_* gates.
+		if not MAPILLARY_DEV_MODE:
+			await emit(f"data: {json.dumps({'type': 'photos', 'photos': []})}\n\n")
+			await emit(f"data: {json.dumps({'type': 'stream_complete', 'total_live_photos': 0, 'total_cached_photos': 0, 'total_all_photos': 0})}\n\n")
+			return
 		request_id = datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")
 		# Mock data overrides the env gates so the test suite can exercise the
 		# cache+live pipeline without ENABLE_MAPILLARY_LIVE/CACHE being set.

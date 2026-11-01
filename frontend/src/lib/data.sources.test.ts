@@ -11,6 +11,8 @@ vi.mock(import('$lib/tauri'), async (importOriginal) => ({
 	TAURI_MOBILE: false
 }));
 vi.mock('$app/environment', () => ({ browser: true, dev: true }));
+// Mapillary only exists in dev mode; pin it so these tests don't depend on the local .env.
+vi.hoisted(() => { vi.stubEnv('VITE_DEV_MODE', 'true'); });
 
 import { sources, onAppActivityChange, defaultSourceEnabled } from './data.svelte';
 
