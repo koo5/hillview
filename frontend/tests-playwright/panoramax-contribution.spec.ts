@@ -218,7 +218,7 @@ test.describe('Panoramax browser contribution', () => {
 		await waitForPhotoCount(page, 2);
 		expect((await localPhotos(page))[1]).toMatchObject({ license: 'panoramax_in', panoramax_share: true });
 		await ready(page, '/device-photos');
-		const card = page.getByTestId('photo-card').filter({ hasText: 'CC BY-SA 4.0' });
+		const card = page.getByTestId('photo-card').filter({ hasText: 'CC BY-SA 4.0 + OSM' });
 		await card.getByTestId('photo-panoramax-share-button').click();
 		await expect(page.getByTestId('license-dialog-context')).toContainText('Only photo_');
 		await page.getByTestId('license-dialog-cancel').click();
