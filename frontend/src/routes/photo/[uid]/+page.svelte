@@ -18,7 +18,7 @@
 	import { http, handleApiError, TokenExpiredError } from '$lib/http';
 	import { auth } from '$lib/auth.svelte';
 	import { constructPhotoMapUrl, constructUserProfileUrl, parsePhotoUidParts } from '$lib/urlUtils';
-	import { licenseLabelFor } from '$lib/photoUtils';
+	import { licenseLabelFor, licenseUrlFor } from '$lib/photoUtils';
 	import { uploadGrant, canGrantPanoramax } from '$lib/licenses';
 	import LicenseChoiceControl from '$lib/components/LicenseChoiceControl.svelte';
 	import ContributionSummary from '$lib/components/ContributionSummary.svelte';
@@ -576,7 +576,7 @@
 					{#if licenseLabelFor(photo.license)}
 						<span class="detail">
 							<span class="detail-label">License</span>
-							<span data-testid="photo-detail-license">{licenseLabelFor(photo.license)}</span>
+							<a href={licenseUrlFor(photo.license)} data-testid="photo-detail-license">{licenseLabelFor(photo.license)}</a>
 							{#if outflowHistory.length > 0}
 								<!-- A disclosure, not an always-open list: the trail matters
 								     to whoever comes looking for it, and would otherwise
@@ -595,7 +595,7 @@
 					{#if canEditPhoto && photo.license_granted}
 						<span class="detail">
 							<span class="detail-label">Upload grant</span>
-							<span data-testid="photo-detail-license-granted">{licenseLabelFor(photo.license_granted)}</span>
+							<a href={licenseUrlFor(photo.license_granted)} data-testid="photo-detail-license-granted">{licenseLabelFor(photo.license_granted)}</a>
 							{#if licenseHistory.length > 0}
 								<button
 									type="button"

@@ -17,6 +17,7 @@
 		getLicenseLabel,
 		getLicenseId,
 		getLicenseUrl,
+		licenseUrlFor,
 		getUserProfileUrl
 	} from '$lib/photoUtils';
 	import { openExternalUrl, HILLVIEW_BASE_URL } from '$lib/urlUtils';
@@ -274,10 +275,11 @@
 			await openExternalUrl(externalUrl);
 			return;
 		}
+		const licensingPath = licenseUrlFor(photo ? getLicenseId(photo) : null);
 		if (TAURI) {
-			await openExternalUrl(`${HILLVIEW_BASE_URL}/licensing`);
+			await openExternalUrl(`${HILLVIEW_BASE_URL}${licensingPath}`);
 		} else {
-			navigateWithHistory('/licensing', { reason: 'license-menu' });
+			navigateWithHistory(licensingPath, { reason: 'license-menu' });
 		}
 	}
 
@@ -345,7 +347,6 @@
 		const licenseLabel = getLicenseLabel(photo) ?? 'unknown';
 
 		const licenseId = getLicenseId(photo);
-		const externalLicenseUrl = getLicenseUrl(photo);
 		// CC variants come in both lowercase (Hillview ids) and uppercase (SPDX ids).
 		const isCC = !!licenseId && /^cc/i.test(licenseId);
 		items.push({
@@ -353,7 +354,7 @@
 			label: licenseLabel,
 			icon: isCC ? CreativeCommons : Copyright,
 			onclick: openLicenseInfo,
-			url: externalLicenseUrl ?? '/licensing',
+			url: licenseUrlFor(licenseId),
 			testId: 'menu-license'
 		});
 
