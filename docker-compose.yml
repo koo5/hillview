@@ -163,8 +163,8 @@ services:
     init: true
     restart: always
     build:
-      # repo root: the web build imports shared/zoomview via the $zoomview
-      # alias (see frontend/Dockerfile + its Dockerfile.dockerignore allowlist)
+      # repo root: the web build imports the hillview_common submodule via the
+      # $zoomview / $terrain aliases (see frontend/Dockerfile + its Dockerfile.dockerignore allowlist)
       context: .
       dockerfile: frontend/Dockerfile
     container_name: hillview_frontend

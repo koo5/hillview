@@ -1,10 +1,11 @@
 # allowlist: this Dockerfile builds from the REPO ROOT (the $zoomview alias
-# imports shared/zoomview, which lives outside frontend/) — see the frontend
+# imports the hillview_common submodule, which lives outside frontend/) — see the frontend
 # service in docker-compose.yml. Exclusions mirror frontend/.dockerignore.
 *
 !frontend
-!shared/zoomview
-!shared/terrain
+!hillview_common/zoomview
+!hillview_common/terrain
+!hillview_common/world
 frontend/**/.github
 frontend/**/.claude
 frontend/**/.idea

@@ -242,10 +242,12 @@ Store→map and map→store both exist, so every guard matters:
 ### Bearing writers
 
 There is **no priority table — last writer wins**, and precedence is
-enforced upstream by switching the automatic producers off first. Sources
-seen in the wild: `url`, `featured`, `arrow_drag`, `photo_navigation`,
-`marker_click`, `timeline_step`, `gps-kalman`, `<sensor>-compass-true|
--magnetic`, and plain `map`.
+enforced upstream by switching the automatic producers off first (for a hand
+turn, `userTurn` in `src/lib/userTurn.ts`: the compass stops, car mode moves
+the mount offset). Sources seen in the wild: `url`, `featured`, `arrow_drag`,
+`world3d` (a drag in the 3D world), `photo_navigation`, `marker_click`,
+`timeline_step`, `gps-kalman`, `<sensor>-compass-true|-magnetic`, and plain
+`map`.
 
 Two behaviours to copy exactly:
 - `updateBearing` **clears** `photoUid`/`accuracy_level` when they are not
