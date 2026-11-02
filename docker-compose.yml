@@ -63,6 +63,11 @@ services:
       - checkpoint_completion_target=${POSTGRES_CHECKPOINT_COMPLETION_TARGET:-0.9}
       - -c
       - log_min_duration_statement=${POSTGRES_LOG_MIN_DURATION_STATEMENT:--1}
+      # Not a knob: the Panoramax read API serves a collection's `updated` as
+      # the time its row was committed (SEQUENCE_UPDATED in
+      # backend/panoramax/app/main.py), and its /api/health fails without this.
+      - -c
+      - track_commit_timestamp=on
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}

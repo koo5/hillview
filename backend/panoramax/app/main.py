@@ -190,7 +190,11 @@ async def dev_suspicious() -> HTMLResponse:
 @app.get('/api/health')
 async def health() -> dict:
 	async with get_engine().connect() as conn:
-		await conn.execute(text('SELECT 1'))
+		commit_timestamps = (await conn.execute(text('SHOW track_commit_timestamp'))).scalar()
+	if commit_timestamps != 'on':
+		# Every collection listing would fail too (see SEQUENCE_UPDATED).
+		raise HTTPException(status_code=503,
+			detail='PostgreSQL track_commit_timestamp is off; docker-compose.yml starts postgres with it on')
 	return {'status': 'ok'}
 
 
@@ -259,6 +263,17 @@ async def configuration() -> dict:
 
 # --- collections -----------------------------------------------------------
 
+# A collection's `updated`, which the harvester's incremental crawl filters on
+# (updated > its previous harvest's start, less 3 s): when the sequence row's
+# latest version was committed, not updated_at. now() stamps updated_at with
+# its transaction's start, and a sequencer pass is one long transaction, so a
+# harvest that lists collections while a pass runs cannot see its changes yet,
+# and the next one asks only for updates after that harvest began, which the
+# start-time stamp predates — the changes would never be fetched. Needs
+# track_commit_timestamp (docker-compose.yml turns it on; /api/health checks);
+# rows committed before it was on have no commit time and keep updated_at.
+SEQUENCE_UPDATED = 'greatest(s.updated_at, pg_xact_commit_timestamp(s.xmin))'
+
 # Aggregates over *servable* member photos only, so counts/extents never leak
 # photos that flipped out of scope between sequencer passes.
 _COLLECTION_AGG_SQL = f"""
@@ -288,7 +303,7 @@ async def _fetch_collections_page(
 	where = ["s.scope = :scope", "s.status = ANY(:statuses)"]
 	params: dict[str, Any] = {'scope': scope.id, 'statuses': sorted(statuses), 'limit': limit}
 	if updated_after is not None:
-		where.append(f"s.updated_at {'>=' if updated_inclusive else '>'} :updated_after")
+		where.append(f"{SEQUENCE_UPDATED} {'>=' if updated_inclusive else '>'} :updated_after")
 		params['updated_after'] = updated_after
 	if after_id:
 		where.append("s.id > :after_id")
@@ -296,7 +311,7 @@ async def _fetch_collections_page(
 
 	async with get_engine().connect() as conn:
 		seq_rows = (await conn.execute(text(f"""
-			SELECT s.id, s.status, s.owner_id, u.username, s.created_at, s.updated_at
+			SELECT s.id, s.status, s.owner_id, u.username, s.created_at, {SEQUENCE_UPDATED}
 			FROM panoramax.sequences s
 			LEFT JOIN users u ON u.id = s.owner_id
 			WHERE {' AND '.join(where)}
@@ -374,8 +389,8 @@ async def collections(
 async def _load_sequence(seq_id: str):
 	scope = settings.active_scope()
 	async with get_engine().connect() as conn:
-		row = (await conn.execute(text("""
-			SELECT s.id, s.status, s.owner_id, u.username, s.created_at, s.updated_at
+		row = (await conn.execute(text(f"""
+			SELECT s.id, s.status, s.owner_id, u.username, s.created_at, {SEQUENCE_UPDATED}
 			FROM panoramax.sequences s
 			LEFT JOIN users u ON u.id = s.owner_id
 			WHERE s.id = :seq_id AND s.scope = :scope
