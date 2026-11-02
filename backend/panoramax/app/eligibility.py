@@ -33,40 +33,50 @@ change reaches the catalog on the sequencer's cadence like the ratings above.
 
 MAX_LOCATION_ACCURACY_M = 5
 
-ELIGIBLE_PHOTO_WHERE = f"""
-	p.legal_rights = ANY(:scope_legal_rights)
-	AND p.panoramax_owner_share
-	AND p.panoramax_moderator_approved
-	AND u.panoramax_contributor
-	AND p.detected_objects IS NOT NULL
-	AND json_typeof(p.detected_objects) = 'object'
-	AND COALESCE((p.detected_objects->>'manual')::boolean, false) = false
-	AND NOT EXISTS (
+# Each gate by name, so a pass can record which ones a photo failed
+# (panoramax.photo_status) from the same conditions that decide it. The names
+# are an API: the photo page words them (PANORAMAX_GATE_TEXT in the frontend).
+GATES: list[tuple[str, str]] = [
+	('grant', "p.legal_rights = ANY(:scope_legal_rights)"),
+	('owner_share', "p.panoramax_owner_share"),
+	('moderator_approval', "p.panoramax_moderator_approved"),
+	('contributor', "u.panoramax_contributor"),
+	('detections', "p.detected_objects IS NOT NULL AND json_typeof(p.detected_objects) = 'object'"),
+	('manual_anonymization', "COALESCE((p.detected_objects->>'manual')::boolean, false) = false"),
+	('doodles', """NOT EXISTS (
 		SELECT 1 FROM json_array_elements(COALESCE(p.detected_objects->'objects', '[]'::json)) o
 		WHERE (o->>'blurred')::boolean
-	)
-	AND p.deleted = false
-	AND p.is_public = true
-	AND p.processing_status = 'completed'
-	AND p.geometry IS NOT NULL
-	AND p.effective_at IS NOT NULL
-	AND p.captured_at IS NOT NULL
-	AND p.sizes IS NOT NULL
-	AND COALESCE(p.location_accuracy_m, 0) <= {MAX_LOCATION_ACCURACY_M}
-	AND u.is_active = true
-	AND u.is_test = false
-	AND NOT EXISTS (
+	)"""),
+	('deleted', "p.deleted = false"),
+	('private', "p.is_public = true"),
+	('processing', "p.processing_status = 'completed'"),
+	('location', "p.geometry IS NOT NULL"),
+	('capture_time', "p.effective_at IS NOT NULL AND p.captured_at IS NOT NULL"),
+	('renditions', "p.sizes IS NOT NULL"),
+	('location_accuracy', f"COALESCE(p.location_accuracy_m, 0) <= {MAX_LOCATION_ACCURACY_M}"),
+	('owner_inactive', "u.is_active = true"),
+	('test_user', "u.is_test = false"),
+	('thumbs_down', """NOT EXISTS (
 		SELECT 1 FROM photo_ratings pr
 		WHERE pr.photo_source = 'hillview'
 		  AND pr.photo_id = p.id
 		  AND pr.rating = 'THUMBS_DOWN'
-	)
-	AND NOT EXISTS (
+	)"""),
+	('unresolved_flag', """NOT EXISTS (
 		SELECT 1 FROM flagged_photos fp
 		WHERE fp.photo_source = 'hillview'
 		  AND fp.photo_id = p.id
 		  AND fp.resolved = false
-	)
+	)"""),
+]
+
+ELIGIBLE_PHOTO_WHERE = '\n\tAND '.join(f'({condition})' for _, condition in GATES)
+
+# Every photo with whether it passes each gate. A NULL (an unset flag, say)
+# counts as failing, as it does in a WHERE clause.
+GATE_RESULTS_SQL = f"""
+	SELECT p.id, {', '.join(f'COALESCE(({condition}), false) AS "{name}"' for name, condition in GATES)}
+	FROM photos p JOIN users u ON u.id = p.owner_id
 """
 
 # Deterministic capture order within an owner — same tiebreak as the timeline

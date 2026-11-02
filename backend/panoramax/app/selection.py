@@ -115,9 +115,10 @@ def daylight_rank(photo: Candidate) -> int:
     return 2 if solar_elevation(photo.captured_at, photo.latitude, photo.longitude) >= 0 else 0
 
 
-def select_photos(photos: list[Candidate], buckets: int) -> list[Candidate]:
-    """Daylight first, then newest capture (effective time if unknown), then
-    lexicographically smallest photo id. Preserve the input's session ordering.
+def cell_winners(photos: list[Candidate], buckets: int) -> dict[str, str]:
+    """photo id -> the id of the photo representing its cell and sector (itself
+    when it won). Daylight first, then newest capture (effective time if
+    unknown), then lexicographically smallest photo id.
 
     All candidates have already passed the eligibility gates. An ineligible
     winner therefore yields to the next-best candidate on the next pass, without
@@ -125,12 +126,19 @@ def select_photos(photos: list[Candidate], buckets: int) -> list[Candidate]:
     """
     if not 1 <= buckets <= 360:
         raise ValueError('bearing buckets must be between 1 and 360')
+    cell_of: dict[str, tuple[int, int, int, int]] = {}
     winners: dict[tuple[int, int, int, int], tuple[tuple[int, datetime], Candidate]] = {}
     for photo in photos:
         cell = (photo.grid_srid, photo.grid_x, photo.grid_y, bearing_bucket(photo.bearing, buckets))
+        cell_of[photo.id] = cell
         score = (daylight_rank(photo), _utc(photo.captured_at or photo.effective_at))
         previous = winners.get(cell)
         if previous is None or score > previous[0] or (score == previous[0] and photo.id < previous[1].id):
             winners[cell] = (score, photo)
-    ids = {photo.id for _, photo in winners.values()}
-    return [photo for photo in photos if photo.id in ids]
+    return {photo_id: winners[cell][1].id for photo_id, cell in cell_of.items()}
+
+
+def select_photos(photos: list[Candidate], buckets: int) -> list[Candidate]:
+    """The cell winners (cell_winners), in the input's session ordering."""
+    winner_of = cell_winners(photos, buckets)
+    return [photo for photo in photos if winner_of[photo.id] == photo.id]

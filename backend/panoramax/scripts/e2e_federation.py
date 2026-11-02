@@ -2,8 +2,9 @@
 
 Run from backend/ with `uv run --package hillview-tests python
 panoramax/scripts/e2e_federation.py --help`, or use e2e_federation.sh to prepare
-the stack. The collector needs its harvester CLI and database running.
-This script creates its own account,
+the stack. The collector host needs only its harvester CLI (whose venv brings
+psycopg) and database; every HTTP check, pystac validation included, runs here
+in the hillview-tests environment. This script creates its own account,
 uploads real images, and removes its fixtures afterward. It never clears the
 catalog, recreates shared test users, or stops either stack.
 """
@@ -24,6 +25,7 @@ BACKEND = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(BACKEND / 'tests'), str(BACKEND)]
 
 import httpx
+import pystac
 from utils.image_utils import create_test_image_full_gps
 from utils.secure_upload_utils import SecureUploadClient, tls_verify
 
@@ -95,48 +97,43 @@ class Catalog:
 			JOIN collections c ON c.id=i.collection_id
 			WHERE c.instance_id=%s AND i.id=ANY(%s::uuid[])''', self.instance_id, ids)}
 
+	# The two checks below read Hillview's own API, which the harvester has
+	# already proven reachable from the collector; they run here so the collector
+	# host needs nothing beyond the harvester's venv.
 	def fetch(self, path, params=None, key=None):
-		code = """
-import json,sys,time,requests
-p=json.load(sys.stdin)
-url=p['url']; rows=[]; pages=0; seconds=[]
-while url:
-    start=time.monotonic()
-    response=requests.get(url,params=p['params'] if pages==0 else None,timeout=60)
-    response.raise_for_status()
-    data=response.json(); seconds.append(time.monotonic()-start); pages+=1
-    if not p['key']:
-        print(json.dumps(data)); break
-    rows.extend(data[p['key']])
-    url=next((link['href'] for link in data['links'] if link['rel']=='next'),None)
-else:
-    print(json.dumps({'rows':rows,'pages':pages,'seconds':seconds}))
-"""
-		return json.loads(self.remote([self.python, '-c', code], input=json.dumps({
-			'url': self.args.panoramax_url + path, 'params': params, 'key': key})))
+		url, rows, pages, seconds = self.args.panoramax_url + path, [], 0, []
+		with httpx.Client(verify=tls_verify(), timeout=60) as client:
+			while url:
+				start = time.monotonic()
+				response = client.get(url, params=params if pages == 0 else None)
+				response.raise_for_status()
+				data = response.json()
+				seconds.append(time.monotonic() - start)
+				pages += 1
+				if not key:
+					return data
+				rows.extend(data[key])
+				url = next((link['href'] for link in data['links'] if link['rel'] == 'next'), None)
+		return {'rows': rows, 'pages': pages, 'seconds': seconds}
 
 	def verify_assets_and_stac(self, photo):
 		rows = self.query('SELECT collection_id FROM items WHERE id=%s', photo)
-		code = """
-import json,sys,requests,pystac
-source=json.load(sys.stdin)
-response=requests.get(source['item_url'],timeout=30)
-response.raise_for_status()
-item=response.json()
-collection_url=next(link['href'] for link in item['links'] if link['rel']=='collection')
-response=requests.get(collection_url,timeout=30)
-response.raise_for_status()
-pystac.Collection.from_dict(response.json()).validate()
-pystac.Item.from_dict(item).validate()
-for asset in item['assets'].values():
-    response=requests.get(asset['href'],headers={'Origin':'https://collector.example'},timeout=30)
-    response.raise_for_status()
-    assert response.headers.get('Access-Control-Allow-Origin')=='*', 'Asset lacks public CORS'
-    assert response.headers.get('Content-Type','').startswith('image/') and response.content, 'Asset is not an image'
-print('Collection/item pass STAC validation; all image assets load from collector with public CORS')
-"""
 		item_url = f"{self.args.panoramax_url}/api/collections/{rows[0]['collection_id']}/items/{photo}"
-		print(self.remote([self.python, '-c', code], input=json.dumps({'item_url': item_url})).strip(), flush=True)
+		with httpx.Client(verify=tls_verify(), timeout=30) as client:
+			response = client.get(item_url)
+			response.raise_for_status()
+			item = response.json()
+			collection_url = next(link['href'] for link in item['links'] if link['rel'] == 'collection')
+			response = client.get(collection_url)
+			response.raise_for_status()
+			pystac.Collection.from_dict(response.json()).validate()
+			pystac.Item.from_dict(item).validate()
+			for asset in item['assets'].values():
+				response = client.get(asset['href'], headers={'Origin': 'https://collector.example'})
+				response.raise_for_status()
+				assert response.headers.get('Access-Control-Allow-Origin') == '*', 'Asset lacks public CORS'
+				assert response.headers.get('Content-Type', '').startswith('image/') and response.content, 'Asset is not an image'
+		print('Collection/item pass STAC validation; all image assets load with public CORS', flush=True)
 
 
 def local_sql(sql, **variables):
@@ -215,11 +212,16 @@ class HeavyChecks:
 		expected_sequences = {r['sequence_id'] for r in rows}
 		since = self.sql("SELECT to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"+00:00\"');")
 		mark = 'churn-' + uuid.uuid4().hex
-		self.sql("UPDATE photos SET title=:'mark' WHERE id IN (SELECT json_array_elements_text(:'ids'::json));", mark=mark, ids=json.dumps(ids))
+		# Items serve no title, and a bearing or capture-time edit could move a
+		# photo out of its cell or session; a query string on the full rendition
+		# changes only the served hd href (media_type reads the path's suffix).
+		self.sql("""UPDATE photos SET sizes=jsonb_set(sizes::jsonb, '{full,url}',
+			to_jsonb((sizes->'full'->>'url') || '?' || :'mark'))::json
+			WHERE id IN (SELECT json_array_elements_text(:'ids'::json));""", mark=mark, ids=json.dumps(ids))
 		cols = self.catalog.fetch('/api/collections', {'filter': f"status IN ('deleted','ready') AND updated > '{since}'", 'limit': 1000}, 'collections')
 		assert {c['id'] for c in cols['rows']} == expected_sequences
 		self.catalog.harvest()
-		assert self.catalog.query("SELECT count(*) AS n FROM items WHERE id=ANY(%s::uuid[]) AND content->'properties'->>'title'=%s", ids, mark)[0]['n'] == len(ids)
+		assert self.catalog.query("SELECT count(*) AS n FROM items WHERE id=ANY(%s::uuid[]) AND content->'assets'->'hd'->>'href' LIKE %s", ids, '%?' + mark)[0]['n'] == len(ids)
 		print(f'Heavy: {len(ids)} edits propagated through the exact changed-sequence set', flush=True)
 
 	def verify_deactivation(self):
@@ -346,12 +348,14 @@ async def run(args):
 
 			photo = ids[5]  # its own next-day session, so withdrawal also tombstones it
 			seq_id = local_sql("SELECT sequence_id FROM panoramax.sequence_photos WHERE photo_id=:'photo';", photo=photo)
-			response = await api.patch('photos/' + photo, json={'title': 'Federation edited title'})
+			# Items serve no title; the bearing is the owner edit they do carry.
+			# 90° -> 92° stays in its sector for any PANORAMAX_BEARING_BUCKETS up to 24.
+			response = await api.patch('photos/' + photo, json={'bearing': 92})
 			response.raise_for_status()
 			catalog.harvest()
-			rows = catalog.query("SELECT content->'properties'->>'title' AS title FROM items WHERE id=%s", photo)
-			assert rows[0]['title'] == 'Federation edited title'
-			print('Owner title edit propagated through an incremental harvest', flush=True)
+			rows = catalog.query("SELECT (content->'properties'->>'view:azimuth')::float AS azimuth FROM items WHERE id=%s", photo)
+			assert rows[0]['azimuth'] == 92, rows
+			print('Owner bearing edit propagated through an incremental harvest', flush=True)
 
 			deleted_seq = local_sql("SELECT sequence_id FROM panoramax.sequence_photos WHERE photo_id=:'photo';", photo=ids[2])
 			response = await api.delete('photos/' + ids[2])
@@ -411,7 +415,7 @@ def main():
 	p = argparse.ArgumentParser(description=__doc__)
 	p.add_argument('--catalog-ssh', help='SSH destination; omit to run the collector CLI locally')
 	p.add_argument('--harvester', required=True, help='Absolute stac-harvester path on the collector host')
-	p.add_argument('--ca-bundle', help='Combined CA bundle on the collector host for requests and aiohttp')
+	p.add_argument('--ca-bundle', help="Combined CA bundle on the collector host for the harvester's HTTPS client")
 	p.add_argument('--catalog-db', default='postgresql://username:password@localhost:5439/panoramax')
 	p.add_argument('--instance-name', default='hillview-e2e')
 	p.add_argument('--panoramax-url', required=True)

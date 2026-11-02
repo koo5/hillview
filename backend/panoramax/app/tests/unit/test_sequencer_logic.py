@@ -3,10 +3,13 @@ membership diffing — the sequencer's correctness core, no DB involved."""
 import uuid
 from datetime import datetime, timedelta
 
+from eligibility import GATES
 from sequencer import (
 	identity_map,
 	Membership,
+	PhotoStatus,
 	PhotoStub,
+	photo_statuses,
 	assign_sequence_ids,
 	desired_memberships,
 	diff_memberships,
@@ -167,3 +170,29 @@ class TestIdentityMap:
 		by_first = {session[0].id: seq for seq, session in assigned}
 		assert by_first['photo-1'] == 'A'
 		assert by_first['photo-4'] != 'A'
+
+
+class TestPhotoStatuses:
+	def gates(self, photo_id, *failing):
+		return {'id': photo_id, **{name: name not in failing for name, _ in GATES}}
+
+	def test_each_outcome(self):
+		rows = [self.gates('won'), self.gates('lost'), self.gates('doodled', 'doodles'),
+			self.gates('cc', 'grant', 'owner_share'), self.gates('off-map')]
+		statuses = photo_statuses(rows, {'won', 'lost'}, {'won': 'won', 'lost': 'won'})
+		assert statuses == {
+			'won': PhotoStatus('member'),
+			'lost': PhotoStatus('suppressed', winner_id='won'),
+			'doodled': PhotoStatus('ineligible', failed_gates=('doodles',)),
+			'cc': PhotoStatus('ineligible', failed_gates=('grant', 'owner_share')),
+			'off-map': PhotoStatus('ineligible', failed_gates=('coordinates',)),
+		}
+
+	def test_failed_gates_follow_the_gate_order(self):
+		names = [name for name, _ in GATES]
+		row = self.gates('p', *reversed(names[:3]))
+		assert photo_statuses([row], set(), {})['p'].failed_gates == tuple(names[:3])
+
+	def test_gate_names_are_unique(self):
+		names = [name for name, _ in GATES]
+		assert len(names) == len(set(names)) and 'coordinates' not in names

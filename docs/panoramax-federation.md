@@ -275,6 +275,30 @@ Lifecycle invariants:
   instead of drop-and-reimport under a new id. Found by the heavy e2e mode
   (the light run only ever restored a photo into a still-live sequence).
 
+## Why a photo is or isn't federated
+
+Each pass records every photo's outcome in `panoramax.photo_status`
+(migration 040), writing only the rows whose outcome changed:
+
+- `member`: in a sequence; `panoramax.sequence_photos` says which, and at
+  which rank.
+- `suppressed`: eligible, but another photo represents its grid cell and
+  bearing sector (`winner_id`).
+- `ineligible`: `failed_gates` names every gate it failed. The gates are
+  `GATES` in `app/eligibility.py`, the same named list `ELIGIBLE_PHOTO_WHERE`
+  is joined from, so the record cannot drift from the rule. One extra name,
+  `coordinates`, marks a photo that passed every gate but whose position the
+  grid projection rejected.
+
+`decided_at` is when the current outcome was first recorded;
+`panoramax.sequencer_passes` holds when each scope's last pass ran.
+`GET /api/photos/{id}/panoramax-status` serves both to the owner and to
+moderators, and the photo page shows it as its "Panoramax" line, worded by
+`$lib/panoramaxStatus.ts`. It reports what the last pass did, not a
+re-evaluation: a change since then (sharing switched, a doodle removed)
+shows after the next pass, while the read API's serve-time filter already
+hides a photo that stopped qualifying.
+
 ## Meta-catalog harvester contract (verified against its source)
 
 Repo: `gitlab.com/panoramax/server/meta-catalog` (local checkout:
@@ -551,6 +575,12 @@ over SSH; neither the light nor heavy test phases branch on collector location.
 
 The wrapper brings up Hillview (or accepts `--reuse-stack`), provisions its
 role, starts the collector's database/migrations and prepares the harvester CLI.
+The collector host needs nothing but the meta-catalog checkout: the harvester
+runs from the checkout's own venv, `harvester/.venv`, which the wrapper syncs
+from upstream's `uv.lock` (`uv sync --frozen`, no extras) when it is missing.
+The suite's catalog queries use the `psycopg` that venv brings. Every HTTP
+check, pystac validation included, runs on the test host in `hillview-tests`,
+where `pystac[validation]` is a locked dependency like any other.
 `META_CATALOG` names the checkout on the collector host. The default is
 `/home/koom/repos/panoramax/server/meta-catalog/0/meta-catalog`. It preserves an
 already-running local collector, leaves remote collectors running, and stops a
@@ -564,7 +594,7 @@ expects five winners across three sequences: a newer daytime photo beats an
 older daytime view and a fresher night view; a different bearing in the same
 cell survives; CC and owner opt-out are excluded. It verifies full harvest,
 providers, computed geometries, paging, STAC validation, image delivery and
-public CORS **from the collector host**, owner edits, photo deletion and
+public CORS, an owner's bearing edit, photo deletion and
 restoration, immediate consent withdrawal, a replacement winner, sequence
 tombstones, and restoration under the same sequence ID. Every harvest must
 finish with zero collection errors.
@@ -582,7 +612,6 @@ the nine isolated upload fixtures are always created and cleaned up.
 INSTANCE_NAME=hillview-dev4-e2e \
   ./backend/panoramax/scripts/e2e_federation.sh --reuse-stack \
   --catalog-ssh koom@192.168.122.37 \
-  --harvester /home/koom/.cache/hillview/panoramax-e2e/venv/bin/stac-harvester \
   --ca-bundle /home/koom/.cache/hillview/panoramax-e2e/ca-bundle.pem
 ```
 
