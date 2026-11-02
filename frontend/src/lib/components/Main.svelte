@@ -365,6 +365,11 @@ import TimelinePanel from './TimelinePanel.svelte';
 		if (e.ctrlKey || e.altKey || e.metaKey) {
 			return;
 		}
+		// A key the focused element already used is its own: the 3D view's flight keys (W A S D ...), its zoom
+		// (+/-) and Escape to land must not also toggle sources, debug or the bearing (hillview_common WorldScene)
+		if (e.defaultPrevented) {
+			return;
+		}
 
 		// Check if we're currently typing in an input field
 		const activeElement = document.activeElement as HTMLElement;
