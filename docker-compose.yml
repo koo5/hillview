@@ -313,9 +313,7 @@ services:
 
 
   panoramax:
-    # Panoramax/GeoVisio-compatible read API — Hillview's membership in the
-    # Panoramax federation (see docs/panoramax-federation.md). Opt-in via
-    # profile: docker compose --profile panoramax up -d --build panoramax
+    # Panoramax/GeoVisio-compatible read API
     # Runs as the panoramax_ro role (see docker/postgres/initdb.d/
     # create-panoramax-role.sh + backend/scripts/provision_panoramax_role.sh);
     # migration 033 must be applied (api prestart does it) — until then the
@@ -348,8 +346,8 @@ services:
       - DEV_MODE=${DEV_MODE:-}
       - PANORAMAX_EXPLORER_URL=${PANORAMAX_EXPLORER_URL:-}
       - PANORAMAX_SCOPE=${PANORAMAX_SCOPE:-p1}
-      - PANORAMAX_BEARING_BUCKETS=${PANORAMAX_BEARING_BUCKETS:-8}
-      - PANORAMAX_SESSION_GAP_HOURS=${PANORAMAX_SESSION_GAP_HOURS:-0.25}
+      - PANORAMAX_BEARING_BUCKETS=${PANORAMAX_BEARING_BUCKETS:-12}
+      - PANORAMAX_SESSION_GAP_HOURS=${PANORAMAX_SESSION_GAP_HOURS:-0.5}
       - PANORAMAX_SEQUENCER_INTERVAL_S=${PANORAMAX_SEQUENCER_INTERVAL_S:-300}
       - PANORAMAX_SEQUENCER_ENABLED=${PANORAMAX_SEQUENCER_ENABLED:-true}
     healthcheck:
