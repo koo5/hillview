@@ -1,4 +1,4 @@
-"""Short share links – mint /shared/{slug} redirects when a user clicks share.
+"""Short share links – mint /shared/{slug} URLs when a user clicks share.
 
 POST /api/shared mints (or returns the existing) short link for a photo + view
 state. The map target path is constructed server-side, mirroring the frontend's
@@ -9,7 +9,7 @@ from the photo's current title at each mint — improved titles carry into new
 shares — and ignored on resolution, which uses only the leading id, so
 tail-truncated links still resolve.
 GET /api/shared/{slug} resolves a slug to its target and counts the visit; the
-web frontend's /shared/[slug] route uses it to issue the actual 301.
+web frontend's /shared/[slug] route renders preview metadata before opening it.
 """
 import logging
 import os
