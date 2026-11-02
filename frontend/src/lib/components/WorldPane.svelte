@@ -3,13 +3,14 @@
 	 * The 3D world beside the map (recon ea05). The observer stands where the map's one location
 	 * state says, facing its one bearing (docs/one-state.md); turning the view is a hand turn like the
 	 * map's arrow drag (userTurn: the compass stops, car mode moves the mount offset), so the map's
-	 * arrow follows and nothing automatic turns it back. Flying in it is a hand move like a map pan: its ground point
-	 * goes into the location state ('map'), so the map follows the flight.
+	 * arrow follows and nothing automatic turns it back. Flying in it is a hand move like a map pan (userMove: GPS
+	 * following goes to the background first), so the map follows the flight and the next fix does not land it.
 	 */
 	import WorldScene from '$world/WorldScene.svelte';
 	import { get } from 'svelte/store';
-	import { bearingState, spatialState, updateSpatialState } from '$lib/mapState';
+	import { bearingState, spatialState } from '$lib/mapState';
 	import { userTurn } from '$lib/userTurn';
+	import { userMove } from '$lib/userMove';
 	import { atlasChannels, atlasUrl, earthChannel, earthUrl } from '$lib/world';
 
 	let pitch = $state(-5);
@@ -36,7 +37,7 @@
 				userTurn(get(bearingState).bearing, look.bearing, 'world3d');
 			}}
 			oneye={(m) => (eyeM = m)}
-			onmove={(at) => updateSpatialState({ center: { lat: at.lat, lng: at.lon } }, 'map')}
+			onmove={(at) => userMove({ lat: at.lat, lng: at.lon })}
 			locationPrecisionM={mapPixelM}
 			atlasUrl={atlasUrl ?? undefined}
 			{atlasChannels}

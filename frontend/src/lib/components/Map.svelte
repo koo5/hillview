@@ -58,6 +58,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 	import { simplePhotoWorker } from '$lib/simplePhotoWorker';
 	import { turn_to_photo_to, app, sourceLoadingStatus, powerSavingActive } from "$lib/data.svelte.js";
 	import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation, locationTracking, lastKnownGpsLocation, backgroundLocationTracking, setBackgroundLocationTracking } from "$lib/location.svelte.js";
+	import { stopFollowing } from '$lib/userMove';
 	import { isOnMapRoute } from "$lib/compass.svelte.js";
 	import { stopBearingProducers, userTurn } from '$lib/userTurn';
 	import { optimizedMarkerSystem, setupMarkerClickDelegation } from '$lib/optimizedMarkers';
@@ -730,9 +731,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 					// Keep GPS running (pulses continue, fixes keep logging as
 					// background) but stop the map following. From OFF/BACKGROUND a
 					// manual pan changes nothing about the tracking state.
-					if (get(locationTracking)) {
-						enterBackgroundTracking();
-					}
+					stopFollowing();
 				} else {
 					//console.log('🢄Zoom button event detected - not disabling location tracking');
 				}
@@ -1100,18 +1099,6 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 		}
 	}
 
-	// ACTIVE → BACKGROUND, triggered by a manual map pan. Deliberately does NOT
-	// call stopLocationTracking(): the GPS subscription stays up so pulses
-	// continue and fixes keep logging — under their own name now, simply no
-	// longer the elected source. The map stops following because
-	// locationTracking is false → handleGpsLocationUpdate early-returns.
-	// Nothing needs awaiting: the manual 'map' row written by updateSpatialState
-	// carries the election itself, so it cannot be stamped with the era it ends.
-	function enterBackgroundTracking() {
-		setLocationTracking(false);
-		setBackgroundLocationTracking(true);
-		setElectedLocationSource('manual');
-	}
 
 
 	// Whether the map has been moved to a GPS fix during the current ACTIVE
@@ -2002,7 +1989,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 					moveend: mapStateUserEvent,
 					zoomend: mapStateUserEvent,
 					dragend: mapStateUserEvent,
-					dragstart: (e) => { if (get(locationTracking)) enterBackgroundTracking(); },
+					dragstart: () => stopFollowing(),
 				}
 				}
 			options={{
