@@ -14,15 +14,15 @@ import { setElectedLocationSource, updateSpatialState } from '$lib/mapState';
  * (Map.svelte's handleGpsLocationUpdate early-returns). Nothing needs awaiting: the manual 'map' row
  * updateSpatialState writes carries the election itself, so it cannot be stamped with the era it ends.
  */
-export function stopFollowing() {
+export function enterBackgroundTracking() {
 	if (!get(locationTracking)) return;
 	setLocationTracking(false);
 	setBackgroundLocationTracking(true);
 	setElectedLocationSource('manual');
 }
 
-/** the hand put the observer at `center` (the map's own pan writes its full state itself; it calls stopFollowing) */
+/** the hand put the observer at `center` (the map's own pan writes its full state itself; it calls enterBackgroundTracking) */
 export function userMove(center: { lat: number; lng: number }) {
-	stopFollowing();
+	enterBackgroundTracking();
 	return updateSpatialState({ center }, 'map');
 }

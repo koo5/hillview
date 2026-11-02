@@ -58,7 +58,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 	import { simplePhotoWorker } from '$lib/simplePhotoWorker';
 	import { turn_to_photo_to, app, sourceLoadingStatus, powerSavingActive } from "$lib/data.svelte.js";
 	import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation, locationTracking, lastKnownGpsLocation, backgroundLocationTracking, setBackgroundLocationTracking } from "$lib/location.svelte.js";
-	import { stopFollowing } from '$lib/userMove';
+	import { enterBackgroundTracking } from '$lib/userMove';
 	import { isOnMapRoute } from "$lib/compass.svelte.js";
 	import { stopBearingProducers, userTurn } from '$lib/userTurn';
 	import { optimizedMarkerSystem, setupMarkerClickDelegation } from '$lib/optimizedMarkers';
@@ -731,7 +731,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 					// Keep GPS running (pulses continue, fixes keep logging as
 					// background) but stop the map following. From OFF/BACKGROUND a
 					// manual pan changes nothing about the tracking state.
-					stopFollowing();
+					enterBackgroundTracking();
 				} else {
 					//console.log('🢄Zoom button event detected - not disabling location tracking');
 				}
@@ -1989,7 +1989,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 					moveend: mapStateUserEvent,
 					zoomend: mapStateUserEvent,
 					dragend: mapStateUserEvent,
-					dragstart: () => stopFollowing(),
+					dragstart: () => enterBackgroundTracking(),
 				}
 				}
 			options={{

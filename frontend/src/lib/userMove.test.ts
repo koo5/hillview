@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
 import { backgroundLocationTracking, locationTracking } from '$lib/location.svelte';
 import { spatialState } from '$lib/mapState';
-import { stopFollowing, userMove } from './userMove';
+import { enterBackgroundTracking, userMove } from './userMove';
 
 /**
  * A hand move (the map's pan, the 3D world's flight) must win over GPS following: docs/one-state.md. RECON-UI found
@@ -27,7 +27,7 @@ describe('userMove', () => {
 		await userMove({ lat: 50.2, lng: 14.7 });
 		expect([get(locationTracking), get(backgroundLocationTracking)]).toEqual([false, false]);
 		backgroundLocationTracking.set(true);
-		stopFollowing();
+		enterBackgroundTracking();
 		expect([get(locationTracking), get(backgroundLocationTracking)]).toEqual([false, true]);
 	});
 });
