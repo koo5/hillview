@@ -150,7 +150,7 @@ A photo is **eligible for selection** iff (one definition in
 - Its location fix, where the device reported an accuracy, was within 5 m
   (`MAX_LOCATION_ACCURACY_M`; `photos.location_accuracy_m`, a column generated
   from the capture app's UserComment by migration 039). Selection keeps one
-  photo per 5 m cell, so a wider fix lands in a cell it may not belong to.
+  photo per few-metre cell, so a wider fix lands in a cell it may not belong to.
   An unknown accuracy passes: no photo captured before 2026-09-13 carries one.
   The 2026-10-30 prod mirror had 25,552 photos with a radius, of which 1,385
   were over 5 m (476 in September, 909 in October).
@@ -176,23 +176,24 @@ unuploaded photos authorize with the new choice and already uploaded photos
 receive an idempotent PATCH. Pre-choice photos retain a null intake and adopt
 the global licence at upload, with no migration or dialog.
 
-## Representative views: 5 m cells and bearing sectors
+## Representative views: grid cells and bearing sectors
 
 Eligibility is permission to compete, not a promise that every eligible photo
 appears in the catalog. On each collector pass, `app/selection.py` chooses one
-photo per **(grid SRID, 5 m easting cell, 5 m northing cell, bearing sector)**
+photo per **(grid SRID, easting cell, northing cell, bearing sector)**
 across all contributors, before constructing owner sessions.
 
 - Grid coordinates come from PostGIS `ST_Transform` into local WGS84 UTM
-  projections, with UPS for the polar caps. Cells are 5 × 5 projected metres;
+  projections, with UPS for the polar caps. Cells are squares with an edge of
+  `PANORAMAX_CELL_SIZE_M` projected metres;
   projection scale varies slightly on the ground. Regular six-degree longitude
   zones are used, rather than MGRS's exceptional Norway/Svalbard boundaries.
   Each zone and hemisphere has its own origin; cells are clipped at projection
-  boundaries. This is a grid, not a five-metre radius/distance exclusion rule.
-- The default is eight 45° sectors centered on N, NE, E, etc. North wraps
-  through zero: [337.5°, 22.5°). `PANORAMAX_BEARING_BUCKETS` changes the number
-  of sectors (1–360). Missing/non-finite bearings share one extra unknown
-  bucket, separate from a real north-facing photo.
+  boundaries. This is a grid, not a radius/distance exclusion rule.
+- `PANORAMAX_BEARING_BUCKETS` sectors (1–360) are centered on compass points;
+  with eight, on N, NE, E, etc., and north wraps through zero: [337.5°, 22.5°).
+  Missing/non-finite bearings share one extra unknown bucket, separate from a
+  real north-facing photo.
 - Prefer a capture with the sun above the geometric horizon, then one with
   unknown capture time, then a night capture. Within that class, prefer the
   newest capture; unknown capture times use the existing effective/upload-time
@@ -235,8 +236,8 @@ unchanged full collector pass took 3.0 seconds and changed no timestamps.
 
 ## Sequences
 
-Synthesized from selected winners, persisted, per-owner **time-gap sessions** (default 15 min, env
-`PANORAMAX_SESSION_GAP_HOURS` = 0.25; 3 h until 2026-10-30) — not one ever-growing collection per user,
+Synthesized from selected winners, persisted, per-owner **time-gap sessions** (gap
+`PANORAMAX_SESSION_GAP_HOURS`; 3 h until 2026-10-30) — not one ever-growing collection per user,
 because the meta-catalog's incremental sync re-fetches **all** items of any
 changed collection (collection-level granularity), making giant collections an
 unbounded recurring cost. No distance splitting: the catalog only draws lines
@@ -437,16 +438,17 @@ For a local smoke check, request `/geovisio/api/health`,
 Caddy, then follow the response's self/root links. An empty collections list is
 valid when no photos currently pass consent and eligibility checks.
 
-Env knobs: `PANORAMAX_SCOPE` (default `p1`), `PANORAMAX_BEARING_BUCKETS` (8),
-`PANORAMAX_SESSION_GAP_HOURS` (0.25), `PANORAMAX_SEQUENCER_INTERVAL_S` (300), `PANORAMAX_SEQUENCER_ENABLED`
-(true — set false to run the API without the in-process sequencer),
-`PANORAMAX_INSTANCE_NAME` (Hillview), `PANORAMAX_VIEWER_URL`
-(the stack's `FRONTEND_URL` if set, else `https://hillview.cz` — where `/`
-redirects humans arriving from the catalog's per-item `rel=via` link), `PANORAMAX_LOGO_URL`
-(`https://hillview.cz/favicon.png` — `/api/configuration`'s `logo`, which the
+Env knobs: every setting of the container, with its default and what it
+does, is in `backend/panoramax/app/settings.env`. Compose loads it as the
+service's `env_file`, interpolating its `${NAME:-default}` values, so the root
+`.env` overrides any of them without the rest of `.env` reaching the container;
+`settings.py` resolves the same file when run outside compose (unit tests,
+scripts). Changing the cell size or the sector count reshuffles which photo
+wins each cell, so follow it with an incremental harvest, which carries the
+removals. `PANORAMAX_LOGO_URL` is `/api/configuration`'s `logo`, which the
 meta-catalog stores and serves at `/api/instances/<name>/logo`; the web
 viewer's picture panel always asks explore.panoramax.fr for it, so it shows
-only once we are registered there).
+only once we are registered there.
 
 ## Registration
 

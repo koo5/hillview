@@ -1,4 +1,4 @@
-"""Thin eligible contributions to one photo per 5 m cell and bearing sector.
+"""Thin eligible contributions to one photo per grid cell and bearing sector.
 
 Membership is still persisted by the sequencer, so reads never have to rank
 the entire photo library. Selection is global across owners, deterministic,
@@ -11,9 +11,6 @@ import math
 
 from eligibility import ELIGIBLE_PHOTO_WHERE, PHOTO_ORDER_BY
 
-CELL_SIZE_M = 5
-DEFAULT_BEARING_BUCKETS = 8
-
 # UTM gives metre coordinates locally, rather than Mercator's latitude-dependent
 # ground scale. Include the SRID in the cell key: zones and hemispheres have
 # separate origins. UPS covers the polar caps. These are regular six-degree
@@ -21,6 +18,7 @@ DEFAULT_BEARING_BUCKETS = 8
 # https://earth-info.nga.mil/?action=coordsys&dir=coordsys
 # CASE guards invalid legacy coordinates before calling PROJ. Canonicalizing
 # +180 to -180 also puts the two spellings of the date line in the same grid.
+# :cell_size_m is settings.cell_size_m().
 CANDIDATES_SQL = f"""
     WITH eligible AS MATERIALIZED (
         SELECT p.id, p.owner_id, p.effective_at, p.captured_at, p.original_filename,
@@ -42,8 +40,8 @@ CANDIDATES_SQL = f"""
     )
     SELECT p.id, p.owner_id, p.effective_at, p.captured_at, p.longitude, p.latitude, p.bearing,
            ST_SRID(p.grid_point) AS grid_srid,
-           floor(ST_X(p.grid_point) / {CELL_SIZE_M})::bigint AS grid_x,
-           floor(ST_Y(p.grid_point) / {CELL_SIZE_M})::bigint AS grid_y
+           floor(ST_X(p.grid_point) / :cell_size_m)::bigint AS grid_x,
+           floor(ST_Y(p.grid_point) / :cell_size_m)::bigint AS grid_y
     FROM projected p
     WHERE p.grid_point IS NOT NULL
     ORDER BY p.owner_id, {PHOTO_ORDER_BY}
@@ -64,7 +62,7 @@ class Candidate:
     grid_y: int
 
 
-def bearing_bucket(bearing: float | None, buckets: int = DEFAULT_BEARING_BUCKETS) -> int:
+def bearing_bucket(bearing: float | None, buckets: int) -> int:
     """Sectors centered on compass points; unknown is separate from true north.
 
     With eight sectors, north is [337.5°, 22.5°), NE is [22.5°, 67.5°), etc.
@@ -117,7 +115,7 @@ def daylight_rank(photo: Candidate) -> int:
     return 2 if solar_elevation(photo.captured_at, photo.latitude, photo.longitude) >= 0 else 0
 
 
-def select_photos(photos: list[Candidate], buckets: int = DEFAULT_BEARING_BUCKETS) -> list[Candidate]:
+def select_photos(photos: list[Candidate], buckets: int) -> list[Candidate]:
     """Daylight first, then newest capture (effective time if unknown), then
     lexicographically smallest photo id. Preserve the input's session ordering.
 

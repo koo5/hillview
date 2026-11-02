@@ -4,7 +4,7 @@ and persist them as panoramax.sequences / sequence_photos.
 Why synthesized persisted sequences (not one ever-growing collection per user):
 the meta-catalog's incremental sync is collection-level — any change re-fetches
 ALL items of the collection — so giant collections are an unbounded recurring
-harvest cost. Sessions split on a capture-time gap (15 min default, env-tunable).
+harvest cost. Sessions split on a capture-time gap (PANORAMAX_SESSION_GAP_HOURS).
 No distance split: the catalog only draws lines between consecutive items <75m
 apart, so sparse sequences just render as dots.
 
@@ -38,7 +38,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from selection import CANDIDATES_SQL, Candidate, select_photos
-from settings import Scope, active_scope, bearing_buckets, sequencer_interval_s, session_gap_hours
+from settings import Scope, active_scope, bearing_buckets, cell_size_m, sequencer_interval_s, session_gap_hours
 
 logger = logging.getLogger('panoramax.sequencer')
 
@@ -160,7 +160,7 @@ async def run_once(engine: AsyncEngine, scope: Scope | None = None, gap: timedel
 		await conn.execute(text("SELECT pg_advisory_xact_lock(hashtext('panoramax.sequencer'), hashtext(:scope))"),
 			{'scope': scope.id})
 		rows = (await conn.execute(text(CANDIDATES_SQL),
-			{'scope_legal_rights': list(scope.legal_rights)})).mappings().all()
+			{'scope_legal_rights': list(scope.legal_rights), 'cell_size_m': cell_size_m()})).mappings().all()
 		candidates = [Candidate(**r) for r in rows]
 		selected = select_photos(candidates, bearing_buckets())
 		photos = [PhotoStub(id=p.id, owner_id=p.owner_id, effective_at=p.effective_at) for p in selected]

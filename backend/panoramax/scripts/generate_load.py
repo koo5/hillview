@@ -49,7 +49,7 @@ from pathlib import Path
 # Its session/count oracle below is independent of the sequencer's session code.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'app'))
 from selection import CANDIDATES_SQL, Candidate, select_photos
-from settings import active_scope, bearing_buckets
+from settings import active_scope, bearing_buckets, cell_size_m
 
 
 NS = uuid.UUID('7d0f2b3a-5c1e-4c6f-9a8e-2f4b6c8d0e1f')  # namespace for deterministic ids
@@ -430,7 +430,7 @@ def expected_selected_ids(db: Db) -> set[str]:
 	ranks are independently derived above from the resulting fixture ids.
 	"""
 	grants = ','.join("'" + value.replace("'", "''") + "'" for value in active_scope().legal_rights)
-	query = CANDIDATES_SQL.replace(':scope_legal_rights', f'ARRAY[{grants}]')
+	query = CANDIDATES_SQL.replace(':scope_legal_rights', f'ARRAY[{grants}]').replace(':cell_size_m', repr(cell_size_m()))
 	rows = db.run(f'SELECT row_to_json(candidate) FROM ({query}) candidate')
 	photos = []
 	for line in rows.splitlines():

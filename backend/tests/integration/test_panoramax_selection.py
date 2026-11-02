@@ -45,7 +45,7 @@ def photo(id, geom, **patch):
 def candidates(rows):
     owners = [dict(id=id, is_active=True, is_test=False, panoramax_contributor=True)
               for id in sorted({row['owner_id'] for row in rows})]
-    query = CANDIDATES_SQL.replace(':scope_legal_rights', "ARRAY['full1','panoramax_in']")
+    query = CANDIDATES_SQL.replace(':scope_legal_rights', "ARRAY['full1','panoramax_in']").replace(':cell_size_m', '5')
     result = pg(f"""
         WITH photos AS (SELECT * FROM json_populate_recordset(NULL::public.photos, {literal(json.dumps(rows))}::json)),
              users AS (SELECT * FROM json_populate_recordset(NULL::public.users, {literal(json.dumps(owners))}::json)),
@@ -73,7 +73,7 @@ def test_five_metre_cells_and_sectors_are_independent():
     assert by_id['same'].grid_x == by_id['a'].grid_x
     assert by_id['next-x'].grid_x == by_id['a'].grid_x + 1
     assert by_id['next-y'].grid_y == by_id['a'].grid_y + 1
-    assert {p.id for p in select_photos(result)} == {'a', 'next-x', 'next-y', 'east', 'unknown'}
+    assert {p.id for p in select_photos(result, 8)} == {'a', 'next-x', 'next-y', 'east', 'unknown'}
 
 
 @pytest.mark.parametrize('longitude,latitude,srid', [
@@ -88,14 +88,14 @@ def test_global_projection_coverage(longitude, latitude, srid):
 def test_date_line_and_poles_have_canonical_cell_keys():
     for coords in [[(-180, 0), (180, 0)], [(0, 90), (120, 90)], [(0, -90), (-90, -90)]]:
         rows = [photo(str(i), f'SRID=4326;POINT({lon} {lat})') for i, (lon, lat) in enumerate(coords)]
-        assert len(select_photos(candidates(rows))) == 1
+        assert len(select_photos(candidates(rows), 8)) == 1
 
 
 def test_projection_zones_do_not_share_cell_addresses():
     result = candidates([photo('west', 'SRID=4326;POINT(5.99999 50)'),
                          photo('east', 'SRID=4326;POINT(6.00001 50)')])
     assert {p.grid_srid for p in result} == {32631, 32632}
-    assert len(select_photos(result)) == 2
+    assert len(select_photos(result, 8)) == 2
 
 
 @pytest.mark.parametrize('geom', ['SRID=4326;POINT(0 91)', 'SRID=4326;POINT(181 0)', 'SRID=4326;POINT EMPTY'])
@@ -109,6 +109,7 @@ def run_collector():
     code = """
 import asyncio,json,os
 os.environ['PANORAMAX_BEARING_BUCKETS']='8'
+os.environ['PANORAMAX_CELL_SIZE_M']='5'
 from db import get_engine
 from sequencer import run_once
 async def main():

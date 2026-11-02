@@ -24,7 +24,7 @@ catalog on the sequencer's cadence (membership prune bumps updated_at), while
 serve-time filtering hides the item immediately.
 
 A fix the receiver itself put more than MAX_LOCATION_ACCURACY_M off excludes
-the photo too: the selection places one photo per 5 m cell, and Panoramax
+the photo too: the selection places one photo per few-metre cell, and Panoramax
 readers take the position as given. An unknown radius passes, since no photo
 captured before 2026-09-13 carries one. The radius is photos.location_accuracy_m
 (migration 039), and exif_data changes don't bump the sequence either, so a

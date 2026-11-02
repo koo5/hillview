@@ -328,28 +328,11 @@ services:
     # profiles: ["panoramax"]
     ports:
       - "127.0.0.1:8058:8058"
+    # Every PANORAMAX_* setting and its default; the root .env overrides any
+    # of them (compose interpolates the file's ${NAME:-default} values).
+    env_file: [backend/panoramax/app/settings.env]
     environment:
       - DATABASE_URL=postgresql+asyncpg://panoramax_ro:${PANORAMAX_DB_PASSWORD:-}@${postgres:-postgres}:5432/${POSTGRES_DB:?POSTGRES_DB is required}
-      # Public canonical base URL registered in the meta-catalog. Its last
-      # characters must not be '/', 'a', 'p' or 'i' (the catalog rstrip("/api")s
-      # the whole string); any *.hillview.cz host is safe.
-      - PANORAMAX_BASE_URL=${PANORAMAX_BASE_URL:-http://localhost:8058}
-      # Where "/" sends humans following the catalog's per-item rel=via link:
-      # the stack's own frontend (FRONTEND_URL, which set_host.py writes from
-      # the host profile) unless overridden, else hillview.cz
-      - PANORAMAX_VIEWER_URL=${PANORAMAX_VIEWER_URL:-${FRONTEND_URL:-https://hillview.cz}}
-      - PANORAMAX_INSTANCE_NAME=${PANORAMAX_INSTANCE_NAME:-Hillview}
-      # The logo the meta-catalog shows for us (/api/configuration `logo`)
-      - PANORAMAX_LOGO_URL=${PANORAMAX_LOGO_URL:-https://hillview.cz/favicon.png}
-      # DEV_MODE (the api's switch) enables /dev/ pages such as /dev/suspicious,
-      # which links to an explorer when PANORAMAX_EXPLORER_URL names one
-      - DEV_MODE=${DEV_MODE:-}
-      - PANORAMAX_EXPLORER_URL=${PANORAMAX_EXPLORER_URL:-}
-      - PANORAMAX_SCOPE=${PANORAMAX_SCOPE:-p1}
-      - PANORAMAX_BEARING_BUCKETS=${PANORAMAX_BEARING_BUCKETS:-12}
-      - PANORAMAX_SESSION_GAP_HOURS=${PANORAMAX_SESSION_GAP_HOURS:-0.5}
-      - PANORAMAX_SEQUENCER_INTERVAL_S=${PANORAMAX_SEQUENCER_INTERVAL_S:-300}
-      - PANORAMAX_SEQUENCER_ENABLED=${PANORAMAX_SEQUENCER_ENABLED:-true}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8058/api/health', timeout=5).read()"]
       interval: 30s
