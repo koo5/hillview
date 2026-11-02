@@ -38,6 +38,7 @@ const config = {
 		typescript: {
 			config: (c) => {
 				c.compilerOptions.paths.three = ['../node_modules/@types/three'];
+				c.compilerOptions.paths['three/addons/*'] = ['../node_modules/@types/three/examples/jsm/*'];
 				c.compilerOptions.paths.copc = ['../node_modules/copc'];
 				c.compilerOptions.paths['laz-perf'] = ['../node_modules/laz-perf'];
 			}

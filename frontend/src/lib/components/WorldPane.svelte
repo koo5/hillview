@@ -3,22 +3,29 @@
 	 * The 3D world beside the map (recon ea05). The observer stands where the map's one location
 	 * state says, facing its one bearing (docs/one-state.md); turning the view is a hand turn like the
 	 * map's arrow drag (userTurn: the compass stops, car mode moves the mount offset), so the map's
-	 * arrow follows and nothing automatic turns it back.
+	 * arrow follows and nothing automatic turns it back. Flying in it is a hand move like a map pan: its ground point
+	 * goes into the location state ('map'), so the map follows the flight.
 	 */
 	import WorldScene from '$world/WorldScene.svelte';
 	import { get } from 'svelte/store';
-	import { bearingState, spatialState } from '$lib/mapState';
+	import { bearingState, spatialState, updateSpatialState } from '$lib/mapState';
 	import { userTurn } from '$lib/userTurn';
-	import { atlasChannel, atlasUrl, earthUrl } from '$lib/world';
+	import { atlasChannels, atlasUrl, earthChannel, earthUrl } from '$lib/world';
 
 	let pitch = $state(-5);
 	let eyeM = $state(2);
+	/** one map pixel on the ground at the map's zoom: the map rounds its centre to its pixels, so a flight's own
+	 * position can come back this far off (WorldScene's echo test) */
+	const mapPixelM = $derived(
+		(40_075_016.686 * Math.cos(($spatialState.center.lat * Math.PI) / 180)) / (256 * 2 ** $spatialState.zoom)
+	);
 </script>
 
 <div class="world-pane" data-testid="world-pane">
 	{#if earthUrl}
 		<WorldScene
 			{earthUrl}
+			channel={earthChannel}
 			lat={$spatialState.center.lat}
 			lon={$spatialState.center.lng}
 			bearing={$bearingState.bearing}
@@ -29,17 +36,21 @@
 				userTurn(get(bearingState).bearing, look.bearing, 'world3d');
 			}}
 			oneye={(m) => (eyeM = m)}
+			onmove={(at) => updateSpatialState({ center: { lat: at.lat, lng: at.lon } }, 'map')}
+			locationPrecisionM={mapPixelM}
 			atlasUrl={atlasUrl ?? undefined}
-			{atlasChannel}
+			{atlasChannels}
 			testid="world-scene"
 		/>
 	{/if}
 </div>
 
 <style>
+	/* the app's top buttons sit over the pane's top edge: the scene's loading line and layers button start below them */
 	.world-pane {
 		width: 100%;
 		height: 100%;
+		--world-scene-inset-top: 60px;
 	}
 	/* the split's divider (22 px, centred on the split) covers this pane's bottom edge in portrait and its right
 	   edge in landscape: the scene's credit line moves clear of it */
