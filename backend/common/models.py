@@ -143,6 +143,10 @@ class Photo(Base):
 	# docs/recon-capture-metadata.md, Phase 5.
 	imu_samples_url: Mapped[Optional[str]] = mapped_column(Text)
 	analysis: Mapped[Optional[dict]] = mapped_column(JSONB)  # AI-generated photo analysis (indexed)
+	# Deterministic measurements of the stored pixels, one versioned key per
+	# metric family: {"sharpness": {"version": 1, ...}} (worker/sharpness.py).
+	# Kept apart from analysis, whose version stamp the LLM analyzer owns.
+	image_metrics: Mapped[Optional[dict]] = mapped_column(JSONB)
 	# Terrain overlay graduated from the enrichment workbench: fitted horizon
 	# line + visible peak labels, baked to vectors (no depth buffer). Tens of
 	# KB — served only by GET /photos/{id}/terrain-overlay, never inlined.
