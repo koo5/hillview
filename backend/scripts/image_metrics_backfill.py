@@ -34,6 +34,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# common.database builds an ASYNC engine: a plain postgresql:// URL would make
+# SQLAlchemy reach for psycopg2, which is not installed. Accept it anyway.
+import os
+import re
+if os.environ.get("DATABASE_URL"):
+	os.environ["DATABASE_URL"] = re.sub(r"^postgres(ql)?://", "postgresql+asyncpg://", os.environ["DATABASE_URL"])
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import select, func, or_, text, Integer
