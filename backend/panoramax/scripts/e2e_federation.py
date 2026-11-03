@@ -179,7 +179,7 @@ class HeavyChecks:
 			'singles',(SELECT count(*) FROM (SELECT sp.sequence_id FROM panoramax.sequence_photos sp JOIN panoramax.sequences s ON s.id=sp.sequence_id WHERE s.owner_id {owners} GROUP BY 1 HAVING count(*)=1) single_sequences));'''))
 		assert stats == {'sequences': self.summary['expected_sequences'], 'memberships': self.summary['selected'], 'singles': self.summary['expected_singles']}, stats
 		for owner, expected in self.summary['per_user'].items():
-			if not expected['is_active'] or expected['is_test']:
+			if not expected['is_active']:
 				assert self.sql("SELECT count(*) FROM panoramax.sequences WHERE owner_id=:'owner';", owner=owner) == '0'
 		before = self.sql('SELECT now();')
 		assert not any(v for k, v in sequence().items() if k.startswith(('memberships_', 'sequences_')))

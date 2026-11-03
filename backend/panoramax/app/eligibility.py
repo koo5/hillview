@@ -15,6 +15,13 @@ Only full1/panoramax_in grants can qualify, with owner consent and both
 moderation gates. Skip and manual anonymization cannot establish that the
 detector found no doodles, so only detector records without blurred objects
 qualify. The data migration already made every blurred flag explicit.
+The detection gates read that record without casting, and anything they
+cannot read (a non-array `objects`, a non-boolean flag, a non-object
+detection) fails them: GATE_RESULTS_SQL evaluates every gate on every photo,
+so one malformed row that raised would fail the whole sequencer pass.
+
+Test users are treated like anyone else: the automated suites drive the
+federation through them.
 
 Moderation signals also exclude a photo from federation: any thumbs-down
 rating, or an unresolved flag (resolved flags don't exclude — an admin looked
@@ -42,20 +49,29 @@ GATES: list[tuple[str, str]] = [
 	('moderator_approval', "p.panoramax_moderator_approved"),
 	('contributor', "u.panoramax_contributor"),
 	('detections', "p.detected_objects IS NOT NULL AND json_typeof(p.detected_objects) = 'object'"),
-	('manual_anonymization', "COALESCE((p.detected_objects->>'manual')::boolean, false) = false"),
-	('doodles', """NOT EXISTS (
-		SELECT 1 FROM json_array_elements(COALESCE(p.detected_objects->'objects', '[]'::json)) o
-		WHERE (o->>'blurred')::boolean
-	)"""),
+	('manual_anonymization', """p.detected_objects->'manual' IS NULL
+		OR json_typeof(p.detected_objects->'manual') = 'null'
+		OR p.detected_objects->>'manual' = 'false'"""),
+	('doodles', """CASE
+		WHEN p.detected_objects->'objects' IS NULL THEN true
+		WHEN json_typeof(p.detected_objects->'objects') <> 'array' THEN false
+		ELSE NOT EXISTS (
+			SELECT 1 FROM json_array_elements(p.detected_objects->'objects') o
+			WHERE json_typeof(o) <> 'object'
+			   OR json_typeof(o->'blurred') NOT IN ('boolean', 'null')
+			   OR o->>'blurred' = 'true'
+		)
+	END"""),
 	('deleted', "p.deleted = false"),
 	('private', "p.is_public = true"),
 	('processing', "p.processing_status = 'completed'"),
 	('location', "p.geometry IS NOT NULL"),
+	# The range CANDIDATES_SQL (selection.py) can project onto its grid.
+	('coordinates', "ST_X(p.geometry) BETWEEN -180 AND 180 AND ST_Y(p.geometry) BETWEEN -90 AND 90"),
 	('capture_time', "p.effective_at IS NOT NULL AND p.captured_at IS NOT NULL"),
 	('renditions', "p.sizes IS NOT NULL"),
 	('location_accuracy', f"COALESCE(p.location_accuracy_m, 0) <= {MAX_LOCATION_ACCURACY_M}"),
 	('owner_inactive', "u.is_active = true"),
-	('test_user', "u.is_test = false"),
 	('thumbs_down', """NOT EXISTS (
 		SELECT 1 FROM photo_ratings pr
 		WHERE pr.photo_source = 'hillview'
@@ -73,10 +89,12 @@ GATES: list[tuple[str, str]] = [
 ELIGIBLE_PHOTO_WHERE = '\n\tAND '.join(f'({condition})' for _, condition in GATES)
 
 # Every photo with whether it passes each gate. A NULL (an unset flag, say)
-# counts as failing, as it does in a WHERE clause.
+# counts as failing, as it does in a WHERE clause. Deleted photos are left
+# out: nobody looks up their outcome, and they are a growing share of rows.
 GATE_RESULTS_SQL = f"""
 	SELECT p.id, {', '.join(f'COALESCE(({condition}), false) AS "{name}"' for name, condition in GATES)}
 	FROM photos p JOIN users u ON u.id = p.owner_id
+	WHERE p.deleted = false
 """
 
 # Deterministic capture order within an owner — same tiebreak as the timeline

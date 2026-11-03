@@ -191,6 +191,9 @@ async def dev_suspicious() -> HTMLResponse:
 async def health() -> dict:
 	async with get_engine().connect() as conn:
 		commit_timestamps = (await conn.execute(text('SHOW track_commit_timestamp'))).scalar()
+		schema_ready = (await conn.execute(text(sequencer.SCHEMA_READY_SQL))).scalar()
+	if not schema_ready:
+		raise HTTPException(status_code=503, detail='database not migrated yet; the api applies the migrations at its start')
 	if commit_timestamps != 'on':
 		# Every collection listing would fail too (see SEQUENCE_UPDATED).
 		raise HTTPException(status_code=503,

@@ -178,7 +178,7 @@ class TestPhotoStatuses:
 
 	def test_each_outcome(self):
 		rows = [self.gates('won'), self.gates('lost'), self.gates('doodled', 'doodles'),
-			self.gates('cc', 'grant', 'owner_share'), self.gates('off-map')]
+			self.gates('cc', 'grant', 'owner_share'), self.gates('off-map', 'coordinates')]
 		statuses = photo_statuses(rows, {'won', 'lost'}, {'won': 'won', 'lost': 'won'})
 		assert statuses == {
 			'won': PhotoStatus('member'),
@@ -188,6 +188,11 @@ class TestPhotoStatuses:
 			'off-map': PhotoStatus('ineligible', failed_gates=('coordinates',)),
 		}
 
+	def test_a_photo_that_changed_between_the_two_reads_keeps_its_record(self):
+		# Passes every gate now, but the candidate query, read just before, did
+		# not have it yet: None leaves whatever was recorded to the next pass.
+		assert photo_statuses([self.gates('late')], set(), {}) == {'late': None}
+
 	def test_failed_gates_follow_the_gate_order(self):
 		names = [name for name, _ in GATES]
 		row = self.gates('p', *reversed(names[:3]))
@@ -195,4 +200,4 @@ class TestPhotoStatuses:
 
 	def test_gate_names_are_unique(self):
 		names = [name for name, _ in GATES]
-		assert len(names) == len(set(names)) and 'coordinates' not in names
+		assert len(names) == len(set(names))

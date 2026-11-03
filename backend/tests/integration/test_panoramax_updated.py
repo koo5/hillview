@@ -63,3 +63,33 @@ def test_health_requires_commit_timestamps():
     assert pg('SHOW track_commit_timestamp;') == 'on'
     response = requests.get(f'{PANORAMAX_URL}/api/health', timeout=10)
     assert response.status_code == 200, response.text
+
+
+def test_only_served_fields_bump_the_sequence():
+    # Items serve no title or description, so editing them must not make the
+    # harvester re-fetch the collection; a bearing edit, which they serve, must.
+    # Its own scope and sharing off keep the stack's running sequencer away:
+    # the photo is no candidate, and the pass reads only its scope's members.
+    owner, photo, seq = (str(uuid.uuid4()) for _ in range(3))
+    pg(f"""
+        INSERT INTO users (id,username,email,is_active,is_test,is_verified,role,auto_upload_enabled,panoramax_contributor)
+        VALUES ('{owner}','pano_bump_{owner}','{owner}@example.invalid',true,false,true,'USER',false,true);
+        INSERT INTO photos (id,owner_id,filename,original_filename,geometry,compass_angle,captured_at,
+            uploaded_at,record_created_ts,width,height,is_public,processing_status,sizes,detected_objects,
+            legal_rights,featured,deleted,version,panoramax_owner_share,panoramax_moderator_approved)
+        VALUES ('{photo}','{owner}','bump.jpg','bump.jpg',ST_SetSRID(ST_MakePoint(14.5,50.1),4326),0,
+            '2024-06-21 10:00',now(),now(),160,120,true,'completed','{{}}'::json,'{{"objects": []}}'::json,
+            'full1',false,false,1,false,true);
+        INSERT INTO panoramax.sequences (id, scope, status, owner_id) VALUES ('{seq}', 'bump-test', 'ready', '{owner}');
+        INSERT INTO panoramax.sequence_photos (photo_id, sequence_id, rank) VALUES ('{photo}', '{seq}', 1);
+    """)
+    stamp = lambda: pg(f"SELECT updated_at FROM panoramax.sequences WHERE id = '{seq}';")
+    try:
+        before = stamp()
+        pg(f"UPDATE photos SET title = 'Retitled', description = 'Described' WHERE id = '{photo}';")
+        assert stamp() == before
+        pg(f"UPDATE photos SET compass_angle = 90 WHERE id = '{photo}';")
+        assert stamp() > before
+    finally:
+        pg(f"BEGIN; DELETE FROM photos WHERE id = '{photo}'; DELETE FROM panoramax.sequences WHERE id = '{seq}'; "
+           f"DELETE FROM users WHERE id = '{owner}'; COMMIT;")

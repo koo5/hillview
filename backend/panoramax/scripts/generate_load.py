@@ -21,9 +21,9 @@ Shape (all knobs are flags; RNG is seeded so a run is reproducible):
   sequences is exact, not statistical.
 - ~10% of photos are ineligible in every way the eligibility filter knows
   (ARR licence, private, soft-deleted, failed processing, thumbs-down rated,
-  unresolved flag), plus one inactive user and one test user whose photos
-  are all ineligible. The expectation written to --summary accounts for all
-  of it.
+  unresolved flag), plus one inactive user whose photos are all ineligible.
+  One user is a test user, federated like anyone else. The expectation
+  written to --summary accounts for all of it.
 
 All synthetic rows are tagged by the username prefix; --cleanup removes them
 (and their sequences) and a normal run cleans up first, so reruns are exact.
@@ -147,7 +147,7 @@ def make_users(rng: random.Random, n: int, prefix: str) -> list[User]:
 		))
 	if n >= 4:
 		users[-1].is_active = False   # everything they have must be excluded
-		users[-2].is_test = True
+		users[-2].is_test = True     # federated like anyone: the suites drive it
 		users[-3].panoramax_contributor = False
 	return users
 
@@ -258,8 +258,6 @@ def generate(rng: random.Random, users: list[User], total_photos: int, years: fl
 			p.excluded = p.excluded or 'non_contributor'
 		if not p.owner.is_active:
 			p.excluded = p.excluded or 'owner_inactive'
-		if p.owner.is_test:
-			p.excluded = p.excluded or 'owner_test'
 	return photos
 
 

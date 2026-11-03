@@ -154,9 +154,15 @@ A photo is **eligible for selection** iff (one definition in
   An unknown accuracy passes: no photo captured before 2026-09-13 carries one.
   The 2026-10-30 prod mirror had 25,552 photos with a radius, of which 1,385
   were over 5 m (476 in September, 909 in October).
-- All existing gates pass: not deleted, public, processing completed, geometry,
-  capture/upload effective time and renditions present, owner active and not a
-  test user, no thumbs-down rating and no unresolved flag.
+- All existing gates pass: not deleted, public, processing completed, geometry
+  present and within the range the grid projection places, capture/upload
+  effective time and renditions present, owner active, no thumbs-down rating
+  and no unresolved flag. Test users are treated like anyone else: the
+  automated suites drive the federation through them.
+- Its detections record is one the gates can read: an `objects` array of
+  objects whose `blurred` and the record's `manual` are booleans or absent.
+  Anything else fails the detection gates rather than raising, because the
+  gates run on every photo each pass and a raise would fail the whole pass.
 
 Sharing changes the outflow of a `full1` photo even when another gate excludes
 it from federation. Approval and contributor flags affect eligibility only.
@@ -286,9 +292,16 @@ Each pass records every photo's outcome in `panoramax.photo_status`
   bearing sector (`winner_id`).
 - `ineligible`: `failed_gates` names every gate it failed. The gates are
   `GATES` in `app/eligibility.py`, the same named list `ELIGIBLE_PHOTO_WHERE`
-  is joined from, so the record cannot drift from the rule. One extra name,
-  `coordinates`, marks a photo that passed every gate but whose position the
-  grid projection rejected.
+  is joined from, so the record cannot drift from the rule.
+
+The gate results and the candidates come from two queries, so a photo can
+change in between. One that now fails a gate is recorded as ineligible, which
+is its state and what the read API already filters on. One that now passes
+every gate but was not yet a candidate keeps its previous record until the
+next pass. The recording runs in a savepoint of its own: if it fails (a photo
+hard-deleted mid-pass trips `photo_status`'s foreign key, say) the error is
+logged and the pass's membership changes still commit. Deleted photos get no
+record.
 
 `decided_at` is when the current outcome was first recorded;
 `panoramax.sequencer_passes` holds when each scope's last pass ran.
@@ -450,7 +463,14 @@ the dev box's `/pics` route in `~/caddy/Caddyfile` sends
    ```
 
 The container health check calls `/api/health`, which opens a database
-connection. `/api/configuration` alone is not a database readiness check: it
+connection and answers 503 until two things hold. First, the schema has the
+newest objects the service reads (`SCHEMA_READY_SQL` in `app/sequencer.py`,
+which the sequencer also waits on, since the api applies the migrations at its
+own start). Second, PostgreSQL runs with `track_commit_timestamp=on`: a
+collection's `updated` is its commit time (`SEQUENCE_UPDATED` in
+`app/main.py`), so the harvester's incremental crawl cannot miss a change
+committed while a harvest was listing, and without the setting every
+collection listing fails. `/api/configuration` alone is not a database readiness check: it
 can return 200 even when the role's password is wrong. If the container is
 running but collections fail with a `panoramax_ro` authentication error,
 re-run `backend/scripts/provision_panoramax_role.sh` after setting the password

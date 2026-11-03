@@ -17,8 +17,8 @@ import {
 import { normalizeRect, wedgeFromRect, type TerrainPick, type ViewRect } from '$terrain/depthPanoViewer';
 import type { Peak } from '$terrain/peakLabels';
 
-export const terrainApiBase: string | null = import.meta.env.VITE_TERRAIN_API || null;
-export const terrainModeAvailable = !!terrainApiBase;
+import { terrainApiBase, terrainModeAvailable } from '$lib/terrainAvailability';
+export { terrainApiBase, terrainModeAvailable };
 
 export const terrainRenders = writable<TerrainRender[]>([]);
 export const terrainError = writable<string | null>(null);

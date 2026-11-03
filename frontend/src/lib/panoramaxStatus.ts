@@ -14,8 +14,7 @@ export interface PanoramaxStatus {
 	last_pass_at: string | null;
 }
 
-// One phrase per gate in GATES (backend/panoramax/app/eligibility.py), plus
-// 'coordinates', which the sequencer adds for a position it could not project.
+// One phrase per gate in GATES (backend/panoramax/app/eligibility.py).
 export const PANORAMAX_GATE_TEXT: Record<string, string> = {
 	grant: 'its upload grant is not offered to Panoramax',
 	owner_share: 'Panoramax sharing is off',
@@ -28,14 +27,13 @@ export const PANORAMAX_GATE_TEXT: Record<string, string> = {
 	private: 'it is private',
 	processing: 'its processing has not completed',
 	location: 'it has no location',
+	coordinates: 'its coordinates cannot be placed on the grid',
 	capture_time: 'it has no capture time',
 	renditions: 'it has no renditions',
 	location_accuracy: 'its location fix is too inaccurate',
 	owner_inactive: 'the owner’s account is inactive',
-	test_user: 'the owner is a test user',
 	thumbs_down: 'it has a thumbs-down rating',
 	unresolved_flag: 'it has an unresolved flag',
-	coordinates: 'its coordinates cannot be placed on the grid',
 };
 
 /** Why an ineligible photo stayed out, in words. A photo whose grant is not

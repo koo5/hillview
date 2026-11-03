@@ -73,22 +73,24 @@ class PhotoStatus:
 
 def photo_statuses(
 	gate_rows: list[dict], candidate_ids: set[str], winner_of: dict[str, str],
-) -> dict[str, PhotoStatus]:
+) -> dict[str, PhotoStatus | None]:
 	"""photo id -> its outcome, from every photo's gate results
 	(GATE_RESULTS_SQL), the ids the candidate query returned, and each
 	candidate's cell winner (cell_winners).
 
-	A photo passing every gate is a candidate unless its coordinates could not
-	be projected (CANDIDATES_SQL drops those); that is recorded as the
-	'coordinates' gate, which only exists here.
+	The two queries read separate snapshots, so a photo can change between
+	them. Failing a gate is the photo's state now, and the read API already
+	filters on it, so that is what gets recorded. A photo passing every gate
+	that was not a candidate became eligible after the candidates were read:
+	None, keep whatever was recorded until the next pass decides it.
 	"""
-	out = {}
+	out: dict[str, PhotoStatus | None] = {}
 	for row in gate_rows:
 		failed = tuple(name for name, _ in GATES if not row[name])
 		if failed:
 			out[row['id']] = PhotoStatus('ineligible', failed_gates=failed)
 		elif row['id'] not in candidate_ids:
-			out[row['id']] = PhotoStatus('ineligible', failed_gates=('coordinates',))
+			out[row['id']] = None
 		elif winner_of[row['id']] == row['id']:
 			out[row['id']] = PhotoStatus('member')
 		else:
@@ -265,7 +267,15 @@ async def run_once(engine: AsyncEngine, scope: Scope | None = None, gap: timedel
 				VALUES (:pid, :seq, :rank)
 			"""), {'pid': m.photo_id, 'seq': uuid.UUID(m.sequence_id), 'rank': m.rank})
 
-		status_changes = await record_statuses(conn, scope, candidates, winner_of)
+		# The photo page's record, not federation: its failure (a photo
+		# hard-deleted mid-pass trips photo_status's foreign key, say) must not
+		# roll back the membership above, so it gets a savepoint of its own.
+		try:
+			async with conn.begin_nested():
+				status_changes = await record_statuses(conn, scope, candidates, winner_of)
+		except Exception:
+			logger.exception("recording photo statuses failed; the pass's membership changes stand")
+			status_changes = None
 
 	counters = {
 		'eligible_photos': len(candidates),
@@ -296,7 +306,7 @@ async def record_statuses(conn, scope: Scope, candidates: list[Candidate], winne
 	current = {r[0]: PhotoStatus(r[1], r[2], tuple(r[3])) for r in rows}
 
 	changed = [{'pid': pid, 'scope': scope.id, 'outcome': st.outcome, 'winner': st.winner_id,
-		'gates': list(st.failed_gates)} for pid, st in desired.items() if current.get(pid) != st]
+		'gates': list(st.failed_gates)} for pid, st in desired.items() if st is not None and current.get(pid) != st]
 	gone = [pid for pid in current if pid not in desired]
 	if changed:
 		await conn.execute(text("""
@@ -314,14 +324,23 @@ async def record_statuses(conn, scope: Scope, candidates: list[Candidate], winne
 	return len(changed) + len(gone)
 
 
+# The newest schema objects this service reads: migration 040's tables and
+# 039's column. Extend it when a migration adds another.
+SCHEMA_READY_SQL = """
+	SELECT to_regclass('panoramax.photo_status') IS NOT NULL
+		AND to_regclass('panoramax.sequencer_passes') IS NOT NULL
+		AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('public.photos')
+			AND attname = 'location_accuracy_m' AND NOT attisdropped)
+"""
+
+
 async def wait_for_schema(engine: AsyncEngine) -> None:
-	"""The api container applies migration 033 in its prestart; this container
-	may win the race, so poll instead of crashing."""
+	"""The api container applies the migrations in its prestart; this
+	container may win the race, so poll instead of crashing."""
 	while True:
 		try:
 			async with engine.connect() as conn:
-				present = (await conn.execute(
-					text("SELECT to_regclass('panoramax.sequences')"))).scalar()
+				present = (await conn.execute(text(SCHEMA_READY_SQL))).scalar()
 			if present:
 				return
 			logger.warning("panoramax schema not migrated yet, waiting…")
