@@ -65,17 +65,25 @@ test.describe('3D world from far away @stress', () => {
 		await page.keyboard.up('KeyR');
 		await page.keyboard.down('KeyW');
 		let lowest = Infinity;
+		// the ready tiles just before the frame changes, and just after: a carry keeps them, a reload drops to ~0
+		let frame = frame0, readyBefore = 0, readyAfter: number | null = null;
+		const ready = async () => Number((await scene.getAttribute('data-tiles'))?.split('/')[0] ?? 0);
 		for (let i = 0; i < 240 && (await away()) < 30_000; i++) {
 			const h = await overGround();
 			if (h !== null) lowest = Math.min(lowest, h);
-			await page.waitForTimeout(500);
+			const f = await scene.getAttribute('data-frame');
+			if (f !== frame && readyAfter === null) readyAfter = await ready();
+			else if (readyAfter === null) readyBefore = await ready();
+			frame = f;
+			await page.waitForTimeout(250);
 		}
 		await page.keyboard.up('KeyW');
 		expect(await away()).toBeGreaterThan(29_000);
 		expect(await scene.getAttribute('data-frame')).not.toBe(frame0);                 // it re-laid its frame
-		expect(Number((await scene.getAttribute('data-tiles'))?.split('/')[0])).toBeGreaterThan(0);   // and kept its tiles
+		expect(readyAfter).not.toBeNull();
+		expect(readyAfter!).toBeGreaterThanOrEqual(Math.floor(readyBefore * 0.8));       // and kept its tiles across it
 		expect(lowest).toBeGreaterThanOrEqual(1.4);                                       // never under the ground
-		console.log(`flown ${Math.round(await away())} m, lowest ${lowest} m over the ground`);
+		console.log(`flown ${Math.round(await away())} m, lowest ${lowest} m over the ground; ready tiles across the re-layout ${readyBefore} -> ${readyAfter}`);
 
 		// land, rise to ~300 m, face Prague, level the view
 		phase = 'aim';
