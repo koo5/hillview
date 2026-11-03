@@ -19,6 +19,11 @@ actually blurred. Each output line is {"id", "url", "sharpness": {...}} or
 Resumable: ids that already have a sharpness line in the output are skipped,
 error lines are retried, new lines are appended.
 
+--local reads from a storage backup first and downloads only what it lacks;
+each result line says which ("fetched": "local" | "http"):
+
+	uv run sharpness_cli.py todo.jsonl results.jsonl --local https://pics.hillview.cz/opt/=/shared44/pics/opt/
+
 	uv run sharpness_cli.py todo.jsonl results.jsonl --jobs 4
 	uv run sharpness_cli.py todo.jsonl - --limit 20      # a quick look, to stdout
 """
@@ -28,6 +33,7 @@ import json
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Sequence
 from pathlib import Path
 
 import httpx
@@ -67,13 +73,46 @@ def done_ids(path: Path) -> set[str]:
 	return done
 
 
-def measure_one(client: httpx.Client, job: dict) -> dict:
+def parse_local(specs: list[str]) -> list[tuple[str, Path]]:
+	"""--local URL_PREFIX=DIR pairs, longest prefix first."""
+	pairs = []
+	for spec in specs:
+		prefix, sep, directory = spec.partition("=")
+		if not sep or not prefix or not directory:
+			sys.exit(f"--local expects URL_PREFIX=DIR, got {spec!r}")
+		root = Path(directory).resolve()
+		if not root.is_dir():
+			sys.exit(f"--local {spec!r}: {root} is not a directory")
+		pairs.append((prefix, root))
+	return sorted(pairs, key=lambda p: -len(p[0]))
+
+
+def read_local(url: str, local: Sequence[tuple[str, Path]]) -> bytes | None:
+	"""The file a local mirror holds for this URL, or None. Never resolves outside the mirror."""
+	for prefix, root in local:
+		if url.startswith(prefix):
+			path = (root / url[len(prefix):]).resolve()
+			if path.is_relative_to(root) and path.is_file():
+				return path.read_bytes()
+			return None
+	return None
+
+
+def fetch(client: httpx.Client, url: str, local: Sequence[tuple[str, Path]]) -> tuple[bytes, str]:
+	data = read_local(url, local)
+	if data is not None:
+		return data, "local"
+	response = client.get(url)
+	response.raise_for_status()
+	return response.content, "http"
+
+
+def measure_one(client: httpx.Client, job: dict, local: Sequence[tuple[str, Path]] = ()) -> dict:
 	out = {"id": job["id"], "url": job["url"]}
 	try:
-		response = client.get(job["url"])
-		response.raise_for_status()
+		data, out["fetched"] = fetch(client, job["url"], local)
 		out["sharpness"] = sharpness.measure_bytes(
-			response.content, job["width"], job["height"],
+			data, job["width"], job["height"],
 			boxes=job.get("boxes") or (),
 			source_size=(job.get("source_width") or job["width"], job.get("source_height") or job["height"]),
 		)
@@ -88,8 +127,12 @@ def main():
 	parser.add_argument("output", help="JSONL to append results to, or - for stdout (no resume)")
 	parser.add_argument("--jobs", type=int, default=4, help="parallel downloads+measurements (default 4)")
 	parser.add_argument("--limit", type=int, help="stop after this many photos")
+	parser.add_argument("--local", action="append", default=[], metavar="URL_PREFIX=DIR",
+						help="read URLs under URL_PREFIX from DIR when the file is there (a storage "
+							 "backup), else download; repeatable")
 	args = parser.parse_args()
 	cap_malloc_arenas()
+	local = parse_local(args.local)
 
 	to_stdout = args.output == "-"
 	skip = set() if to_stdout else done_ids(Path(args.output))
@@ -106,7 +149,7 @@ def main():
 		with httpx.Client(timeout=TIMEOUT, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client, \
 				ThreadPoolExecutor(max_workers=args.jobs) as pool:
 			rows = (row for i in range(0, len(jobs), CHUNK)
-					for row in pool.map(lambda job: measure_one(client, job), jobs[i:i + CHUNK]))
+					for row in pool.map(lambda job: measure_one(client, job, local), jobs[i:i + CHUNK]))
 			for n, row in enumerate(rows, 1):
 				with lock:
 					out.write(json.dumps(row) + "\n")
