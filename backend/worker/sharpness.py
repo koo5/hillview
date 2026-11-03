@@ -29,6 +29,18 @@ Method, at a fixed working size so photos of any resolution compare:
   the most common one (0.25 = no preference). Motion blur shows as a low
   weak_rel with high agreement; a sharp scene with strong structure in one
   direction (rows, facades) has its weak direction vary from tile to tile.
+- Version 2 adds edge width, because the contrast-relative energy above read
+  clean, sparse-edged scenes (a wall, a bin, mesh, dotted glass) as soft:
+  phone noise reduction smooths their few textures and the tile contrast is
+  high. Per tile with a real step in it (EDGE_MIN_RANGE), the steepest slope
+  divided by the step height: an edge blurred by sigma scores about 0.4/sigma,
+  whatever the edge count or contrast. edge_p50 is the median over those
+  tiles. The same ratio along x and along y alone gives the motion signal:
+  x_weaker_share is the share of edge tiles whose horizontal slope is the
+  weaker one, axis_ratio_p50 the median weaker/stronger. Shake and vehicle
+  motion in this data smear horizontally: 0.95-1.00 for every motion-blurred
+  photo in the 2026-11-03 review set, 0.17-0.92 for nearly all sharp ones.
+  The version 1 fields stay, so documents of both versions compare.
 
 Any size is measured; the cost is bounded by WORK_AREA. The backfill skips
 the curated camera work (image_metrics_backfill.py BACKFILL_MAX_SOURCE_WIDTH),
@@ -45,8 +57,8 @@ import cv2
 import numpy as np
 import pyvips
 
-VERSION = 1
-ALGORITHM = "laplacian-tiles+directional"
+VERSION = 2
+ALGORITHM = "laplacian-tiles+directional+edge-width"
 
 
 WORK_AREA = 2_000_000      # working size in pixels, ~1630×1225 for 4:3
@@ -56,6 +68,9 @@ MASK_MAX_FRACTION = 0.10   # a tile more than this covered by anonymization boxe
 MASK_PAD = 0.10            # boxes grow by this fraction of their size: the blur bleeds past the box edge
 MASK_PAD_MIN_PX = 4        # ...and by at least this many working pixels
 DIRECTIONAL_SIGMA = 1.5    # Gaussian pre-smoothing for the directional terms (working pixels)
+EDGE_SIGMA = 0.7           # pre-smoothing for the edge slopes: tames pixel noise, widens every edge alike
+EDGE_MIN_RANGE = 0.12      # grey range (p2..p98, 0..1) a tile needs to contain a real step
+EDGE_SLOPE_PERCENTILE = 99.5   # the tile's steepest slope, robust to single hot pixels
 
 
 def load_work_image(data: bytes, width: int, height: int) -> pyvips.Image:
@@ -113,6 +128,38 @@ def _tile_stats(values: np.ndarray, rows: int, cols: int) -> np.ndarray:
 	return values.reshape(rows, TILE, cols, TILE).mean(axis=(1, 3))
 
 
+def _tiles(values: np.ndarray, rows: int, cols: int) -> np.ndarray:
+	"""(rows*TILE, cols*TILE) → (rows, cols, TILE*TILE): each tile's pixels in one row."""
+	return values.reshape(rows, TILE, cols, TILE).transpose(0, 2, 1, 3).reshape(rows, cols, TILE * TILE)
+
+
+def _edge_stats(g: np.ndarray, unmasked: np.ndarray, rows: int, cols: int) -> dict:
+	"""Edge-width statistics over the unmasked tiles that contain a real step (see the module doc)."""
+	smooth = cv2.GaussianBlur(g, (0, 0), EDGE_SIGMA)
+	gx = cv2.Sobel(smooth, cv2.CV_32F, 1, 0, ksize=3) / 8   # /8: Sobel's weights, so slopes are per pixel
+	gy = cv2.Sobel(smooth, cv2.CV_32F, 0, 1, ksize=3) / 8
+	lo, hi = np.percentile(_tiles(smooth, rows, cols), [2, 98], axis=2)
+	step = hi - lo
+	edged = unmasked & (step >= EDGE_MIN_RANGE)
+	if not edged.any():
+		return {"edge_tiles": 0}
+	step = step[edged]
+
+	def slope(values):
+		return np.percentile(_tiles(values, rows, cols)[edged], EDGE_SLOPE_PERCENTILE, axis=1) / step
+
+	e = slope(np.hypot(gx, gy))
+	ex, ey = slope(np.abs(gx)), slope(np.abs(gy))
+	axis_ratio = np.minimum(ex, ey) / np.maximum(np.maximum(ex, ey), 1e-6)
+	return {
+		"edge_tiles": int(edged.sum()),
+		"edge_p50": round(float(np.median(e)), 4),
+		"edge_p90": round(float(np.percentile(e, 90)), 4),
+		"axis_ratio_p50": round(float(np.median(axis_ratio)), 4),
+		"x_weaker_share": round(float((ex < ey).mean()), 4),
+	}
+
+
 def measure_grey(grey: np.ndarray, mask: np.ndarray | None = None) -> dict:
 	"""The sharpness document for one grey image (and optional exclusion mask) at working size."""
 	h, w = grey.shape
@@ -150,6 +197,7 @@ def measure_grey(grey: np.ndarray, mask: np.ndarray | None = None) -> dict:
 
 	doc["tiles_used"] = int(used.sum())
 	doc["textured_fraction"] = round(float(textured[unmasked].mean()) if unmasked.any() else 0.0, 4)
+	doc.update(_edge_stats(g, unmasked, rows, cols))
 	if not used.any():
 		return doc
 

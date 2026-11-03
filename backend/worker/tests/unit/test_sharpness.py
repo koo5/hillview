@@ -123,3 +123,38 @@ def test_load_work_image_caps_area():
 	assert abs(work.width * work.height - sharpness.WORK_AREA) / sharpness.WORK_AREA < 0.01
 	small = sharpness.load_work_image(cv2.imencode(".png", img[:300, :400])[1].tobytes(), 400, 300)
 	assert (small.width, small.height) == (400, 300)   # never enlarged
+
+
+def _clean_scene(h=768, w=1024, seed=3):
+	"""Flat patches with crisp edges and little texture: a wall, a bin, mesh."""
+	rng = np.random.default_rng(seed)
+	img = np.full((h, w), 0.5, np.float32)
+	for _ in range(60):
+		x, y = int(rng.integers(0, w - 80)), int(rng.integers(0, h - 80))
+		img[y:y + int(rng.integers(20, 80)), x:x + int(rng.integers(20, 80))] = float(rng.uniform(0.1, 0.9))
+	return img
+
+
+def test_edge_width_falls_with_defocus_not_with_sparse_edges():
+	clean = sharpness.measure_grey(_clean_scene())
+	soft = sharpness.measure_grey(cv2.GaussianBlur(_clean_scene(), (0, 0), 3.0))
+	assert clean["edge_tiles"] > 0 and soft["edge_tiles"] > 0
+	assert soft["edge_p50"] < 0.5 * clean["edge_p50"]
+	# sparse crisp edges keep a high edge score, whatever the texture energy says
+	assert clean["edge_p50"] > 0.3
+
+
+@pytest.mark.parametrize("horizontal, weaker_x", [(True, True), (False, False)])
+def test_edge_slopes_find_the_smear_axis(horizontal, weaker_x):
+	sharp = sharpness.measure_grey(_clean_scene())
+	smeared = sharpness.measure_grey(_motion(_clean_scene(), length=15, horizontal=horizontal))
+	assert 0.2 < sharp["x_weaker_share"] < 0.8
+	if weaker_x:
+		assert smeared["x_weaker_share"] > 0.9
+	else:
+		assert smeared["x_weaker_share"] < 0.1
+	assert smeared["axis_ratio_p50"] < sharp["axis_ratio_p50"]
+
+
+def test_flat_image_has_no_edge_tiles():
+	assert sharpness.measure_grey(np.full((512, 512), 0.5, np.float32))["edge_tiles"] == 0
