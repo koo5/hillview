@@ -31,8 +31,17 @@ describe('Hillview filter state', () => {
 		expect(get(store.hasActiveAnalysisFilters)).toBe(false);
 		expect(JSON.parse(store.buildFiltersQueryParam()!)).toEqual({
 			analysis: store.normalizeFilters({}).analysis,
-			properties: { min_width: 4000 }
+			properties: { min_width: 4000, not_blurry: false, blurry: false }
 		});
+	});
+
+	it('counts the blur flags as property filters and fills them in for older saved filters', async () => {
+		const store = await loadFilters({ properties: { min_width: null, not_blurry: true, blurry: false } });
+		expect(get(store.activeFilterCount)).toBe(1);
+		expect(get(store.hasActiveAnalysisFilters)).toBe(false);
+		expect(JSON.parse(store.buildFiltersQueryParam()!).properties.not_blurry).toBe(true);
+		expect(store.normalizeFilters({ properties: { min_width: 3000 } }).properties)
+			.toEqual({ min_width: 3000, not_blurry: false, blurry: false });
 	});
 
 	it('preserves nested analysis and property filters, then clears both', async () => {
@@ -61,7 +70,7 @@ describe('Hillview filter state', () => {
 		const listener = vi.fn();
 		const stopWorker = store.filters.subscribe(() => listener(store.buildFiltersQueryParam()));
 		const stopBadge = store.hasActiveFilters.subscribe(() => {});
-		store.filters.update(f => ({ ...f, properties: { min_width: 3000 } }));
+		store.filters.update(f => ({ ...f, properties: { ...f.properties, min_width: 3000 } }));
 		expect(JSON.parse(listener.mock.lastCall![0]).properties.min_width).toBe(3000);
 		store.clearFilters();
 		expect(listener.mock.lastCall![0]).toBeNull();

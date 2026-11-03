@@ -47,3 +47,34 @@ it('keeps width when toggling analysis filters and enables the analysis option',
 	await fireEvent.click(unanalyzed);
 	expect(get(filters).analysis.show_unanalyzed).toBe(false);
 });
+
+it('toggles "Not blurry" as a property filter, independent of analysis', async () => {
+	render(FiltersModal);
+	const notBlurry = screen.getByRole('button', { name: 'Not blurry' });
+	await fireEvent.click(notBlurry);
+	expect(get(filters).properties.not_blurry).toBe(true);
+	expect(get(filters).properties.blurry).toBe(false);
+	// a property filter: does not enable the analysis-only "show unanalyzed" option
+	expect(screen.getByRole('checkbox', { name: 'Show unanalyzed photos' })).toBeDisabled();
+	expect(screen.getByRole('button', { name: 'Clear all filters' })).toBeEnabled();
+	await fireEvent.click(notBlurry);
+	expect(get(filters).properties.not_blurry).toBe(false);
+});
+
+it('hides the "Blurry" view outside DEV_MODE', () => {
+	vi.stubEnv('VITE_DEV_MODE', 'false');
+	render(FiltersModal);
+	expect(screen.queryByRole('button', { name: 'Blurry (dev)' })).toBeNull();
+	vi.unstubAllEnvs();
+});
+
+it('makes "Not blurry" and the DEV "Blurry" view exclusive', async () => {
+	vi.stubEnv('VITE_DEV_MODE', 'true');
+	render(FiltersModal);
+	await fireEvent.click(screen.getByRole('button', { name: 'Not blurry' }));
+	await fireEvent.click(screen.getByRole('button', { name: 'Blurry (dev)' }));
+	expect(get(filters).properties).toMatchObject({ not_blurry: false, blurry: true });
+	await fireEvent.click(screen.getByRole('button', { name: 'Clear all filters' }));
+	expect(get(filters).properties).toMatchObject({ not_blurry: false, blurry: false });
+	vi.unstubAllEnvs();
+});

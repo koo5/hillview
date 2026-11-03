@@ -17,6 +17,8 @@ export interface AnalysisFilters {
 
 export interface PropertyFilters {
     min_width: number | null; // orientation-corrected original width in pixels
+    not_blurry: boolean; // hide photos the backend judged blurry (photos.blurry); unjudged ones stay
+    blurry: boolean; // DEV_MODE view: only photos judged blurry
 }
 
 // Hillview photo filters, shared by the map and timeline.

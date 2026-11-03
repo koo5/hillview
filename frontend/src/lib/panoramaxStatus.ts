@@ -31,6 +31,7 @@ export const PANORAMAX_GATE_TEXT: Record<string, string> = {
 	capture_time: 'it has no capture time',
 	renditions: 'it has no renditions',
 	location_accuracy: 'its location fix is too inaccurate',
+	blurry: 'it was judged blurry',
 	owner_inactive: 'the owner’s account is inactive',
 	thumbs_down: 'it has a thumbs-down rating',
 	unresolved_flag: 'it has an unresolved flag',

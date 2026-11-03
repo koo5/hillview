@@ -56,6 +56,10 @@ from panoramax.app.eligibility import ELIGIBLE_PHOTO_WHERE
     ({'location_accuracy_m': 5.1}, {}, False),
     ({'location_accuracy_m': 21.3}, {}, False),
     ({'location_accuracy_m': None}, {}, True),
+    # Judged blurry stays out; unjudged (curated wide sources, unmeasured uploads) passes.
+    ({'blurry': True}, {}, False),
+    ({'blurry': False}, {}, True),
+    ({'blurry': None}, {}, True),
     ({}, {'is_active': False}, False),
     # Test users are federated like anyone: the automated suites rely on it.
     ({}, {'is_test': True}, True),

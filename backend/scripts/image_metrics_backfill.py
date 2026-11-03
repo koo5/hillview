@@ -6,21 +6,28 @@ Backfill photos.image_metrics.sharpness — the DB ends of a three-step pipeline
 	uv run --frozen --package hillview-tests scripts/image_metrics_backfill.py export > todo.jsonl
 	(worker) sharpness_cli.py todo.jsonl results.jsonl
 	uv run --frozen --package hillview-tests scripts/image_metrics_backfill.py apply results.jsonl
+	uv run --frozen --package hillview-tests scripts/image_metrics_backfill.py classify   # after retuning the rule
 
 The middle step lives in the worker and never touches the database; this
 script only reads rows out and writes results back. Needs DATABASE_URL.
 
 export: completed, undeleted photos with a full variant and no sharpness yet
 (--remeasure: all of them; --below-version N: those measured by an older
-version), narrower than BACKFILL_MAX_SOURCE_WIDTH unless --include-large. Each line carries the full variant's URL and pixel size, the frame
-the detections are in, and EVERY recorded detection box. All boxes are masked,
+version), narrower than BACKFILL_MAX_SOURCE_WIDTH unless --include-large.
+Each line carries the full variant's URL and pixel size, the frame the
+detections are in, and EVERY recorded detection box. All boxes are masked,
 not only those flagged blurred: older photos were anonymized under earlier
 thresholds and the normalized flag reconstructs, not records, what was painted.
 
 apply: writes each result's sharpness document (plus the URL it was measured
-on and when) into image_metrics->'sharpness', leaving other keys alone. Error
+on and when) into image_metrics->'sharpness', leaving other keys alone, and
+the verdict common/image_quality.py derives from it into photos.blurry. Error
 lines are skipped. Neither UPDATE trigger on photos looks at image_metrics, so
 this does not bump content_updated_at or Panoramax sequences.
+
+classify: re-derives photos.blurry from the stored sharpness documents, for
+after the rule in common/image_quality.py changes. Nothing is re-measured;
+only rows whose verdict changes are written.
 """
 
 import argparse
@@ -46,6 +53,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from sqlalchemy import select, func, or_, text, Integer
 from common.database import SessionLocal
 from common.models import Photo
+from common.image_quality import is_blurry, BLUR_RULE_VERSION
 
 BATCH = 500
 
@@ -121,7 +129,7 @@ async def apply(args):
 				bad += 1
 				continue
 			doc = {**row["sharpness"], "source_url": row.get("url"), "measured_at": measured_at}
-			params.append({"id": row["id"], "doc": json.dumps(doc)})
+			params.append({"id": row["id"], "doc": json.dumps(doc), "blurry": is_blurry(doc)})
 
 	print(f"{len(params)} results to apply, {errors} error lines skipped, {bad} malformed", file=sys.stderr)
 	if args.dry_run or not params:
@@ -129,7 +137,8 @@ async def apply(args):
 
 	stmt = text("""
 		UPDATE photos
-		SET image_metrics = coalesce(image_metrics, '{}'::jsonb) || jsonb_build_object('sharpness', CAST(:doc AS jsonb))
+		SET image_metrics = coalesce(image_metrics, '{}'::jsonb) || jsonb_build_object('sharpness', CAST(:doc AS jsonb)),
+			blurry = :blurry
 		WHERE id = :id
 	""")
 	updated = 0
@@ -140,6 +149,26 @@ async def apply(args):
 			await db.commit()
 			updated += len(batch)
 			print(f"  {updated}/{len(params)}", file=sys.stderr)
+
+
+async def classify(args):
+	async with SessionLocal() as db:
+		rows = (await db.execute(
+			select(Photo.id, Photo.image_metrics['sharpness'], Photo.blurry)
+			.where(Photo.image_metrics['sharpness'].isnot(None))
+		)).all()
+	changes = [{"id": photo_id, "blurry": verdict} for photo_id, doc, current in rows
+			   if (verdict := is_blurry(doc)) is not current]
+	flagged = sum(1 for _, doc, _ in rows if is_blurry(doc))
+	print(f"rule v{BLUR_RULE_VERSION}: {flagged}/{len(rows)} measured photos blurry "
+		  f"({100 * flagged / max(len(rows), 1):.1f}%), {len(changes)} verdicts change", file=sys.stderr)
+	if args.dry_run or not changes:
+		return
+	stmt = text("UPDATE photos SET blurry = :blurry WHERE id = :id")
+	async with SessionLocal() as db:
+		for i in range(0, len(changes), BATCH):
+			await db.execute(stmt, changes[i:i + BATCH])
+			await db.commit()
 
 
 def main():
@@ -159,8 +188,11 @@ def main():
 	ap.add_argument("results", help="results JSONL, or - for stdin")
 	ap.add_argument("--dry-run", action="store_true")
 
+	cl = sub.add_parser("classify", help="re-derive photos.blurry from stored sharpness")
+	cl.add_argument("--dry-run", action="store_true")
+
 	args = parser.parse_args()
-	asyncio.run(export(args) if args.command == "export" else apply(args))
+	asyncio.run({"export": export, "apply": apply, "classify": classify}[args.command](args))
 
 
 if __name__ == "__main__":

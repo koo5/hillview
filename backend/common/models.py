@@ -68,6 +68,8 @@ class Photo(Base):
 	__table_args__ = (
 		Index('ix_photos_owner_effective_at_filename_id', 'owner_id', 'effective_at',
 			func.coalesce(text('original_filename'), ''), 'id'),
+		# Migration 043: the DEV "blurry" filter view; "not blurry" is most rows.
+		Index('ix_photos_blurry', 'id', postgresql_where=text('blurry')),
 	)
 
 	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
@@ -147,6 +149,9 @@ class Photo(Base):
 	# metric family: {"sharpness": {"version": 1, ...}} (worker/sharpness.py).
 	# Kept apart from analysis, whose version stamp the LLM analyzer owns.
 	image_metrics: Mapped[Optional[dict]] = mapped_column(JSONB)
+	# Blur verdict derived from image_metrics by common/image_quality.py
+	# is_blurry; NULL = not judged. Partial index ix_photos_blurry (WHERE blurry).
+	blurry: Mapped[Optional[bool]] = mapped_column(Boolean)
 	# Terrain overlay graduated from the enrichment workbench: fitted horizon
 	# line + visible peak labels, baked to vectors (no depth buffer). Tens of
 	# KB — served only by GET /photos/{id}/terrain-overlay, never inlined.

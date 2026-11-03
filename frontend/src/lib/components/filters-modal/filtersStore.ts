@@ -1,6 +1,6 @@
 import { writable, derived, get } from 'svelte/store';
 import { localStorageReadOnceSharedStore } from '$lib/svelte-shared-store';
-import type { AnalysisFilters, QueryOptions } from '$lib/photoWorkerTypes';
+import type { AnalysisFilters, PropertyFilters, QueryOptions } from '$lib/photoWorkerTypes';
 
 const defaultAnalysis: AnalysisFilters = {
 	time_of_day: null,
@@ -16,11 +16,13 @@ const defaultAnalysis: AnalysisFilters = {
 
 // Older installations stored analysis fields directly at the top level.
 // The storage helper replaces defaults, so normalize before exposing the store.
-export function normalizeFilters(value: Partial<QueryOptions> | Partial<AnalysisFilters>): QueryOptions {
-	const saved = value as Partial<QueryOptions> & Partial<AnalysisFilters>;
+// Saved values may also predate a field (the blur flags), hence partial properties.
+type SavedFilters = { analysis?: Partial<AnalysisFilters>; properties?: Partial<PropertyFilters> };
+export function normalizeFilters(value: SavedFilters | Partial<AnalysisFilters>): QueryOptions {
+	const saved = value as SavedFilters & Partial<AnalysisFilters>;
 	return {
 		analysis: { ...defaultAnalysis, ...('analysis' in saved || 'properties' in saved ? saved.analysis : saved) },
-		properties: { min_width: null, ...saved.properties }
+		properties: { min_width: null, not_blurry: false, blurry: false, ...saved.properties }
 	};
 }
 
@@ -49,8 +51,12 @@ function countAnalysisFilters(analysis: AnalysisFilters): number {
 	return count;
 }
 
+function countPropertyFilters(properties: QueryOptions['properties']): number {
+	return (properties.min_width !== null ? 1 : 0) + (properties.not_blurry ? 1 : 0) + (properties.blurry ? 1 : 0);
+}
+
 function countFilters({ analysis, properties }: QueryOptions): number {
-	return countAnalysisFilters(analysis) + (properties.min_width !== null ? 1 : 0);
+	return countAnalysisFilters(analysis) + countPropertyFilters(properties);
 }
 
 export const activeAnalysisFilterCount = derived(filters, ({ analysis }) => countAnalysisFilters(analysis));

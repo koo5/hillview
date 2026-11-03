@@ -36,6 +36,12 @@ readers take the position as given. An unknown radius passes, since no photo
 captured before 2026-09-13 carries one. The radius is photos.location_accuracy_m
 (migration 039), and exif_data changes don't bump the sequence either, so a
 change reaches the catalog on the sequencer's cadence like the ratings above.
+
+A photo judged blurry (photos.blurry, common/image_quality.py: shake, motion
+smear, nothing in focus) stays out too. An unjudged one passes: the curated
+camera work wider than 8000 px is deliberately left unmeasured, and uploads
+wait for the worker. Verdict changes are batch writes that do not bump the
+sequence, so they reach the catalog on the sequencer's cadence as well.
 """
 
 MAX_LOCATION_ACCURACY_M = 5
@@ -71,6 +77,7 @@ GATES: list[tuple[str, str]] = [
 	('capture_time', "p.effective_at IS NOT NULL AND p.captured_at IS NOT NULL"),
 	('renditions', "p.sizes IS NOT NULL"),
 	('location_accuracy', f"COALESCE(p.location_accuracy_m, 0) <= {MAX_LOCATION_ACCURACY_M}"),
+	('blurry', "p.blurry IS NOT TRUE"),
 	('owner_inactive', "u.is_active = true"),
 	('thumbs_down', """NOT EXISTS (
 		SELECT 1 FROM photo_ratings pr
