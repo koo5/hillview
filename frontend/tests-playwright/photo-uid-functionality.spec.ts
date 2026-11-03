@@ -289,7 +289,6 @@ test.describe('Photo UID Functionality', () => {
       const { errors } = collectErrors(page);
 
       await page.goto('/?lat=50.0755&lon=14.4378&zoom=18');
-      await page.waitForTimeout(1000);
 
       // Should work normally without photo parameter
       await expect(page.locator('.leaflet-container')).toBeVisible();

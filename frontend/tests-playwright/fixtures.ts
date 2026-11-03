@@ -127,7 +127,10 @@ export const test = base.extend<{ testUsers: TestUserSetupResult; panoramaxDefau
 		// back to racing the app.
 		const goto = page.goto.bind(page);
 		page.goto = async (url: string, options?: any) => {
-			const response = await goto(url, options);
+			// Map tiles can remain pending after the app is ready, blocking `load`
+			// indefinitely. Use DOM readiness plus the app markers below instead.
+			// Tests can still explicitly request another navigation milestone.
+			const response = await goto(url, { ...options, waitUntil: options?.waitUntil ?? 'domcontentloaded' });
 			await page.waitForFunction(
 				() => {
 					const html = document.documentElement;
