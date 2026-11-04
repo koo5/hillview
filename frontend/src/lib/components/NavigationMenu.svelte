@@ -211,7 +211,7 @@
 
 			{#if !TAURI}
 				<li>
-					<a href="/download" data-external-link="true" target="_blank" rel="noopener noreferrer">
+					<a href="/download" on:click={closeMenu}>
 						<Download size={18}/>
 						Download App
 					</a>
