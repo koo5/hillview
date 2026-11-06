@@ -97,6 +97,37 @@ class PhotoUploadLogic(internal val context: Context) {
 	@Volatile
 	private var pinnedWorkerMachine: String? = null
 
+	// The client for a user-pinned worker (WorkerOverride.kt), built once per
+	// pin rather than per photo: an SSLContext and a fresh connection pool
+	// each upload would undo the keep-alive the drain relies on.
+	@Volatile
+	private var pinnedWorkerClient: Pair<WorkerOverride, OkHttpClient>? = null
+
+	/**
+	 * The last worker contact, for the upload-status page (WorkerOverride.kt's
+	 * PREF_LAST_WORKER_*), and — when it went wrong — the in-app event log, so a
+	 * worker that refuses a pinned certificate or cannot be reached says so on
+	 * the phone, not only in logcat. Successes stay out of the event log: one
+	 * line per photo would push everything else out of its ring.
+	 */
+	private fun noteWorker(url: String, outcome: String, failed: Boolean) {
+		recordWorkerContact(prefs, url, outcome, failed)
+		if (failed) EventLog.record("upload", "worker $url: $outcome")
+	}
+
+	/** The worker to upload to and the client to reach it with — see WorkerOverride.kt. */
+	private fun workerTarget(serverWorkerUrl: String): Pair<String, OkHttpClient> {
+		val override = readWorkerOverride(prefs) ?: return serverWorkerUrl to client
+		Log.d(TAG, "Worker override: ${override.url} instead of $serverWorkerUrl" +
+			(if (override.pinnedCertDer != null) " (pinned certificate)" else ""))
+		val pin = override.pinnedCertDer ?: return override.url to client
+		val cached = pinnedWorkerClient
+		if (cached != null && cached.first == override) return override.url to cached.second
+		val built = pinnedClient(client, pin)
+		pinnedWorkerClient = override to built
+		return override.url to built
+	}
+
 	private val prefs: SharedPreferences by lazy { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
 	private val authManager by lazy { AuthenticationManager(context) }
 
@@ -185,11 +216,20 @@ class PhotoUploadLogic(internal val context: Context) {
 				// (getUploadableCandidates) + backoff via isEligibleNow.
 				// Validation drops are loop-only, so N can be a touch high, never low.
 				val nowSnap = System.currentTimeMillis()
-				val total = photoDao.getUploadableCandidates(
+				// Three columns, not whole rows: the full-row query brought every
+				// candidate's raw IMU window into memory just to count it, and a
+				// 5385-photo queue was an OutOfMemoryError (2026-11-06). See
+				// SimplePhotoDao.getUploadableCandidateStates.
+				//val total = photoDao.getUploadableCandidates(
+				//	nowSnap - 1000 * 60 * 10,
+				//	nowSnap - 1000 * 60 * 60,
+				//	nowSnap
+				//).count { isEligibleNow(it, triggerSource, nowSnap) }
+				val total = photoDao.getUploadableCandidateStates(
 					nowSnap - 1000 * 60 * 10,
 					nowSnap - 1000 * 60 * 60,
 					nowSnap
-				).count { isEligibleNow(it, triggerSource, nowSnap) }
+				).count { isEligibleNow(it.uploadStatus, it.lastUploadAttempt, it.retryCount, triggerSource, nowSnap) }
 
 				var workerBusy = false
 				var networkDeferred = false
@@ -453,7 +493,9 @@ class PhotoUploadLogic(internal val context: Context) {
 				// getNextPhotoForUpload query — and ExistingWorkPolicy.KEEP
 				// silently dropped the capture triggers that arrived in that
 				// window, leaving the session's last photo stuck in "pending".
-				if (photoDao.getProcessingPhotos().isNotEmpty()) {
+				//if (photoDao.getProcessingPhotos().isNotEmpty()) {
+				// EXISTS, not the rows: whole rows carry the raw IMU window (see above).
+				if (photoDao.hasProcessingPhotos()) {
 					PhotoUploadManager(context).schedulePostUploadStatusSync()
 				}
 
@@ -946,7 +988,10 @@ class PhotoUploadLogic(internal val context: Context) {
 		// renditions — `exif_data` is read wholesale on every detail request
 		// and has no business carrying a time series.
 		// docs/recon-capture-metadata.md, Phase 5.
-		photo.imuSamplesJson?.let {
+		//photo.imuSamplesJson?.let {
+		// Read by id from its own table since v32 (PhotoImuSamplesEntity): the
+		// column on the row is retired and always null.
+		photoDao.getImuSamplesJson(photo.id)?.let {
 			try {
 				put("imu_samples", JSONObject(it))
 			} catch (e: Exception) {
@@ -979,11 +1024,15 @@ class PhotoUploadLogic(internal val context: Context) {
 		filename: String,
 		uploadJwt: String,
 		signature: String,
-		workerUrl: String,
+		serverWorkerUrl: String,
 		photoId: String,
 		anonymizationOverride: String? = null,
 		metadata: String? = null
 	): Boolean {
+		// The worker authorize-upload named, unless the user overrode it (frontend2
+		// settings → Worker URL); workerClient trusts that worker's pinned
+		// certificate, if it has one. Everything below talks to these two.
+		val (workerUrl, workerClient) = workerTarget(serverWorkerUrl)
 		// Pre-flight readiness check — /ready returns 503 only when the WHOLE
 		// fleet is saturated (a single busy machine's 503 carries fly-replay and
 		// the edge re-runs the preflight on a sibling before we ever see it).
@@ -995,10 +1044,14 @@ class PhotoUploadLogic(internal val context: Context) {
 				.url("$workerUrl/ready")
 				.get()
 			pinnedWorkerMachine?.let { readyBuilder.addHeader("fly-force-instance-id", it) }
-			client.newCall(readyBuilder.build()).execute().use { readyResponse ->
+			workerClient.newCall(readyBuilder.build()).execute().use { readyResponse ->
 				if (readyResponse.code == 503) {
 					pinnedWorkerMachine = null
+					noteWorker(workerUrl, "ready: HTTP 503 (queue full)", failed = true)
 					throw WorkerBusyException("Worker upload queue is full (readiness check)")
+				}
+				if (readyResponse.code != 200 && readyResponse.code != 404) {
+					noteWorker(workerUrl, "ready: HTTP ${readyResponse.code}", failed = true)
 				}
 				if (readyResponse.code == 200) {
 					try {
@@ -1020,6 +1073,7 @@ class PhotoUploadLogic(internal val context: Context) {
 			// outright) — drop the pin so the next attempt re-discovers.
 			pinnedWorkerMachine = null
 			Log.w(TAG, "Readiness check failed for $workerUrl, proceeding with upload: ${e.message}")
+			noteWorker(workerUrl, "ready: ${describeFailure(e)}", failed = true)
 		}
 
 		val mediaType = PhotoUtils.getContentType(filename).toMediaType()
@@ -1076,17 +1130,19 @@ class PhotoUploadLogic(internal val context: Context) {
 		}
 
 		try {
-			client.newCall(request).execute().use { response ->
+			workerClient.newCall(request).execute().use { response ->
 				if (response.code == 503) {
 					pinnedWorkerMachine = null
 					val error = response.body?.string() ?: "Unknown error"
 					Log.w(TAG, "Worker rejected upload as busy: $error")
+					noteWorker(workerUrl, "upload: HTTP 503 (queue full)", failed = true)
 					throw WorkerBusyException("Worker upload queue is full")
 				}
 
 				if (!response.isSuccessful) {
 					val error = response.body?.string() ?: "Unknown error"
 					Log.e(TAG, "Worker upload failed: ${response.code} - $error")
+					noteWorker(workerUrl, "upload: HTTP ${response.code} ${error.take(120)}", failed = true)
 					return false
 				}
 
@@ -1095,24 +1151,30 @@ class PhotoUploadLogic(internal val context: Context) {
 
 				if (success) {
 					Log.d(TAG, "✅ Secure upload completed: $filename")
+					noteWorker(workerUrl, "uploaded $filename", failed = false)
 				} else {
 					val errorMsg = responseJson.optString("error", "Unknown worker error")
 					Log.e(TAG, "❌ Secure upload $filename failed: $errorMsg")
+					noteWorker(workerUrl, "upload refused: ${errorMsg.take(120)}", failed = true)
 				}
 
 				return success
 			}
 		} catch (e: java.net.ConnectException) {
 			Log.e(TAG, "❌ Cannot reach worker server for $filename: ${e.message}")
+			noteWorker(workerUrl, "upload: ${describeFailure(e)}", failed = true)
 			return false
 		} catch (e: java.net.SocketTimeoutException) {
 			Log.e(TAG, "⏱️ Worker upload timeout for $filename: ${e.message}")
+			noteWorker(workerUrl, "upload: ${describeFailure(e)}", failed = true)
 			return false
 		} catch (e: java.net.UnknownHostException) {
 			Log.e(TAG, "🔍 Cannot resolve worker hostname for $filename: ${e.message}")
+			noteWorker(workerUrl, "upload: ${describeFailure(e)}", failed = true)
 			return false
 		} catch (e: IOException) {
 			Log.e(TAG, "📡 Network I/O error during worker upload for $filename: ${e.message}")
+			noteWorker(workerUrl, "upload: ${describeFailure(e)}", failed = true)
 			return false
 		} finally {
 			heartbeatJob.cancel()
@@ -1189,9 +1251,19 @@ class PhotoUploadLogic(internal val context: Context) {
      * count's denominator so they can't drift. Pure — no DB writes / file I/O
      * (unlike validatePhotoForUpload).
      */
-    private fun isEligibleNow(photo: PhotoEntity, triggerSource: String, now: Long): Boolean {
-        if (photo.uploadStatus == "failed" && triggerSource != "retry_button") {
-            if (now - photo.lastUploadAttempt < calculateBackoffTime(photo.retryCount)) return false
+    private fun isEligibleNow(photo: PhotoEntity, triggerSource: String, now: Long): Boolean =
+        isEligibleNow(photo.uploadStatus, photo.lastUploadAttempt, photo.retryCount, triggerSource, now)
+
+    /** The same predicate on just the columns it reads — for the drain's count, which must not load rows. */
+    private fun isEligibleNow(
+        uploadStatus: String,
+        lastUploadAttempt: Long,
+        retryCount: Int,
+        triggerSource: String,
+        now: Long,
+    ): Boolean {
+        if (uploadStatus == "failed" && triggerSource != "retry_button") {
+            if (now - lastUploadAttempt < calculateBackoffTime(retryCount)) return false
         }
         return true
     }
@@ -1209,7 +1281,10 @@ class PhotoUploadLogic(internal val context: Context) {
      * Sends batch request to POST /api/photos/status and updates local DB.
      */
     internal suspend fun syncProcessingPhotosStatus() = withContext(Dispatchers.IO) {
-        val processingPhotos = photoDao.getProcessingPhotos()
+        // Refs, not rows: thousands of photos in "processing" is normal, and whole
+        // rows carry the raw IMU window (SimplePhotoDao.getProcessingPhotoRefs).
+        //val processingPhotos = photoDao.getProcessingPhotos()
+        val processingPhotos = photoDao.getProcessingPhotoRefs()
 
         if (processingPhotos.isEmpty()) {
             Log.d(TAG, "No processing photos to sync")
@@ -1219,8 +1294,11 @@ class PhotoUploadLogic(internal val context: Context) {
         Log.d(TAG, "Syncing status for ${processingPhotos.size} processing photos")
 
         // Build map of serverPhotoId -> local photo for quick lookup (filter nulls)
-        val photosByServerId = processingPhotos.filter { it.serverPhotoId != null }.associateBy { it.serverPhotoId!! }
-        val serverPhotoIds = processingPhotos.mapNotNull { it.serverPhotoId }
+        //val photosByServerId = processingPhotos.filter { it.serverPhotoId != null }.associateBy { it.serverPhotoId!! }
+        //val serverPhotoIds = processingPhotos.mapNotNull { it.serverPhotoId }
+        // The query already excludes rows without a server id.
+        val photosByServerId = processingPhotos.associateBy { it.serverPhotoId }
+        val serverPhotoIds = processingPhotos.map { it.serverPhotoId }
 
         // Batch query server for statuses
         val serverStatuses = queryPhotoStatuses(serverPhotoIds)
@@ -1295,7 +1373,9 @@ class PhotoUploadLogic(internal val context: Context) {
      */
     private fun updatePhotosFromServerStatuses(
         serverStatuses: List<ServerPhotoStatus>,
-        photosByServerId: Map<String, PhotoEntity>
+        // Refs since 2026-11-06 — it reads only id, filename and retryCount.
+        //photosByServerId: Map<String, PhotoEntity>
+        photosByServerId: Map<String, ProcessingPhotoRef>
     ) {
         for (status in serverStatuses) {
             val localPhoto = photosByServerId[status.id] ?: continue
@@ -1335,8 +1415,10 @@ class PhotoUploadLogic(internal val context: Context) {
      * @return Number of photos updated
      */
     fun updatePhotoStatusesFromFrontend(statuses: List<ServerPhotoStatus>): Int {
-        val processingPhotos = photoDao.getProcessingPhotos()
-        val photosByServerId = processingPhotos.filter { it.serverPhotoId != null }.associateBy { it.serverPhotoId!! }
+        //val processingPhotos = photoDao.getProcessingPhotos()
+        //val photosByServerId = processingPhotos.filter { it.serverPhotoId != null }.associateBy { it.serverPhotoId!! }
+        // Refs, not rows — see syncProcessingPhotosStatus.
+        val photosByServerId = photoDao.getProcessingPhotoRefs().associateBy { it.serverPhotoId }
 
         var updatedCount = 0
         for (status in statuses) {

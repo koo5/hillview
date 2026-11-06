@@ -168,7 +168,7 @@
         <h2>Introduction</h2>
         <p>
             <strong>Where to start.</strong>
-            Browse the <b><a href="/bestof">best views</a></b>. Rate what you like. And when you're somewhere
+            Browse the <b><a href="/bestof">best views</a></b>, or <b><a href="/?filters_cat=1&filters_show_unanalyzed=0&lat=50&lon=12&zoom=4" data-testid="about-cats-europe-link">all cats in Europe</a></b>. Rate what you like. And when you're somewhere
             with a view — or just walking down a random street — <a href="/" class="take-photo-link" data-testid="about-take-photo-link" on:click|preventDefault={takePhoto}><Camera size={16} /><b>take a photo</b></a>.
             It's one tap on the camera icon on the main page, and it's already a contribution.
         </p>

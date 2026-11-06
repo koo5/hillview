@@ -11,7 +11,7 @@
 		Bug,
 		Maximize2,
 		Minimize2
-	, Mountain, Globe} from 'lucide-svelte';
+	, Mountain} from 'lucide-svelte';
 	import {
 		app,
 		sources,
@@ -597,7 +597,7 @@ import TimelinePanel from './TimelinePanel.svelte';
 	title="{showWorldPane ? 'Close 3D world' : 'Show 3D world'}"
 	data-testid="world-button"
 >
-	<Globe size={24} />
+	<span class="world-button-label">3D</span>
 </button>
 {/if}
 
@@ -899,6 +899,14 @@ import TimelinePanel from './TimelinePanel.svelte';
 	.world-button.active {
 		background: #3a7d44;
 		color: white;
+	}
+
+	.world-button-label {
+		font-size: 14px;
+		font-weight: 700;
+		line-height: 1;
+		letter-spacing: 0.02em;
+		user-select: none;
 	}
 
 	.world-button:hover {

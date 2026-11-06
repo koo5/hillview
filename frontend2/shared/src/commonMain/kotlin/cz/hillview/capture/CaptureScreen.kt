@@ -65,6 +65,8 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import cz.hillview.core.nowMs
+import cz.hillview.map.freshAt
+import cz.hillview.settings.overlapSpacing
 import kotlin.math.roundToInt
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -277,6 +279,9 @@ fun CaptureScreen(
     // it survives the gesture, so a stopped run remembers its own speed.
     // repeating is the running-run flag.
     var intervalIndex by rememberSaveable { mutableStateOf(0) }
+    // The ladder in force: the SfM rung only when opted into (Settings →
+    // SfM run). Indices below are into THIS list.
+    val ladder = remember(mapSettings.sfmRunEnabled) { intervalLadder(mapSettings.sfmRunEnabled) }
     var repeating by rememberSaveable { mutableStateOf(false) }
     var runCount by remember { mutableStateOf(0) }
 
@@ -318,7 +323,7 @@ fun CaptureScreen(
     }
 
     LaunchedEffect(repeating, intervalIndex) {
-        val runRung = INTERVAL_LADDER.getOrNull(intervalIndex) as? LadderRung.Every
+        val runRung = ladder.getOrNull(intervalIndex) as? LadderRung.Run
         if (!repeating || runRung == null) {
             // The original zeroes its badge when the run stops.
             runCount = 0
@@ -326,6 +331,11 @@ fun CaptureScreen(
         }
         val engaged = engageSportsIfAuto()
         try {
+        if (runRung is LadderRung.Overlap) {
+            runOverlap(capture, mapState, mapSettings.overlapSpacing()) { runCount++ }
+            return@LaunchedEffect
+        }
+        runRung as LadderRung.Every
         // An ABSOLUTE timeline. The loop used to sleep a fixed interval
         // AFTER each shot, so the real period was "interval + however long
         // issuing the shot took" and the error accumulated — a run could
@@ -502,7 +512,7 @@ fun CaptureScreen(
     var hoverIndex by remember { mutableStateOf(0) }
     var pointerFraction by remember { mutableStateOf<Float?>(null) }
     // What releasing would commit to, as a rung — the shutter previews it.
-    val armedRung = armedIndex?.let { INTERVAL_LADDER.getOrNull(it) }
+    val armedRung = armedIndex?.let { ladder.getOrNull(it) }
     // Why the last shutter press did nothing, shown briefly in the status
     // line. A press that is silently ignored is indistinguishable from a
     // dead button (field report: "does not react to long press anymore
@@ -561,7 +571,7 @@ fun CaptureScreen(
         // BEFORE the slide left commits to it.
         val zone = ladderBounds
         if (zone != null && zone.height > 0f) {
-            hoverIndex = rungIndexAt(pos.y, zone.top, zone.bottom)
+            hoverIndex = rungIndexAt(pos.y, zone.top, zone.bottom, ladder.size)
             pointerFraction =
                 ladderFractionAt(pos.y, zone.top, zone.bottom)
             if (overLadder) intervalIndex = hoverIndex
@@ -576,13 +586,13 @@ fun CaptureScreen(
         // rung starts a recording, any
         // interval rung starts a run. On
         // the button's side: nothing.
-        val rung = INTERVAL_LADDER.getOrNull(intervalIndex)
+        val rung = ladder.getOrNull(intervalIndex)
         when {
             overLadder && rung is LadderRung.Video -> {
                 videoEngaged = engageSportsIfAuto()
                 capture.startVideo()
             }
-            overLadder && rung is LadderRung.Every -> repeating = true
+            overLadder && rung is LadderRung.Run -> repeating = true
         }
     }
 
@@ -1192,6 +1202,7 @@ fun CaptureScreen(
                 (circle.left - paneOrigin.x).coerceAtLeast(0f).toDp()
             }
             IntervalLadder(
+                rungs = ladder,
                 hoverIndex = hoverIndex,
                 armed = armedIndex != null,
                 pointerFraction = pointerFraction,
@@ -1498,7 +1509,7 @@ fun CaptureScreen(
                             // what the bottom band should say.
                             ladderBounds?.let { zone ->
                                 val y = (clusterOrigin + down.position).y
-                                hoverIndex = rungIndexAt(y, zone.top, zone.bottom)
+                                hoverIndex = rungIndexAt(y, zone.top, zone.bottom, ladder.size)
                                 pointerFraction = ladderFractionAt(y, zone.top, zone.bottom)
                             }
                             ladderVisible = true
@@ -1566,7 +1577,7 @@ fun CaptureScreen(
                                     // previews its own future instead of
                                     // leaving it to a label off to the side.
                                     armedRung is LadderRung.Video -> Color(0xFFD32F2F)
-                                    armedRung is LadderRung.Every -> Color(0xFF4CAF50)
+                                    armedRung is LadderRung.Run -> Color(0xFF4CAF50)
                                     else -> Color(0xFF2196F3)
                                 },
                             )
@@ -1596,7 +1607,7 @@ fun CaptureScreen(
                                 when {
                                     state.recording -> "⏺"
                                     armedRung is LadderRung.Video -> "⏺"
-                                    armedRung is LadderRung.Every -> "▶"
+                                    armedRung is LadderRung.Run -> "▶"
                                     state.capturing && !repeating -> "…"
                                     else -> "📷"
                                 },
@@ -1613,7 +1624,7 @@ fun CaptureScreen(
                                     style = MaterialTheme.typography.labelSmall,
                                     color = Color.White,
                                 )
-                                armedRung is LadderRung.Every -> Text(
+                                armedRung is LadderRung.Run -> Text(
                                     armedRung.label,
                                     style = MaterialTheme.typography.labelLarge,
                                     color = Color.White,
@@ -1637,7 +1648,7 @@ fun CaptureScreen(
                         Text(
                             text = when {
                                 armedRung is LadderRung.Video -> "release: record"
-                                armedRung is LadderRung.Every ->
+                                armedRung is LadderRung.Run ->
                                     "release: start ${armedRung.label} run"
                                 // Pinned by ⏱ and nobody touching it yet.
                                 pointerFraction == null -> "tap an interval"
@@ -1648,7 +1659,7 @@ fun CaptureScreen(
                             style = MaterialTheme.typography.labelLarge,
                             color = when {
                                 armedRung is LadderRung.Video -> Color(0xFFFF5252)
-                                armedRung is LadderRung.Every -> Color(0xFF69F0AE)
+                                armedRung is LadderRung.Run -> Color(0xFF69F0AE)
                                 else -> Color(0xB3FFFFFF)
                             },
                             modifier = Modifier
@@ -2034,3 +2045,60 @@ private fun BearingTrackingHint(onEnable: () -> Unit, onDismiss: () -> Unit) {
         }
     }
 }
+
+/**
+ * The SfM rung's run: a shot whenever the camera has moved or turned far
+ * enough since the last one (OverlapTrigger), instead of on a timeline. The
+ * same shutter path as an interval run — wait out a shot in flight, meter,
+ * fire — and only the pacing differs.
+ *
+ * Distance comes from the fix's speed and the turn from the attitude, both
+ * read off the one state; nothing here opens a sensor. Each shot's reason is
+ * counted in the capture stats ("sfm moved" / "sfm turned" / "sfm heartbeat"),
+ * which is how a field run says which signal was actually pacing it.
+ */
+private suspend fun runOverlap(
+    capture: PhotoCapture,
+    mapState: cz.hillview.map.MapStateHolder,
+    spacing: OverlapSpacing,
+    onShot: () -> Unit,
+) = kotlinx.coroutines.coroutineScope {
+    val clock = TimeSource.Monotonic.markNow()
+    fun t() = clock.elapsedNow().inWholeMilliseconds
+    val odometer = Odometer()
+    val trigger = OverlapTrigger(spacing)
+    // Fixes are timed on ARRIVAL, on the same clock as the trigger, so the
+    // odometer and the gaps cannot disagree about when anything happened.
+    val fixes = launch {
+        mapState.lastFix.collect { fix ->
+            if (fix != null) odometer.onFix(t(), fix.speedMps, fix.speedAccuracyMps)
+        }
+    }
+    fun view(): ViewDirection? = mapState.deviceAttitude.value.freshAt(nowMs())
+        ?.let { ViewDirection(it.trueDeg, it.pitch) }
+    try {
+        while (true) {
+            var reason: OverlapReason?
+            while (true) {
+                reason = trigger.due(t(), odometer.metresAt(t()), view())
+                if (reason != null) break
+                delay(OVERLAP_POLL_MS)
+            }
+            while (capture.state.capturing) delay(15)
+            capture.prepareExposure()
+            capture.capture()
+            onShot()
+            trigger.shot(t(), odometer.metresAt(t()), view())
+            CaptureStatsLog.increment("sfm ${reason!!.label}", nowMs())
+        }
+    } finally {
+        fixes.cancel()
+    }
+}
+
+/**
+ * How often the SfM run asks whether a shot is due. A tenth of the fastest
+ * spacing a walk produces, and far under the 200 ms floor: the poll is a few
+ * multiplications.
+ */
+private const val OVERLAP_POLL_MS = 50L

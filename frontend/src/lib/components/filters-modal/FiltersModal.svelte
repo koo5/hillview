@@ -2,7 +2,7 @@
 	import Modal from '../Modal.svelte';
 	import { Sun, Moon, Sunrise, Home, Trees, RotateCcw } from 'lucide-svelte';
 	import { maxPhotosInArea } from '$lib/data.svelte';
-	import { filters, hasActiveFilters, hasActiveAnalysisFilters, clearFilters, filtersModalState, closeFiltersModal } from './filtersStore';
+	import { filters, hasActiveFilters, hasActiveAnalysisFilters, clearFilters, filtersModalState, closeFiltersModal, featureCategories } from './filtersStore';
 	import { track } from '$lib/analytics';
 
 	function setTimeOfDay(value: string | null) {
@@ -96,37 +96,7 @@
 		{ value: 'indoors', label: 'Indoors', icon: Home },
 	];
 
-	// All features organized by category (matching analyze_photo.py schema)
-	const featureCategories = [
-		{
-			name: 'Nature',
-			features: ['hill', 'mountain', 'river', 'stream', 'water_body', 'landscape', 'rock_outcrop', 'tree_lined_path', 'path', 'nature']
-		},
-		{
-			name: 'Urban',
-			features: ['street', 'building', 'cityscape', 'high_rise_building', 'church', 'playground', 'bench']
-		},
-		{
-			name: 'Structures',
-			features: ['bridge', 'tower', 'observation_tower', 'water_tower', 'cooling_tower', 'crane', 'curved_structure', 'mast']
-		},
-		{
-			name: 'Infrastructure',
-			features: ['lamp_post', 'powerline_pole', 'utility_pole', 'high_mast_lighting', 'row_of_streetlights', 'ev_charger']
-		},
-		{
-			name: 'Activity',
-			features: ['construction', 'roadworks', 'ski_slope', 'accident']
-		},
-		{
-			name: 'Animals',
-			features: ['cat', 'dog']
-		},
-		{
-			name: 'Other',
-			features: ['art', 'signage']
-		}
-	];
+	// featureCategories moved to filtersStore.ts (the URL filter parser validates against it)
 
 	// Helper to format feature names for display
 	function formatFeature(feature: string): string {

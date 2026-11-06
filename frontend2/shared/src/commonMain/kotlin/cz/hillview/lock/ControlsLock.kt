@@ -86,3 +86,24 @@ fun unlockKnobOffset(dragPx: Float, trackPx: Float): Float =
 /** Whether this much travel opens it. */
 fun unlockReached(dragPx: Float, trackPx: Float): Boolean =
     trackPx > 0f && dragPx >= trackPx * UNLOCK_TRAVEL_FRACTION
+
+/**
+ * How long the dim waits, at most, for a pin to take hold. Pinning puts up
+ * the system's own "Pin this app?" confirmation, and dimming at the moment of
+ * locking took the screen to the floor under it — unreadable outdoors, and
+ * it is the one thing on screen the user HAS to read (user, 2026-11-05:
+ * "there should be a delay like 10 seconds, because Android pops up a
+ * dialogue that the user first has to confirm"). A confirmed pin dims
+ * straight away; this covers the dialog declined, or never answered.
+ */
+const val DIM_AFTER_PIN_PROMPT_MS = 10_000L
+
+/** How often the dim asks whether the pin has taken hold yet. */
+const val PIN_POLL_MS = 250L
+
+/**
+ * Whether the lock may dim the screen yet, [sinceLockMs] after locking.
+ * Without pinning there is no dialog to read, so at once.
+ */
+fun dimNow(pinRequested: Boolean, pinned: Boolean, sinceLockMs: Long): Boolean =
+    !pinRequested || pinned || sinceLockMs >= DIM_AFTER_PIN_PROMPT_MS

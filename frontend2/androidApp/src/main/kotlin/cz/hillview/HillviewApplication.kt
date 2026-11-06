@@ -57,6 +57,8 @@ class HillviewApplication : Application() {
         // Retrospective, so this reports deaths that already happened — which is the
         // difference between "no crash" and "our handler never got the chance".
         cz.hillview.diag.CrashLog.recordSystemExitReasons(this)
+        // The heap over time, for the OOM a trace alone cannot explain (HeapLog).
+        cz.hillview.diag.HeapLog.start()
         // The UploadSettingsRepository (createdAtStart) materializes the
         // upload-settings prefs the shared-kt stack reads.
         initKoin {

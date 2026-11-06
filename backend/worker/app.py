@@ -70,6 +70,8 @@ from pathlib import Path
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, BackgroundTasks, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.exception_handlers import http_exception_handler
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -195,6 +197,29 @@ app = FastAPI(
 	version="1.0.1",
 	lifespan=lifespan,
 )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _log_unparseable_bodies(request: Request, exc: StarletteHTTPException):
+	"""Say WHY a body could not be parsed, then answer exactly as before.
+
+	FastAPI turns any exception while reading a form into a bare 400 "There was
+	an error parsing the body" and keeps the real one only as ``__cause__`` —
+	so the client sees nothing useful and neither does this log. Found
+	2026-11-06 with a phone whose every upload to a local worker came back like
+	that, with nothing on either side naming the cause. Starlette's own
+	multipart limits (part size, field count) arrive with their message in
+	``detail`` and need no help; this is for everything else.
+	"""
+	cause = exc.__cause__
+	if exc.status_code == 400 and cause is not None:
+		logger.warning(
+			f"{request.method} {request.url.path}: body not parsed — "
+			f"{type(cause).__name__}: {cause} "
+			f"(content-type={request.headers.get('content-type')!r}, "
+			f"content-length={request.headers.get('content-length')!r})"
+		)
+	return await http_exception_handler(request, exc)
 
 
 # CORS configuration

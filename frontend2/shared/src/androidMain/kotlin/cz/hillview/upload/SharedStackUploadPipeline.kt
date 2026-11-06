@@ -214,15 +214,29 @@ class SharedStackUploadPipeline(
                 // consecutive photos in a run tile rather than each carrying the
                 // same six seconds. Capped at the ring's capacity: a payload
                 // larger than the buffer that produced it did not come from here.
-                dao.updateImuSamplesJson(
-                    photoId,
+                //dao.updateImuSamplesJson(
+                //    photoId,
+                //    if (owned.size > cz.hillview.plugin.IMU_PAYLOAD_MAX_SAMPLES) {
+                //        Log.w(TAG, "IMU payload for $photoId is ${owned.size} samples, over the cap — dropped")
+                //        null
+                //    } else {
+                //        cz.hillview.plugin.imuSamplesPayloadJson(owned)
+                //    },
+                //)
+                // Its own table since v32 — see PhotoImuSamplesEntity. Same decision,
+                // two statements: a window to keep is put, none means none.
+                val samplesPayload =
                     if (owned.size > cz.hillview.plugin.IMU_PAYLOAD_MAX_SAMPLES) {
                         Log.w(TAG, "IMU payload for $photoId is ${owned.size} samples, over the cap — dropped")
                         null
                     } else {
                         cz.hillview.plugin.imuSamplesPayloadJson(owned)
-                    },
-                )
+                    }
+                if (samplesPayload == null) {
+                    dao.deleteImuSamples(photoId)
+                } else {
+                    dao.putImuSamples(cz.hillview.plugin.PhotoImuSamplesEntity(photoId, samplesPayload))
+                }
                 Log.i(
                     TAG,
                     "IMU window for $photoId: ${stats.sampleCount} samples " +

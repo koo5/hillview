@@ -176,6 +176,36 @@ interface SimplePhotoDao {
     """)
     fun getUploadableCandidates(uploadingStaleThreshold: Long, processingStaleThreshold: Long, now: Long): List<PhotoEntity>
 
+    /**
+     * [getUploadableCandidates]' predicate, but only the three columns the drain's
+     * progress denominator reads (2026-11-06).
+     *
+     * `SELECT *` here was an OutOfMemoryError at app start: every candidate row came
+     * back WHOLE, `imuSamplesJson` included — tens of kilobytes of raw IMU window per
+     * photo — just to be counted. With a 5385-photo queue that climbed the heap from
+     * 10 MB to the 256 MB limit in about twenty seconds (HeapLog, tracking queue 0),
+     * and whatever allocated next died: the photo-table dump's CSV cell, twice.
+     *
+     * Keep the WHERE clause in step with [getUploadableCandidates] and
+     * [getNextPhotoForUpload]; the full-row variant stays for the DAO tests that
+     * assert on it.
+     */
+    @Query("""
+        SELECT uploadStatus, lastUploadAttempt, retryCount FROM photos
+        WHERE deleted = 0 AND uploadHoldUntil <= :now
+          AND NOT EXISTS (
+              SELECT 1 FROM photo_outbox o
+              WHERE o.photoId = photos.id
+                AND o.kind = 'delete' AND o.valueJson IS NOT NULL
+          )
+          AND (
+            uploadStatus IN ('pending', 'failed') OR
+            (uploadStatus = 'uploading' AND lastUploadAttempt < :uploadingStaleThreshold) OR
+            (uploadStatus = 'processing' AND lastUploadAttempt < :processingStaleThreshold)
+        )
+    """)
+    fun getUploadableCandidateStates(uploadingStaleThreshold: Long, processingStaleThreshold: Long, now: Long): List<UploadCandidateState>
+
     @Query("SELECT COUNT(*) FROM photos WHERE uploadStatus = 'completed' AND deleted = 0")
     fun getCompletedUploadCount(): Int
 
@@ -256,9 +286,28 @@ interface SimplePhotoDao {
      * The raw window, written by the same deferred pass that finalises
      * `inertialJson` — the samples only exist to be read once the later half of
      * the window has happened. See PhotoEntity.imuSamplesJson.
+     *
+     * RETIRED in v32: the window lives in `photo_imu_samples` now — see
+     * [putImuSamples] and PhotoImuSamplesEntity. Commented out rather than kept so
+     * nothing can write the old column again.
      */
-    @Query("UPDATE photos SET imuSamplesJson = :imuSamplesJson WHERE id = :photoId")
-    fun updateImuSamplesJson(photoId: String, imuSamplesJson: String?)
+    //@Query("UPDATE photos SET imuSamplesJson = :imuSamplesJson WHERE id = :photoId")
+    //fun updateImuSamplesJson(photoId: String, imuSamplesJson: String?)
+
+    /**
+     * The raw window for [PhotoImuSamplesEntity.photoId], written by the same
+     * deferred pass that finalises `inertialJson`. Replaces any earlier window.
+     */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun putImuSamples(samples: PhotoImuSamplesEntity)
+
+    /** No window for this photo — what the writer records when it has none to keep. */
+    @Query("DELETE FROM photo_imu_samples WHERE photoId = :photoId")
+    fun deleteImuSamples(photoId: String)
+
+    /** The `imu_samples` payload for one photo, read at upload time — never in bulk. */
+    @Query("SELECT samplesJson FROM photo_imu_samples WHERE photoId = :photoId")
+    fun getImuSamplesJson(photoId: String): String?
 
     /**
      * Every hold, dropped. Called at app start: a refiner that was mid-flight
@@ -364,6 +413,26 @@ interface SimplePhotoDao {
     @Query("SELECT * FROM photos WHERE uploadStatus = 'processing' AND serverPhotoId IS NOT NULL AND deleted = 0")
     fun getProcessingPhotos(): List<PhotoEntity>
 
+    /**
+     * [getProcessingPhotos]' rows, cut to what the status sync reads (2026-11-06).
+     *
+     * Thousands of photos waiting in "processing" on the server is a normal state,
+     * and until v32 a whole row carried `imuSamplesJson` — tens of kilobytes of raw IMU
+     * window (now PhotoImuSamplesEntity). Loaded whole, that queue alone filled the
+     * 256 MB heap; see
+     * [getUploadableCandidateStates] for the crash that taught it.
+     */
+    @Query("SELECT id, filename, serverPhotoId, retryCount FROM photos WHERE uploadStatus = 'processing' AND serverPhotoId IS NOT NULL AND deleted = 0")
+    fun getProcessingPhotoRefs(): List<ProcessingPhotoRef>
+
+    /** The server ids of [getProcessingPhotos], and nothing else. */
+    @Query("SELECT serverPhotoId FROM photos WHERE uploadStatus = 'processing' AND serverPhotoId IS NOT NULL AND deleted = 0")
+    fun getProcessingServerPhotoIds(): List<String>
+
+    /** Whether [getProcessingPhotos] would return anything — without loading the rows. */
+    @Query("SELECT EXISTS(SELECT 1 FROM photos WHERE uploadStatus = 'processing' AND serverPhotoId IS NOT NULL AND deleted = 0)")
+    fun hasProcessingPhotos(): Boolean
+
     @Query("DELETE FROM photos WHERE id = :photoId")
     fun deletePhoto(photoId: String)
 
@@ -379,3 +448,26 @@ interface SimplePhotoDao {
     @Query("UPDATE photos SET anonymizationOverride = :override, version = version + 1, uploadStatus = 'pending' WHERE id = :photoId")
     fun updateAnonymizationOverride(photoId: String, override: String?)
 }
+
+/**
+ * The three columns the upload drain's backoff predicate reads — what
+ * [SimplePhotoDao.getUploadableCandidateStates] returns instead of whole rows.
+ * Room maps it by column name; it is not an entity.
+ */
+data class UploadCandidateState(
+    val uploadStatus: String,
+    val lastUploadAttempt: Long,
+    val retryCount: Int,
+)
+
+/**
+ * What the processing-status sync needs to know about a local photo — what
+ * [SimplePhotoDao.getProcessingPhotoRefs] returns instead of whole rows.
+ * `serverPhotoId` is non-null because the query selects only rows that have one.
+ */
+data class ProcessingPhotoRef(
+    val id: String,
+    val filename: String,
+    val serverPhotoId: String,
+    val retryCount: Int,
+)

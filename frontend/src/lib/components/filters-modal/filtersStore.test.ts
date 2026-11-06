@@ -78,3 +78,36 @@ describe('Hillview filter state', () => {
 		stopBadge();
 	});
 });
+
+describe('URL filters (filters_*)', () => {
+	const parse = async (query: string) => (await loadFilters()).filtersFromUrl(new URLSearchParams(query));
+
+	it('returns null when the URL names no filters, so saved filters are left alone', async () => {
+		expect(await parse('lat=50&lon=12&zoom=4')).toBeNull();
+	});
+
+	it('builds the all-cats link filter from defaults plus only what it names', async () => {
+		const store = await loadFilters({ time_of_day: 'night', features: ['hill'] });
+		const f = store.filtersFromUrl(new URLSearchParams('filters_cat=1&filters_show_unanalyzed=0&lat=50&lon=12&zoom=4'))!;
+		expect(f).toEqual(store.normalizeFilters({ analysis: { features: ['cat'], show_unanalyzed: false } }));
+	});
+
+	it('keeps show_unanalyzed at its default when the link does not set it', async () => {
+		const f = (await parse('filters_dog=1'))!;
+		expect(f.analysis.features).toEqual(['dog']);
+		expect(f.analysis.show_unanalyzed).toBe(true);
+	});
+
+	it('ORs several features without duplicates, and 0 does not add one', async () => {
+		const f = (await parse('filters_cat=1&filters_dog=true&filters_cat=1&filters_bench=0'))!;
+		expect(f.analysis.features).toEqual(['cat', 'dog']);
+	});
+
+	it('ignores unknown names and bad values instead of guessing (no plural mapping)', async () => {
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		const f = (await parse('filters_cats=1&filters_cat=yes&filters_show_unanalyzed=nope'))!;
+		expect(f).toEqual((await loadFilters()).normalizeFilters({}));
+		expect(warn).toHaveBeenCalledTimes(3);
+		warn.mockRestore();
+	});
+});

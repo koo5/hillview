@@ -94,3 +94,77 @@ export function openFiltersModal(): void {
 export function closeFiltersModal(): void {
 	filtersModalState.set({ visible: false });
 }
+
+// All features organized by category (matching analyze_photo.py schema)
+export const featureCategories = [
+	{
+		name: 'Nature',
+		features: ['hill', 'mountain', 'river', 'stream', 'water_body', 'landscape', 'rock_outcrop', 'tree_lined_path', 'path', 'nature']
+	},
+	{
+		name: 'Urban',
+		features: ['street', 'building', 'cityscape', 'high_rise_building', 'church', 'playground', 'bench']
+	},
+	{
+		name: 'Structures',
+		features: ['bridge', 'tower', 'observation_tower', 'water_tower', 'cooling_tower', 'crane', 'curved_structure', 'mast']
+	},
+	{
+		name: 'Infrastructure',
+		features: ['lamp_post', 'powerline_pole', 'utility_pole', 'high_mast_lighting', 'row_of_streetlights', 'ev_charger']
+	},
+	{
+		name: 'Activity',
+		features: ['construction', 'roadworks', 'ski_slope', 'accident']
+	},
+	{
+		name: 'Animals',
+		features: ['cat', 'dog']
+	},
+	{
+		name: 'Other',
+		features: ['art', 'signage']
+	}
+];
+
+// URL filters: links into the map can preset filters, e.g.
+//   /?filters_cat=1&filters_show_unanalyzed=0&lat=50&lon=12&zoom=4
+// Convention: every filter param is `filters_<name>`, so they are easy to tell apart
+// from the position params (lat/lon/zoom/bearing/photo) and to strip as a group.
+// A link's filters start from the defaults — the same ones the modal starts from —
+// and set only what they name:
+// - `filters_<feature>=1` — <feature> is a feature id from featureCategories, exactly
+//   as stored (singular: filters_cat, not filters_cats). Several are OR-ed, as in the modal.
+// - `filters_show_unanalyzed=0|1` — the AnalysisFilters field of that name. It defaults
+//   to 1, so a link that promises cats must say 0, or every unanalyzed photo (all of
+//   Panoramax, most of Hillview) shows up beside them.
+// Unknown names and values are ignored with a warning, never guessed at.
+export const FILTER_URL_PREFIX = 'filters_';
+
+function parseUrlFlag(key: string, value: string): boolean | null {
+	if (value === '1' || value === 'true') return true;
+	if (value === '0' || value === 'false') return false;
+	console.warn(`🢄URL filter ${key}=${value} ignored: expected 0 or 1`);
+	return null;
+}
+
+export function filtersFromUrl(params: URLSearchParams): QueryOptions | null {
+	const known = new Set(featureCategories.flatMap(c => c.features));
+	const result = normalizeFilters({});
+	let any = false;
+	for (const [key, value] of params) {
+		if (!key.startsWith(FILTER_URL_PREFIX)) continue;
+		any = true;
+		const name = key.slice(FILTER_URL_PREFIX.length);
+		const flag = parseUrlFlag(key, value);
+		if (flag === null) continue;
+		if (name === 'show_unanalyzed') {
+			result.analysis.show_unanalyzed = flag;
+		} else if (known.has(name)) {
+			if (flag && !result.analysis.features.includes(name)) result.analysis.features.push(name);
+		} else {
+			console.warn(`🢄Unknown URL filter ${key} ignored`);
+		}
+	}
+	return any ? result : null;
+}

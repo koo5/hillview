@@ -508,6 +508,126 @@ writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
 
+## 2026-11-05 — a worker URL of your own, http or self-signed
+
+User: "like we have the settings field to override api server url, i want to
+also be able to override worker url. The catch is that it may need to be a
+self-signed or http url" … "we'll need some status/logging to debug this in
+the UI".
+
+- **Settings → Worker URL** opens a dialog (`WorkerUrlDialog`): "As the server
+  says" (the default) plus saved URLs, one selected. Adding a URL selects it.
+  **Divergence:** the Tauri app has no such setting. Unlike the API URL, no
+  restart is needed: the upload stack reads the override per photo.
+- **Self-signed = pinned, never trust-all.** The https entry's switch fetches
+  the certificate the worker presents (the probe records the chain and refuses
+  it, so nothing is sent). The dialog shows its subject, SHA-256 and expiry,
+  and that certificate becomes the only trust anchor for the worker. Chain
+  validation still runs; the hostname check passes on the platform's rules or
+  on a leaf byte-equal to the pin. Trust-all was rejected because it hands the
+  upload JWT and photos to anyone on the path, and Play rejects trust-all
+  TrustManagers. shared-kt ships in the Tauri app too.
+  - The topmost presented certificate is pinned, so for Caddy's `tls internal`
+    that is the intermediate. It outlives the 12 h leaf but expires within
+    days, so re-pin when uploads start failing with a trust-anchor error.
+- **http** entries say they are unencrypted. Cleartext is permitted only in
+  the debug build (`src/debug/AndroidManifest.xml`), the same as an http API
+  URL. In a release build an http worker fails with "CLEARTEXT communication
+  not permitted".
+- **Plumbing:** `hillview_upload_prefs` keys `worker_endpoints` (the list,
+  frontend2's own), and `worker_url_override` + `worker_pinned_cert` (the
+  selected pair, what shared-kt reads; `WorkerOverride.kt`).
+  `PhotoUploadLogic.uploadToWorker` swaps URL and client and nothing else; the
+  pinned client is cached per pin. The Tauri app never writes those keys.
+- **Status in the UI:**
+  - **Test** in the dialog runs the upload's own `/ready` preflight through the
+    same client.
+  - Every worker contact records `last_worker_*`, shown under the dialog and as
+    "Worker" / "Last worker contact" rows on the upload-status page.
+  - Each failure goes to the event log (category `upload`) with its cause
+    chain, so a refused pin reads "… ← CertPathValidatorException: Trust anchor
+    … not found", not just "handshake failed".
+- Desktop: the dialog renders, but there is no upload stack. The list is not
+  persisted there.
+- Tests:
+  - `WorkerEndpointsTest`: the rules.
+  - `WorkerUrlDialogTest`: the dialog, with fakes.
+  - `WorkerPinningTest` (host): real TLS on loopback with keytool-made
+    certificates. It covers probe, pinned success, unpinned refusal, an
+    impostor at the same address, and a pinned certificate naming no host.
+- Not verified on a phone or emulator, nor against a real self-signed worker.
+
+## 2026-11-05 — an SfM run: shots spaced by overlap, not by the clock
+
+- **A new ladder rung, `SfM`, between 30 s and VIDEO — opt-in** (user: "we
+  currently support video or interval capture, but the sweet spot is
+  somewhere in the middle"; then "lets make it all opt-in and
+  configurable"). A fixed interval is a guess at walking speed; the field notes'
+  bracket says what a wrong guess costs — contiguous frames ~1.8 m apart
+  solved, every 8th (~14 m) drifted 81 m (`reconstruction-field-notes.md`,
+  "Two clustering axes").
+  - **It shoots when** the camera has moved `metres` (1.5) or the lens has
+    turned `turnDeg` (15°, ~70 % of a portrait frame kept) since the last
+    shot — never sooner than 200 ms, never later than 5 s (`OverlapSpacing`,
+    `OverlapRun.kt`). Defaults, untuned; they want a field run.
+  - **Opt-in and configurable**: menu → "SfM run" (`SfmSettingsScreen`). Off
+    by default, and off the ladder has no SfM rung (`intervalLadder(overlap)`;
+    the capture screen indexes into whichever ladder is in force). On, each
+    trigger — distance, turn, heartbeat — has its own switch and value, plus
+    the floor; a switched-off trigger is `null` in `OverlapSpacing`. With all
+    three off the page warns that a run takes one photo and waits. Stored
+    field by field (`sfm_*` prefs), clamped to the sliders' ranges.
+  - **Distance is the receiver's own speed, integrated** (`Odometer`): fused
+    speed is Doppler and steady at walking pace, where 1 Hz position deltas
+    are mostly the fix wandering. No speed, or a speed inside its own error
+    bar, counts as standing still; the coast past the last fix is capped at
+    2 s. **The turn** is the angle between lens directions (heading + pitch,
+    `turnBetween`), so roll does not count and looking straight down does
+    not read the compass's swing as a turn.
+  - Both read the ONE STATE (`lastFix`, `deviceAttitude`); the loop
+    (`runOverlap`, CaptureScreen.kt) is the interval run's shutter path with
+    a different wait. Sports engages under Auto exactly as for an interval.
+  - Each shot's reason is counted in the capture stats — `sfm start / moved /
+    turned / heartbeat` — so a field run says which signal paced it.
+  - **`LadderRung.Run`** (Every and Overlap) is what the shutter's colour,
+    glyph, label and release verdict ask about now, instead of `Every`.
+  - **Known gap: the attitude is only written while the compass arrow is on**
+    (`MapScreen.android.kt`, `startBearing`'s `onAttitude`). With the arrow
+    off, an SfM run has no turn signal and paces on distance and the
+    heartbeat alone — and, beyond this run, a photo taken then carries no
+    attitude. Not changed here; it changes what every photo stamps. The
+    turn switch's explanation says it needs compass tracking on.
+  - Not done: no sharpness gate (a shot is not held for a steady instant; the
+    Sports rule is the blur defence), no visual parallax from the analysis
+    stream (the stronger signal where GPS speed is absent), and the trigger
+    reason is not stamped on the photo.
+  - Tests: `OverlapRunTest` (odometer, turn, trigger, switched-off triggers,
+    the settings → spacing mapping, a simulated minute's walk at 1.2 m/s →
+    a shot every ~1.25 s), `IntervalLadderTest` (the rung's place, and no
+    rung without opting in), `SfmSettingsScreenTest` (jvm render: off shows
+    nothing else, each switch hides its value, the all-off warning). NOT run
+    in the app, on the emulator or the phone.
+
+- **The travel arrow's rule is a function now** — `travelBearingFor`
+  (`TravelBearing.kt`), pinned by `TravelBearingTest`: the arrow minus the
+  offset, wrapping through north, unchanged by an offset drag, and nothing
+  before car mode has written a heading or outside a mount-offset drag.
+
+## 2026-11-05 — the lock no longer dims under the pinning dialog
+
+- **Locking with "Pin the screen" on dimmed the screen under Android's own
+  confirmation** (user: "there should be a delay like 10 seconds, because
+  Android pops up a dialogue that the user first has to confirm"). The dim
+  and `startLockTask()` ran in the same effect, so the dialog came up on a
+  screen already at the lock's brightness.
+  - Now the dim has its own effect: with pinning asked for it waits until
+    the pin takes hold (`lockTaskModeState`, polled every 250 ms), or
+    `DIM_AFTER_PIN_PROMPT_MS` (10 s) for a dialog declined or ignored.
+    Without pinning there is no dialog and it dims at once, as before.
+    Unlocking during the wait restores nothing that was not changed.
+  - The rule is `dimNow` (commonMain), pinned by `LockDimTest`. The effect
+    around it is NOT device-verified.
+
 ## 2026-10-10 — the attitude says how it was arrived at, and the viewfinder has a centre
 
 Two faults in this phone's `TYPE_ROTATION_VECTOR` are corrected rather than

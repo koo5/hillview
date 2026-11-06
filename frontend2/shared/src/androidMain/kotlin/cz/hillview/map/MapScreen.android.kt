@@ -500,12 +500,13 @@ actual fun MapScreen(
                 // the arrow is whatever the compass last left it at, and
                 // taking an offset out of it gives a direction nobody
                 // travelled.
-                arrowOverlay.travelBearingDeg =
-                    if (arrowOverlay.mountOffsetDrag && trackingPhase == TrackingPhase.Active) {
-                        normalizeBearing(bearing.bearing - controller.mountOffsetDeg())
-                    } else {
-                        null
-                    }
+                // The rule is travelBearingFor (TravelBearingTest).
+                arrowOverlay.travelBearingDeg = travelBearingFor(
+                    mountOffsetDrag = arrowOverlay.mountOffsetDrag,
+                    phase = trackingPhase,
+                    bearingDeg = bearing.bearing,
+                    mountOffsetDeg = controller.mountOffsetDeg(),
+                )
                 // The hold in front of manual bearing is there to protect a
                 // heading that is about to be RECORDED (ArrowArming). In the
                 // viewer nothing is being recorded and turning the bearing IS

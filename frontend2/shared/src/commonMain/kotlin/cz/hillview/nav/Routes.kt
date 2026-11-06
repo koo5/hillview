@@ -51,6 +51,10 @@ data object CaptureGuideKey : NavKey
 @Serializable
 data object LockSettingsKey : NavKey
 
+/** The SfM run's switches and spacing (see OverlapRun). */
+@Serializable
+data object SfmSettingsKey : NavKey
+
 @Serializable
 data object MapKey : NavKey
 

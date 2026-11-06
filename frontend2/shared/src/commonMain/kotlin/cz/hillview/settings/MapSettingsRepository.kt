@@ -118,6 +118,21 @@ data class MapSettings(
     val lockDarkTheme: Boolean = false,
     val lockHideSystemBars: Boolean = true,
     val lockPinScreen: Boolean = false,
+    /**
+     * The SfM run — shots spaced by overlap, not by the clock (see
+     * OverlapRun.kt). OPT-IN, all of it (user, 2026-11-05: "lets make it all
+     * opt-in and configurable"): off, the ladder has no SfM rung. Each
+     * trigger has its own switch and value; [cz.hillview.capture.OverlapSpacing]
+     * documents what the defaults are for. Field by field, like the lock's.
+     */
+    val sfmRunEnabled: Boolean = false,
+    val sfmDistanceOn: Boolean = true,
+    val sfmMetres: Float = 1.5f,
+    val sfmTurnOn: Boolean = true,
+    val sfmTurnDeg: Float = 15f,
+    val sfmHeartbeatOn: Boolean = true,
+    val sfmHeartbeatMs: Long = 5_000L,
+    val sfmMinGapMs: Long = 200L,
 )
 
 /**
@@ -140,6 +155,20 @@ fun MapSettings.lockOptions(): cz.hillview.lock.LockOptions = cz.hillview.lock.L
     hideSystemBars = lockHideSystemBars,
     pinScreen = lockPinScreen,
 )
+
+/** The settings half of [cz.hillview.capture.OverlapSpacing]: a switched-off trigger is null. */
+fun MapSettings.overlapSpacing(): cz.hillview.capture.OverlapSpacing = cz.hillview.capture.OverlapSpacing(
+    metres = sfmMetres.toDouble().takeIf { sfmDistanceOn },
+    turnDeg = sfmTurnDeg.toDouble().takeIf { sfmTurnOn },
+    minGapMs = sfmMinGapMs,
+    maxGapMs = sfmHeartbeatMs.takeIf { sfmHeartbeatOn },
+)
+
+/** What the SfM settings page's sliders range over — also what storage clamps to. */
+val SFM_METRES_RANGE = 0.3f..10f
+val SFM_TURN_DEG_RANGE = 3f..45f
+val SFM_HEARTBEAT_MS_RANGE = 1_000L..30_000L
+val SFM_MIN_GAP_MS_RANGE = 0L..2_000L
 
 /** The fix cadences the slider offers — 1 s (both apps' default) to 30 s. */
 val GPS_INTERVAL_CHOICES_MS: List<Long> =

@@ -33,6 +33,7 @@ object CrashLog {
                 // Nothing to do — a crash handler that crashes helps nobody.
                 Log.e(TAG, "could not write crash report", e)
             }
+            if (isOutOfMemory(throwable)) dumpHeap(app)
             // The system's handler (the "app has stopped" dialog, the process
             // kill) must still run: swallowing the crash would leave a
             // half-dead process in front of the user.
@@ -115,6 +116,39 @@ object CrashLog {
         android.app.ApplicationExitInfo.REASON_PERMISSION_CHANGE -> "permission change"
         android.app.ApplicationExitInfo.REASON_INITIALIZATION_FAILURE -> "failed to start"
         else -> "exit reason $reason"
+    }
+
+    /**
+     * The heap at the moment it ran out, for an OutOfMemoryError (2026-11-05).
+     *
+     * An OOM's stack trace names whichever allocation happened to fail, not what filled
+     * the heap: the first one seen died in GeomagneticField on hillview-geo, a 24-byte
+     * allocation by the thread that allocates most often, with 256 MB already held by
+     * something else. Only the heap itself says what that was. ART streams the dump
+     * without needing the heap it lacks, so this works at exactly the moment it is
+     * needed.
+     *
+     * One file, overwritten by the next OOM: it is about the size of the heap (up to
+     * ~256 MB). Pull it from a debug build with
+     *   adb exec-out run-as cz.hillview.debug cat files/oom.hprof > oom.hprof
+     * and open it in Android Studio's profiler (or `hprof-conv` it for MAT). It is not
+     * deleted with the text report, so clearing the report does not lose the dump.
+     */
+    private const val HEAP_DUMP = "oom.hprof"
+
+    private fun isOutOfMemory(throwable: Throwable): Boolean =
+        generateSequence(throwable) { it.cause }.take(8).any { it is OutOfMemoryError }
+
+    private fun dumpHeap(app: Context) {
+        try {
+            val file = File(app.filesDir, HEAP_DUMP)
+            android.os.Debug.dumpHprofData(file.path)
+            File(app.filesDir, FILE).appendText(
+                "\nheap dump: files/$HEAP_DUMP, ${file.length() / (1024 * 1024)} MB\n",
+            )
+        } catch (e: Throwable) {
+            Log.e(TAG, "could not dump the heap", e)
+        }
     }
 
     private fun report(thread: Thread, throwable: Throwable): String {

@@ -212,6 +212,16 @@ data class PhotoEntity(
     val attitudeJson: String? = null,
 
     /**
+     * RETIRED in v32 (2026-11-06) — ALWAYS NULL. The window moved to its own table,
+     * PhotoImuSamplesEntity, because as a column it rode along with every
+     * `SELECT * FROM photos` and made a large upload queue an OutOfMemoryError.
+     * The v31→v32 migration copied every value there and emptied this column.
+     *
+     * The column stays only because SQLite cannot drop it on minSdk 24 (DROP COLUMN
+     * arrived in 3.35, Android 14) and rebuilding `photos` for one column is the
+     * bigger risk. Do not read it and do not write it; the history below is what it
+     * used to be.
+     *
      * The RAW inertial window this photo owns (v26), columnar and
      * delta-encoded — see `imuSamplesPayloadJson`.
      *

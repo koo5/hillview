@@ -34,6 +34,7 @@ import cz.hillview.nav.HomeKey
 import cz.hillview.nav.LoginKey
 import cz.hillview.nav.MainKey
 import cz.hillview.nav.LockSettingsKey
+import cz.hillview.nav.SfmSettingsKey
 import cz.hillview.nav.MapKey
 import cz.hillview.nav.SettingsKey
 import cz.hillview.settings.lockOptions
@@ -58,6 +59,7 @@ private val navSavedStateConfig = SavedStateConfiguration {
             subclass(DevicePhotosKey::class)
             subclass(MapKey::class)
             subclass(LockSettingsKey::class)
+            subclass(SfmSettingsKey::class)
             subclass(EventLogKey::class)
             subclass(UploadStatusKey::class)
             subclass(CaptureGuideKey::class)
@@ -105,6 +107,7 @@ fun App() {
                 onOpenUploadStatus = { backStack.add(UploadStatusKey) },
                 onOpenEventLog = { backStack.add(EventLogKey) },
                 onOpenLockSettings = { backStack.add(LockSettingsKey) },
+                onOpenSfmSettings = { backStack.add(SfmSettingsKey) },
                 onOpenPhoto = { photoId -> backStack.add(PhotoDetailKey(photoId)) },
             )
         }
@@ -120,6 +123,9 @@ fun App() {
                 entry<CaptureKey> { main() }
                 entry<LockSettingsKey> {
                     LockSettingsScreen(onBack = { pop() })
+                }
+                entry<SfmSettingsKey> {
+                    cz.hillview.capture.SfmSettingsScreen(onBack = { pop() })
                 }
                 entry<SettingsKey> {
                     SettingsScreen(
@@ -184,6 +190,8 @@ fun App() {
         if (locked) {
             ControlsLockScrim(onUnlock = { controlsLock.unlock() })
         }
+        // Once per session, over any screen: the sensor log has started dropping rows.
+        cz.hillview.diag.TrackingDropWarning()
         }
     }
 }

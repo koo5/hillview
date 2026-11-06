@@ -71,6 +71,7 @@
 		<p>An open photo map of hilltop views and panoramas from places where cars can't go, labeled to help you make sense of the view.</p>
 		<p class="loading-links">
 			<a href="/bestof">Browse the best views</a> ·
+			<a href="/?filters_cat=1&filters_show_unanalyzed=0&lat=50&lon=12&zoom=4" data-testid="splash-cats-europe-link">All cats in Europe</a> ·
 			<a href="/about">About Hillview</a> ·
 			<a href="/download">Get the Android app</a>
 		</p>

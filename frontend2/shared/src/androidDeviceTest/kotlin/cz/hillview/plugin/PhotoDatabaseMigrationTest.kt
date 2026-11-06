@@ -142,6 +142,63 @@ class PhotoDatabaseMigrationTest {
         }
     }
 
+    /**
+     * v32 moves the raw IMU window off `photos` (PhotoImuSamplesEntity): every
+     * window must arrive in the new table, the old column must end up empty, the
+     * move must not queue a photo-table re-export for a column the export never
+     * writes, and the export trigger it stepped around must still fire afterwards.
+     */
+    @Test
+    fun version32MovesImuWindowsWithoutQueueingAReExport() {
+        val changesBefore = helper.createDatabase(DB, 31).use { db ->
+            for ((id, samples) in listOf("with-window" to """{"t":[1,2]}""", "without" to null)) {
+                db.execSQL("""
+                    INSERT INTO photos (
+                        id, filename, path, bearing, capturedAt, accuracy, width, height, fileSize,
+                        createdAt, uploadStatus, uploadedAt, retryCount, lastUploadAttempt,
+                        uploadError, fileHash, deleted, version, uploadHoldUntil, uploadHoldReasons,
+                        imuSamplesJson
+                    ) VALUES (?, 'photo.jpg', '/tmp/photo.jpg', 0, 1, 0, 4, 4, 16, 1,
+                              'pending', 0, 0, 0, '', '', 0, 1, 0, 0, ?)
+                """.trimIndent(), arrayOf(id, samples))
+            }
+            db.query("SELECT photoId, changeId FROM photo_export_changes").use { c ->
+                buildMap { while (c.moveToNext()) put(c.getString(0), c.getLong(1)) }
+            }
+        }
+        val db = helper.runMigrationsAndValidate(DB, PHOTO_DB_VERSION, true, *PhotoDatabase.MIGRATIONS)
+
+        db.query("SELECT photoId, samplesJson FROM photo_imu_samples").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("with-window", c.getString(0))
+            assertEquals("""{"t":[1,2]}""", c.getString(1))
+            assertTrue(!c.moveToNext(), "a photo without a window must not get a row")
+        }
+        db.query("SELECT COUNT(*) FROM photos WHERE imuSamplesJson IS NOT NULL").use {
+            it.moveToFirst()
+            assertEquals(0, it.getInt(0))
+        }
+        val changesAfter = db.query("SELECT photoId, changeId FROM photo_export_changes").use { c ->
+            buildMap { while (c.moveToNext()) put(c.getString(0), c.getLong(1)) }
+        }
+        assertEquals(changesBefore, changesAfter, "emptying the column must not queue a re-export")
+
+        // The update trigger is back.
+        db.execSQL("UPDATE photos SET license = 'CC0' WHERE id = 'without'")
+        db.query("SELECT changeId FROM photo_export_changes WHERE photoId = 'without'").use { c ->
+            assertTrue(c.moveToFirst())
+            assertTrue(c.getLong(0) > (changesBefore.values.maxOrNull() ?: 0L))
+        }
+
+        // The window goes with its photo.
+        db.execSQL("PRAGMA foreign_keys = ON")
+        db.execSQL("DELETE FROM photos WHERE id = 'with-window'")
+        db.query("SELECT COUNT(*) FROM photo_imu_samples").use {
+            it.moveToFirst()
+            assertEquals(0, it.getInt(0))
+        }
+    }
+
     /** Every step from the oldest schema Room still has, in one go. */
     @Test
     fun theWholeChainRunsAndMatchesTheEntities() {

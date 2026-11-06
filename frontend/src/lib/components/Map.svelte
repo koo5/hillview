@@ -4,7 +4,8 @@
 	import {LatLng} from 'leaflet';
 	import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, LocateFixed, Pause, ArrowUp, ArrowDown, Layers, Eye, Map as MapIcon, Info, Filter, Clock, Leaf} from 'lucide-svelte';
 	import FiltersModal from './filters-modal/FiltersModal.svelte';
-	import { activeFilterCount, openFiltersModal, clearFilters } from './filters-modal/filtersStore';
+	import { activeFilterCount, openFiltersModal, clearFilters, filters, filtersFromUrl, FILTER_URL_PREFIX } from './filters-modal/filtersStore';
+	import { replaceState } from '$app/navigation';
 	import { longPress } from '$lib/actions/longPress';
 	import L from 'leaflet';
 import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, toggleTimeline } from '$lib/timeline';
@@ -357,6 +358,24 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 		// Clear filters when navigating via URL so the target photo isn't filtered out
 		if (positionChanged || photoParam) {
 			clearFilters();
+		}
+
+		// Filters preset by the link (?filters_cat=1, see filtersFromUrl) replace the
+		// visitor's saved ones. Applied once, then removed from the address bar: the
+		// store persists them, and a lingering param would reapply on every reload
+		// over whatever the visitor changed in the Filters modal since.
+		const urlFilters = filtersFromUrl(urlParams);
+		if (urlFilters) {
+			filters.set(urlFilters);
+			const url = new URL(window.location.href);
+			for (const key of [...url.searchParams.keys()]) {
+				if (key.startsWith(FILTER_URL_PREFIX)) url.searchParams.delete(key);
+			}
+			try {
+				replaceState(url.toString(), {});
+			} catch (e) {
+				console.error('🢄Failed to strip URL filter params', e);
+			}
 		}
 
 		// Handle photo parameter and enable corresponding source
