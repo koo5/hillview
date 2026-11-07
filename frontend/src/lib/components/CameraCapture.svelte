@@ -1674,7 +1674,6 @@
 								if (grant) autoUploadLicense.set(grant);
 								capturePanoramaxShare.set(sharing);
 							}} />
-						<a href="/settings/panoramax" class="panoramax-help" aria-label="About Panoramax sharing" data-testid="capture-panoramax-help">?</a>
 					</div>
 				{/if}
 				<button
@@ -1946,7 +1945,6 @@
 		transform: translateX(-50%);
 	}
 	.capture-sharing-controls { display: flex; align-items: center; gap: 4px; }
-	.panoramax-help { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 50%; border: 1px solid #ffffff70; background: #000b; color: white; font-size: 1.1rem; text-decoration: none; cursor: pointer; }
 
 	.camera-selector-button {
 		background: rgba(255, 255, 255, 0.2);

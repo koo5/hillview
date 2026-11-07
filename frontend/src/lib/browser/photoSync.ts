@@ -40,7 +40,8 @@ async function foregroundUploader(photo: StoredPhoto): Promise<UploadResult> {
         alt_location: photo.metadata.location.alt_location
     };
 
-    const { license, panoramax_share } = photoUploadConsent(photo, get(autoUploadLicense));
+    const consent = photoUploadConsent(photo, get(autoUploadLicense));
+    const { license, panoramax_share } = consent;
 
     const result = await secureUploadFile(
         file,
@@ -59,7 +60,8 @@ async function foregroundUploader(photo: StoredPhoto): Promise<UploadResult> {
         success: result.success,
         photo_id: result.photo_id,
         error: result.error,
-        busy: result.busy
+        busy: result.busy,
+        consent
     };
 }
 

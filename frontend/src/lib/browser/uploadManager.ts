@@ -16,6 +16,10 @@ export interface UploadResult {
     photo_id?: string;
     error?: string;
     busy?: boolean; // worker upload queue full — abort the drain pass
+    // The grant and sharing actually sent. A photo captured before a license was
+    // chosen resolves its grant from upload settings at upload time; storing it
+    // keeps the device-photos card from showing whatever the setting says later.
+    consent?: { license: string; panoramax_share: boolean };
 }
 
 /** Function that uploads a single photo and returns a result */
@@ -144,7 +148,7 @@ export async function uploadPendingPhotos(
                 const result = await uploader(claimedPhoto);
 
                 if (result.success && result.photo_id) {
-                    await browserPhotoStorage.markPhotoAsUploaded(photo.id, result.photo_id);
+                    await browserPhotoStorage.markPhotoAsUploaded(photo.id, result.photo_id, result.consent);
 
                     successCount++;
                     uploadStatus.update(s => ({

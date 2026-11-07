@@ -59,12 +59,12 @@ fun LicenseInfoScreen(
             Text(
                 when (licenseId) {
                     "full1" -> "This grant allows Panoramax sharing. With sharing on, Hillview publishes " +
-                        "the photo as Panoramax; with sharing off, it publishes as all rights reserved " +
+                        "the photo under CC BY-SA 4.0 + LO derivatives; with sharing off, it publishes as all rights reserved " +
                         "with the OSM mapping grant. Sharing offers the photo to the federation; " +
                         "eligibility and view selection still apply."
-                    "panoramax_in" -> "Hillview publishes the photo as Panoramax even with sharing off. " +
+                    "panoramax_in" -> "Hillview publishes the photo under this licence even with sharing off. " +
                         "Sharing separately offers it to the federation, subject to eligibility and " +
-                        "view selection. The final Panoramax license wording is still pending."
+                        "view selection."
                     else -> "CC BY-SA 4.0 + OSM alone does not cover the federation's derived-data " +
                         "uses. Turning on sharing does not make photos under this grant eligible " +
                         "for Panoramax federation."

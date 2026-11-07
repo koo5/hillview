@@ -10,6 +10,12 @@
 # --reset deletes the instance from the catalog (collections, items, harvests and
 # providers cascade), registers it again and harvests it from scratch: for after
 # a restored dump, whose sequence ids the catalog cannot match to anything.
+# --reset-all deletes every instance, not just this one, before registering it:
+# jj mirrors a prod dump, so its photo and user UUIDs would collide with prod's
+# in the catalog, where item and provider ids are global keys.
+#
+# --prod harvests production (hillview-prod, p1.geovisio.hillview.cz) instead of
+# jj's mirror. Reads only: the harvester GETs prod's public API.
 #
 # The map grid is rebuilt from scratch every time. The harvester only marks H3
 # cells expired; upstream recomputes them from cron (res 12 minutely, 6–11
@@ -22,11 +28,23 @@ set -l db postgresql://username:password@localhost:5439/panoramax
 set -l instance hillview-jj
 set -l url https://hv.jj.internal/geovisio
 set -l harvester .venv/bin/stac-harvester
+if contains -- --prod $argv
+	set argv (string match -v -- --prod $argv)
+	set instance hillview-prod
+	set url https://p1.geovisio.hillview.cz
+end
 set -l before_harvest
-if contains -- --reset $argv
+set -l delete
+if contains -- --reset-all $argv
+	set argv (string match -v -- --reset-all $argv)
+	set delete "DELETE FROM instances"
+else if contains -- --reset $argv
 	set argv (string match -v -- --reset $argv)
+	set delete "DELETE FROM instances WHERE name = '$instance'"
+end
+if test -n "$delete"
 	# dev4-2 lacks the cs_CZ locale ssh forwards, and psql's perl wrapper says so at length.
-	set before_harvest "and env LC_ALL=C.UTF-8 psql $db -v ON_ERROR_STOP=1 -c \"DELETE FROM instances WHERE name = '$instance'\"
+	set before_harvest "and env LC_ALL=C.UTF-8 psql $db -v ON_ERROR_STOP=1 -c \"$delete\"
 	and $harvester add-instance $instance --db $db --url $url"
 else if contains -- --full-harvest $argv
 	set before_harvest "and $harvester harvest $instance --db $db"

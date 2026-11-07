@@ -17,7 +17,7 @@
 		{#if license === 'ccbysa4+osm'}
 			<p>{compact ? 'CC does not permit Panoramax contribution.' : 'This grant alone does not permit Panoramax federation. A compatible grant is required to offer photos.'}</p>
 		{:else if sharing}
-			<p>{compact ? 'Eligible views will be offered to Panoramax.' : 'Sharing offers eligible photos to Panoramax. Approval, anonymization checks and selection of representative views still apply; not every offered photo is included.'}</p>
+			<p>{compact ? 'Eligible photos will show in Panoramax.' : 'Sharing offers eligible photos to Panoramax. Approval, anonymization checks and selection of representative views still apply; not every offered photo is included.'}</p>
 		{:else}
 			<p>{compact ? 'Panoramax contribution is off.' : 'These photos are not offered to the Panoramax federation.'} {!compact && license === 'panoramax_in' ? 'Their public license is still Panoramax.' : ''}</p>
 		{/if}

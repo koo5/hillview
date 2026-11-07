@@ -226,8 +226,8 @@ const LICENSE_LABELS: Record<string, string> = {
 	'CC-BY-4.0': 'CC BY 4.0',
 	'CC0-1.0': 'CC0 1.0 (public domain)',
 	'full1': 'Full rights to Hillview',
-	'panoramax_in': 'Panoramax contribution grant',
-	'panoramax': 'Panoramax (license wording pending)',
+	'panoramax_in': 'CC BY-SA 4.0 + LO derivatives',
+	'panoramax': 'CC BY-SA 4.0 + LO derivatives',
 };
 
 export function getLicenseId(photo: PhotoData | null): string | null {

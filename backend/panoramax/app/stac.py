@@ -266,8 +266,6 @@ def item_json(
 	width: int | None,
 	height: int | None,
 	original_filename: str | None,
-	title: str | None,
-	description: str | None,
 	sizes: dict[str, Any],
 	username: str | None,
 	owner_id: str | None,
@@ -292,10 +290,9 @@ def item_json(
 		properties['view:azimuth'] = round(compass_angle) % 360
 	if original_filename:
 		properties['original_file:name'] = original_filename
-	if title:
-		properties['title'] = title
-	if description:
-		properties['description'] = description
+	# No title or description: they are the owner's own text, which the
+	# grant would have to cover; the rest is metadata Hillview compiles and
+	# publishes under Licence Ouverte 2.0 (see /licensing#lo-derivatives).
 
 	collection_href = f"{base_url}/api/collections/{seq_id}"
 	return {

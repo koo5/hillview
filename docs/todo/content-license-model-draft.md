@@ -296,3 +296,19 @@ Known touch points, for whoever plans it:
   check before any rename: caches that persist API reads (the Tauri app's
   photo cache, service-worker caches) and the enrichment RDF store, in case
   either recorded the read name as a fact.
+
+## Parked: full rights to Hillview, outflow chosen separately (noted 2026-11-01)
+
+Today Panoramax sharing on a `full1` photo also changes its public licence on
+Hillview itself, from `arr` to `panoramax` (CC BY-SA 4.0 + LO derivatives):
+the photo leaves the licensing-by-arrangement pool, and copies made meanwhile
+cannot be recalled when sharing is turned off. The full1 explainer says so
+in one sentence, and nothing more warns about it.
+
+An alternative is to let the contributor grant Hillview full rights and choose
+the outflow licence separately (arr+OSM, CC BY-SA + OSM, CC BY-SA + LO
+derivatives), with Panoramax sharing requiring the last. It separates "what
+Hillview may do" from "what everyone may do", which the single `full1` intake
+currently couples through the sharing toggle. Not pursued yet: it is a third
+choice in an already two-layered UI, and it needs a decision on whether an
+outflow choice may later be narrowed.

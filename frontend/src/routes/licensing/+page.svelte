@@ -33,7 +33,7 @@
 			<div class="document-meta">
 				<div class="meta-item">
 					<Calendar size={16} />
-					<span>Last updated: September 2026</span>
+					<span>Last updated: November 2026</span>
 				</div>
 			</div>
 		</header>
@@ -108,6 +108,49 @@
 				<li>Commercial reuse of the photo is permitted under CC BY-SA 4.0.</li>
 				<li>Commercial extraction of data from the photo (outside of OSM contributions) is <em>not</em> authorized by the OSM grant and remains constrained by CC BY-SA 4.0 share-alike.</li>
 			</ul>
+		</section>
+
+		<section class="document-section" id="lo-derivatives" data-testid="licensing-lo-derivatives">
+			<h2>
+				<CreativeCommons size={24} />
+				CC BY-SA 4.0 + LO derivatives
+			</h2>
+			<p>
+				Photos uploaded under this grant, and full-rights photos with Panoramax sharing on,
+				are published under a license of two parts:
+			</p>
+
+			<h3>Part 1 — Creative Commons Attribution-ShareAlike 4.0 International</h3>
+			<p>
+				The photo itself is licensed exactly as in Part 1 of the CC BY-SA 4.0 + OSM grant above.
+			</p>
+
+			<h3>Part 2 — Derived data under Licence Ouverte</h3>
+			<p>
+				The photo may also be used to create derived data, including AI models, published under
+				<MyExternalLink href="https://www.etalab.gouv.fr/licence-ouverte-open-licence/">Licence Ouverte 2.0</MyExternalLink>,
+				<MyExternalLink href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</MyExternalLink> or
+				<MyExternalLink href="https://opendatacommons.org/licenses/odbl/1-0/">ODbL 1.0</MyExternalLink>.
+				This is what the <MyExternalLink href="https://docs.panoramax.fr/federated-catalog/">Panoramax federation</MyExternalLink>
+				requires of photos published under CC BY-SA 4.0.
+			</p>
+
+			<h3>Photo metadata</h3>
+			<p data-testid="licensing-lo-metadata">
+				The details Hillview sends to the Panoramax federation with a photo, such as its location,
+				direction and capture time, are published by Hillview under Licence Ouverte 2.0. The
+				photo's title and description are not sent.
+			</p>
+
+			<h3>One thing to know about Licence Ouverte</h3>
+			<p data-testid="licensing-lo-warning">
+				Panoramax requires that data derived from shared photos may be published under Licence
+				Ouverte 2.0. Under that licence, whoever publishes the data guarantees that nobody else's
+				rights stand in the way of reusing it. Panoramax doesn't define what counts as derived data,
+				or how responsibility passes between whoever publishes it and the photo's contributor. If
+				your photo shows someone else's work, such as a poster, an artwork or the text of an
+				information board, consider leaving Panoramax sharing off for it.
+			</p>
 		</section>
 
 		<section class="document-section">

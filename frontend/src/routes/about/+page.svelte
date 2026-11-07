@@ -308,7 +308,6 @@
     }
 
     .about-header {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         line-height: 1.6;
         color: #374151;
         text-align: center;

@@ -84,9 +84,15 @@ is the licence Hillview publishes on every read (`license`). These are separate:
 | `ccbysa4+osm` | `ccbysa4+osm` |
 | `panoramax_in` | `panoramax`, regardless of sharing or federation eligibility |
 
-The `panoramax` wording is still a placeholder. The federation's declared SPDX
-`CC-BY-SA-4.0`, URL and configuration description remain provisional until
-that wording is settled. Installed Tauri clients show unfamiliar outflow ids
+The `panoramax` outflow reads **CC BY-SA 4.0 + LO derivatives** (the
+`panoramax_in` grant carries the same label): CC BY-SA 4.0 on the photo, plus
+derived data, including AI models, under Licence Ouverte 2.0, CC BY 4.0 or
+ODbL 1.0 — the federation policy's CC option, worded the way its docs word it.
+The label names the platform's terms rather than the platform, and LO because
+it is the most permissive of the three. The ids stay. The federation's SPDX
+slot holds one id, so it declares `CC-BY-SA-4.0` and the configuration
+description (`configuration()` in `backend/panoramax/app/main.py`) states the
+derived-data part. Installed Tauri clients show unfamiliar outflow ids
 as unknown until their next release. Contribution controls are implemented in
 frontend2 and the [web frontend](panoramax-web.md); Tauri completion remains
 outside the browser follow-up.
@@ -98,7 +104,32 @@ It does not authorize the LO 2.0 / CC-BY derived-data uses the federation
 catalog makes, including its metadata exports. We therefore do **not**
 federate photos under that intake. Hillview needs the wider `full1` or
 `panoramax_in` intake to publish under a Panoramax-compatible outflow.
-The final photo and metadata terms must be settled before registration.
+
+**Metadata** is licensed separately, by Hillview: the metadata the API serves
+is published under Licence Ouverte 2.0, matching the catalog's own weekly LO
+export. The derived-data clause does not obviously reach it (position,
+heading and capture time are recorded with the photo, not derived from it),
+and as a compiled collection it falls under the EU database right, which is
+Hillview's as the database's maker, not the photographer's. Left unstated it
+would default to the photos' CC BY-SA 4.0, whose section 4 makes an extracted
+database share-alike, contradicting the export. The owner's own text, title
+and description, would need the owner's grant, so federated items no longer
+carry it (`item_json` in `backend/panoramax/app/stac.py`). With only compiled
+facts left, LO's third-party-rights guarantee costs nothing there.
+
+**The Licence Ouverte catch.** LO 2.0 has whoever publishes under it
+guarantee that third-party rights do not obstruct reuse ("Il est garanti au
+« Réutilisateur » que les éventuels « Droits de propriété intellectuelle »
+détenus par des tiers […] ne font pas obstacle aux droits accordés"); CC BY-SA
+4.0 disclaims the same. Panoramax requires that derived data *may* be
+published under LO, but defines neither what counts as derived data nor how
+the chain of grants holds between the final LO licensor and the uploader. A
+photo of a copyrighted information board whose text someone extracts and
+publishes as derived data is the case to keep in mind. Hillview cannot narrow
+LO in its own prose — once data is published under LO, it is LO — so it only
+warns: the "One thing to know about Licence Ouverte" paragraph on /licensing
+(`#lo-derivatives`) suggests leaving sharing off for photos that show someone
+else's work.
 
 A photo is **eligible for selection** iff (one definition in
 `backend/panoramax/app/eligibility.py`, used by sequencer and API):
@@ -116,6 +147,13 @@ A photo is **eligible for selection** iff (one definition in
   order an upload batch as if it were a walk (a 2026-10-30 mirror of prod had
   2,654 of 10,920 published photos like that, one "sequence" jumping 68 km in
   97 s).
+- Its location fix, where the device reported an accuracy, was within 5 m
+  (`MAX_LOCATION_ACCURACY_M`; `photos.location_accuracy_m`, a column generated
+  from the capture app's UserComment by migration 039). Selection keeps one
+  photo per 5 m cell, so a wider fix lands in a cell it may not belong to.
+  An unknown accuracy passes: no photo captured before 2026-09-13 carries one.
+  The 2026-10-30 prod mirror had 25,552 photos with a radius, of which 1,385
+  were over 5 m (476 in September, 909 in October).
 - All existing gates pass: not deleted, public, processing completed, geometry,
   capture/upload effective time and renditions present, owner active and not a
   test user, no thumbs-down rating and no unresolved flag.
@@ -635,13 +673,12 @@ Changes since the commit: CQL parsing moved to pygeofilter; migration
 renumbered **030 → 033** (the dev2026-07-07 merge added 030–032 on 029,
 leaving two alembic heads that would have failed the api prestart);
 `panoramax.departed_photos` + identity-map merge so tombstones revive (heavy
-mode found that they never did); `generate_load.py` + `--heavy`; the registration
-drafts document.
+mode found that they never did); `generate_load.py` + `--heavy`.
 
 Open decisions, in rough priority order:
 
-1. **Metadata licence** — see the licensing section and
-   [panoramax-registration-drafts.md](panoramax-registration-drafts.md).
+1. ~~**Metadata licence**~~ — decided 2026-11-01: Licence Ouverte 2.0, stated by
+   Hillview (see the licensing section).
 2. **WebP** — accept the two client breakages, add `item-preview` links, or
    generate JPEG thumbs (see the WebP section).
 3. **Prod deploy + registration** — Caddy vhost, then the GitLab issue.

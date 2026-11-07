@@ -3228,7 +3228,6 @@
 	}
 
 	.print-qr-host {
-		font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 		/* follows the label scale like the pills and the title do */
 		font-size: calc(1em * var(--label-scale, 1));
 		font-weight: 700;

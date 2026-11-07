@@ -53,7 +53,7 @@ export interface Source {
 	backend_url?: string;
 }
 
-const baseSources: Source[] = [
+const baseSources: Source[] = ([
 	{
 		id: 'hillview',
 		name: 'Hillview',
@@ -80,7 +80,10 @@ const baseSources: Source[] = [
 		color: '#3a8',
 		url: 'https://api.panoramax.xyz'
 	}
-];
+// Mapillary is dev-only for now: outside dev mode the source does not exist at
+// all, so no toggle, hotkey or ?photo= auto-enable can reach it (the backend
+// stream also answers empty unless DEV_MODE).
+] satisfies Source[]).filter(src => src.id !== 'mapillary' || import.meta.env.VITE_DEV_MODE === 'true');
 
 const deviceSources: Source[] = TAURI ? [
 	{
@@ -144,7 +147,7 @@ export let showCalibrationView = writable(false);
 //                   as 'arr' with sharing off (all rights reserved PLUS the OSM mapping grant),
 //                   or as 'panoramax' with sharing on
 //   'ccbysa4+osm' — CC BY-SA 4.0 + OSM mapping grant, granted by the contributor at upload time
-//   'panoramax_in' — Panoramax contribution grant; published as 'panoramax'
+//   'panoramax_in' — CC BY-SA 4.0 + LO derivatives; published as 'panoramax'
 // These stores hold the identifier string the user has consented to for a given upload path.
 // null means "no license selected" — upload is blocked for that path.
 export let autoUploadLicense = localStorageSharedStore<string | null>('autoUploadLicense', null);
