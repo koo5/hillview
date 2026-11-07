@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { autofocus } from '$lib/actions/autofocus';
 	import { portal } from '$lib/actions/portal';
 	import { deletePhotoRequest } from '$lib/photoActions';
 	import { getUserName } from '$lib/photoUtils';
@@ -81,6 +82,7 @@
 				</button>
 				<button
 					class="confirm-button"
+					use:autofocus
 					onclick={confirm}
 					disabled={isDeleting}
 					data-testid="delete-photo-confirm"

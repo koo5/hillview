@@ -215,10 +215,22 @@
 		}
 	}
 
-	// Keyboard shortcuts: '*' to like, '&' to dislike the front photo.
+	// Keyboard shortcuts: Delete to open the confirmation, '*' to like, '&' to dislike.
 	// Skipped while the deep-zoom viewer is open so it keeps those keys.
-	function handleRatingKeydown(e: KeyboardEvent) {
+	function handlePhotoKeydown(e: KeyboardEvent) {
 		if (!photo || $zoomViewData) return;
+		if (e.key === 'Delete') {
+			if (!canDeletePhoto || e.defaultPrevented || e.repeat || e.isComposing
+				|| e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+			if (showDeletePhotoDialog || showFlagDialog || showHideUserDialog) return;
+			const target = e.target instanceof Element ? e.target : document.activeElement;
+			if (target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
+			// Modal buttons can have focus too; leave their keyboard interaction alone.
+			if (document.querySelector('dialog[open], [role="dialog"], [role="alertdialog"], .dialog-overlay')) return;
+			e.preventDefault();
+			showDeletePhotoDialogAction();
+			return;
+		}
 		const rating = ratingShortcutFor(e);
 		if (!rating) return;
 		e.preventDefault();
@@ -462,7 +474,7 @@
 
 </script>
 
-<svelte:window on:keydown={handleRatingKeydown} />
+<svelte:window on:keydown={handlePhotoKeydown} />
 
 {#if photo}
 	<div class="photo-actions-menu">
