@@ -321,6 +321,10 @@ async def run(args):
 					if status == 'completed': break
 					await asyncio.sleep(1)
 				else: raise AssertionError('Worker did not finish ' + pid)
+			# The analyzer is not part of the stack: give every fixture the
+			# signage-free analysis the gates require (eligibility.py).
+			local_sql("""UPDATE photos SET analysis = '{"features": []}'::jsonb WHERE owner_id = :'owner';""", owner=owner)
+			print('Wrote a signage-free analysis for every fixture', flush=True)
 			if heavy:
 				heavy.prepare()
 			print('All fixtures processed; sequencer:', sequence(), flush=True)

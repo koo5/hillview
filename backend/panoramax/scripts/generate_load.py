@@ -21,7 +21,9 @@ Shape (all knobs are flags; RNG is seeded so a run is reproducible):
   sequences is exact, not statistical.
 - ~10% of photos are ineligible in every way the eligibility filter knows
   (ARR licence, private, soft-deleted, failed processing, thumbs-down rated,
-  unresolved flag), plus one inactive user whose photos are all ineligible.
+  unresolved flag, no LLM analysis, signage in the analysis), plus one
+  inactive user whose photos are all ineligible. Every other photo carries the
+  signage-free analysis the gates require.
   One user is a test user, federated like anyone else. The expectation
   written to --summary accounts for all of it.
 
@@ -254,6 +256,10 @@ def generate(rng: random.Random, users: list[User], total_photos: int, years: fl
 			p.excluded = 'doodled'
 		elif r < 0.18:
 			p.excluded = 'manual'
+		elif r < 0.19:
+			p.excluded = 'unanalyzed'
+		elif r < 0.20:
+			p.excluded = 'signage'
 		if not p.owner.panoramax_contributor:
 			p.excluded = p.excluded or 'non_contributor'
 		if not p.owner.is_active:
@@ -372,7 +378,7 @@ def insert(db: Db, rng: random.Random, users: list[User], photos: list[Photo], p
 		'width', 'height', 'captured_at', 'effective_at', 'uploaded_at', 'record_created_ts',
 		'processed_at', 'title', 'description', 'is_public', 'processing_status', 'sizes',
 		'legal_rights', 'featured', 'deleted', 'version', 'owner_id',
-		'panoramax_owner_share', 'panoramax_moderator_approved', 'detected_objects']
+		'panoramax_owner_share', 'panoramax_moderator_approved', 'detected_objects', 'analysis']
 	rows = []
 	ratings = []
 	flags = []
@@ -407,6 +413,10 @@ def insert(db: Db, rng: random.Random, users: list[User], photos: list[Photo], p
 				'objects': [{'class_id': 0, 'confidence': 0.9, 'blurred': True}]
 					if p.excluded == 'doodled' else [],
 				**({'manual': True} if p.excluded == 'manual' else {}),
+			}),
+			None if p.excluded == 'unanalyzed' else json.dumps({
+				'features': ['street', 'signage'] if p.excluded == 'signage' else ['landscape'],
+				'schema_version': 1, 'analyzer_version': 1,
 			}),
 		])
 		if p.excluded == 'thumbs_down':

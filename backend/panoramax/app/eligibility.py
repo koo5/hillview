@@ -42,6 +42,17 @@ smear, nothing in focus) stays out too. An unjudged one passes: the curated
 camera work wider than 8000 px is deliberately left unmeasured, and uploads
 wait for the worker. Verdict changes are batch writes that do not bump the
 sequence, so they reach the catalog on the sequencer's cadence as well.
+
+An LLM analysis (photos.analysis, written by backend/analyzer) is required,
+and its `features` list (the feature names the analyzer found true,
+distill.py) must not name signage: a photographed information board is the
+derived-data case the Licence Ouverte catch in docs/panoramax-federation.md
+names, which Hillview cannot guard against in prose. "No signage" is only a
+finding once the analyzer has looked, so unlike the blur verdict an unanalyzed
+photo stays out until the analyzer reaches it; any analyzer_version counts. A
+document without a readable features list fails the analysis gate rather than
+raising. The analyzer alone writes the document and it does not bump the
+sequence, so analyses too reach the catalog on the sequencer's cadence.
 """
 
 MAX_LOCATION_ACCURACY_M = 5
@@ -78,6 +89,8 @@ GATES: list[tuple[str, str]] = [
 	('renditions', "p.sizes IS NOT NULL"),
 	('location_accuracy', f"COALESCE(p.location_accuracy_m, 0) <= {MAX_LOCATION_ACCURACY_M}"),
 	('blurry', "p.blurry IS NOT TRUE"),
+	('analysis', "jsonb_typeof(p.analysis->'features') = 'array'"),
+	('signage', "(jsonb_typeof(p.analysis->'features') = 'array' AND p.analysis->'features' ? 'signage') IS NOT TRUE"),
 	('owner_inactive', "u.is_active = true"),
 	('thumbs_down', """NOT EXISTS (
 		SELECT 1 FROM photo_ratings pr

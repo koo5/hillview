@@ -38,7 +38,7 @@ def geometry(x=500002, y=5500002, srid=32610):
 def photo(id, geom, **patch):
     row = dict(id=id, owner_id='owner', legal_rights='full1',
         panoramax_owner_share=True, panoramax_moderator_approved=True,
-        detected_objects={'objects': []}, deleted=False, is_public=True,
+        detected_objects={'objects': []}, analysis={'features': []}, deleted=False, is_public=True,
         processing_status='completed', geometry=geom, compass_angle=0,
         captured_at='2024-06-21T19:00:00', effective_at='2024-06-21T19:00:00', sizes={})
     row.update(patch)
@@ -138,7 +138,7 @@ def test_collector_replaces_winners_and_api_serves_only_selected_eligible_photos
         timeout=30).json()['id']
     own_photo = str(uuid.uuid4())
     owners = [str(uuid.uuid4()), str(uuid.uuid4())]
-    names = ['old-day', 'new-day', 'night', 'east', 'next-cell', 'unknown', 'unshared', 'doodled']
+    names = ['old-day', 'new-day', 'night', 'east', 'next-cell', 'unknown', 'unshared', 'doodled', 'signage']
     ids = {name: str(uuid.uuid4()) for name in names}
     owner_sql = ','.join(literal(id) for id in owners)
     id_sql = ','.join(literal(id) for id in ids.values())
@@ -170,22 +170,24 @@ def test_collector_replaces_winners_and_api_serves_only_selected_eligible_photos
             ('unknown', owners[1], '2024-06-21 19:00', 'NULL', 500002),
             ('unshared', owners[0], '2027-06-21 19:00', '0', 500002),
             ('doodled', owners[0], '2028-06-21 19:00', '0', 500002),
+            ('signage', owners[0], '2030-06-21 19:00', '0', 500002),
         ]:
             detections = {'objects': [{'blurred': True}]} if name == 'doodled' else {'objects': []}
+            analysis = {'features': ['street', 'signage']} if name == 'signage' else {'features': []}
             pg(f"""INSERT INTO photos (id,owner_id,filename,original_filename,geometry,compass_angle,captured_at,
-                    uploaded_at,record_created_ts,width,height,is_public,processing_status,sizes,detected_objects,
+                    uploaded_at,record_created_ts,width,height,is_public,processing_status,sizes,detected_objects,analysis,
                     legal_rights,featured,deleted,version,panoramax_owner_share,panoramax_moderator_approved)
                 VALUES ({literal(ids[name])},{literal(owner)},'selection.jpg','selection.jpg',
                     ST_Transform(ST_SetSRID(ST_MakePoint({x},5500002),32610),4326),{bearing},{literal(at)},
-                    now(),now(),160,120,true,'completed',{literal(sizes)}::json,{literal(json.dumps(detections))}::json,
+                    now(),now(),160,120,true,'completed',{literal(sizes)}::json,{literal(json.dumps(detections))}::json,{literal(json.dumps(analysis))}::jsonb,
                     'full1',false,false,1,{'false' if name == 'unshared' else 'true'},true);""")
         # The test user's own photo, far from the others: owner_share is off.
         pg(f"""INSERT INTO photos (id,owner_id,filename,original_filename,geometry,compass_angle,captured_at,
-                uploaded_at,record_created_ts,width,height,is_public,processing_status,sizes,detected_objects,
+                uploaded_at,record_created_ts,width,height,is_public,processing_status,sizes,detected_objects,analysis,
                 legal_rights,featured,deleted,version,panoramax_owner_share,panoramax_moderator_approved)
             VALUES ({literal(own_photo)},{literal(test_user_id)},'own.jpg','own.jpg',
                 ST_Transform(ST_SetSRID(ST_MakePoint(600002,5500002),32610),4326),0,'2024-06-21 19:00',
-                now(),now(),160,120,true,'completed',{literal(sizes)}::json,'{{"objects": []}}'::json,
+                now(),now(),160,120,true,'completed',{literal(sizes)}::json,'{{"objects": []}}'::json,'{{"features": []}}'::jsonb,
                 'panoramax_in',false,false,1,false,true);""")
         run_collector()
         initial = membership()
@@ -203,6 +205,7 @@ def test_collector_replaces_winners_and_api_serves_only_selected_eligible_photos
             assert status[name]['winner_uid'] == f"hillview-{ids['new-day']}"
         assert status['unshared']['outcome'] == 'ineligible' and status['unshared']['failed_gates'] == ['owner_share']
         assert status['doodled']['outcome'] == 'ineligible' and status['doodled']['failed_gates'] == ['doodles']
+        assert status['signage']['outcome'] == 'ineligible' and status['signage']['failed_gates'] == ['signage']
         assert all(st['last_pass_at'] and st['decided_at'] for st in status.values())
         own = panoramax_status(own_photo, test_token)
         assert own.status_code == 200 and own.json()['outcome'] == 'ineligible'

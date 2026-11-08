@@ -154,6 +154,20 @@ A photo is **eligible for selection** iff (one definition in
   An unknown accuracy passes: no photo captured before 2026-09-13 carries one.
   The 2026-10-30 prod mirror had 25,552 photos with a radius, of which 1,385
   were over 5 m (476 in September, 909 in October).
+- It was not judged blurry (`photos.blurry`, migration 043, derived from
+  `image_metrics` by `common/image_quality.py`). An unjudged photo passes: the
+  curated work wider than 8000 px is deliberately unmeasured.
+- The LLM analyzer (`backend/analyzer`) has analyzed it, and the analysis lists
+  no `signage` among its `features`. The Licence Ouverte catch above is the
+  reason: a photographed information board is the derived-data case Hillview
+  cannot guard against in prose. Unlike the blur verdict an unanalyzed photo
+  stays out, since "no signage" is only a finding once the analyzer has
+  looked, so a fresh upload federates only after the analyzer reaches it. Any
+  analyzer version counts. A document without a readable `features` list fails
+  the `analysis` gate rather than raising. Analyses do not bump the sequence's
+  `updated_at`, so they reach the catalog on the sequencer's cadence; a member
+  whose analysis finds signage leaves `/items` at once through the serve-time
+  filter.
 - All existing gates pass: not deleted, public, processing completed, geometry
   present and within the range the grid projection places, capture/upload
   effective time and renditions present, owner active, no thumbs-down rating

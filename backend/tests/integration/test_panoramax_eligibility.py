@@ -60,6 +60,19 @@ from panoramax.app.eligibility import ELIGIBLE_PHOTO_WHERE
     ({'blurry': True}, {}, False),
     ({'blurry': False}, {}, True),
     ({'blurry': None}, {}, True),
+    # An analysis listing no signage is required: "no signage" is only a
+    # finding once the analyzer has looked, so unanalyzed stays out. A
+    # document the gates cannot read fails them instead of raising.
+    ({'analysis': {'features': []}}, {}, True),
+    ({'analysis': {'features': ['street', 'building']}}, {}, True),
+    ({'analysis': {'features': ['signage']}}, {}, False),
+    ({'analysis': {'features': ['street', 'signage', 'building']}}, {}, False),
+    ({'analysis': None}, {}, False),
+    ({'__analysis_json_null__': True}, {}, False),
+    ({'analysis': {}}, {}, False),
+    ({'analysis': {'features': None}}, {}, False),
+    ({'analysis': {'features': 'signage'}}, {}, False),
+    ({'analysis': {'features': {'signage': False}}}, {}, False),
     ({}, {'is_active': False}, False),
     # Test users are federated like anyone: the automated suites rely on it.
     ({}, {'is_test': True}, True),
@@ -70,10 +83,12 @@ def test_federation_eligibility(patch, user_patch, expected):
                  detected_objects={'objects': [{'blurred': False, 'confidence': 0.1}]},
                  deleted=False, is_public=True, processing_status='completed',
                  geometry='SRID=4326;POINT(14 50)', captured_at='2026-10-28T12:00:00',
-                 effective_at='2026-10-28T12:00:00Z', sizes={})
+                 effective_at='2026-10-28T12:00:00Z', sizes={},
+                 analysis={'features': ['landscape', 'hill']})
     user = dict(id='owner', is_active=True, is_test=False, panoramax_contributor=True)
     json_null = patch.get('__json_null__', False)
-    photo.update({k: v for k, v in patch.items() if k != '__json_null__'})
+    analysis_json_null = patch.get('__analysis_json_null__', False)
+    photo.update({k: v for k, v in patch.items() if not k.startswith('__')})
     user.update(user_patch)
 
     def literal(value):
@@ -82,6 +97,8 @@ def test_federation_eligibility(patch, user_patch, expected):
     predicate = ELIGIBLE_PHOTO_WHERE.replace(':scope_legal_rights', "ARRAY['full1','panoramax_in']")
     if json_null:
         predicate = predicate.replace('p.detected_objects', "'null'::json")
+    if analysis_json_null:
+        predicate = predicate.replace('p.analysis', "'null'::jsonb")
     query = f"""
         WITH photo_ratings AS (SELECT NULL::text photo_source, NULL::text photo_id, NULL::text rating WHERE false),
              flagged_photos AS (SELECT NULL::text photo_source, NULL::text photo_id, false resolved WHERE false)
