@@ -37,6 +37,9 @@ import cz.hillview.nav.LockSettingsKey
 import cz.hillview.nav.SfmSettingsKey
 import cz.hillview.nav.MapKey
 import cz.hillview.nav.SettingsKey
+import cz.hillview.nav.SettingsSectionKey
+import cz.hillview.settings.ui.SettingsSection
+import cz.hillview.settings.ui.SettingsSectionScreen
 import cz.hillview.settings.lockOptions
 import cz.hillview.settings.ui.SettingsScreen
 import kotlinx.serialization.modules.SerializersModule
@@ -56,6 +59,7 @@ private val navSavedStateConfig = SavedStateConfiguration {
             subclass(ClockVideoKey::class)
             subclass(CaptureKey::class)
             subclass(SettingsKey::class)
+            subclass(SettingsSectionKey::class)
             subclass(DevicePhotosKey::class)
             subclass(MapKey::class)
             subclass(LockSettingsKey::class)
@@ -99,6 +103,11 @@ fun App() {
         val main: @Composable () -> Unit = {
             MainScreen(
                 onOpenSettings = { backStack.add(SettingsKey) },
+                // Both pages, so Back from Uploads lands on the Settings list.
+                onOpenUploadSettings = {
+                    backStack.add(SettingsKey)
+                    backStack.add(SettingsSectionKey(SettingsSection.Uploads))
+                },
                 onOpenLogin = { backStack.add(LoginKey) },
                 onOpenClockVideo = { backStack.add(ClockVideoKey) },
                 onOpenDevicePhotos = { backStack.add(DevicePhotosKey) },
@@ -107,7 +116,8 @@ fun App() {
                 onOpenUploadStatus = { backStack.add(UploadStatusKey) },
                 onOpenEventLog = { backStack.add(EventLogKey) },
                 onOpenLockSettings = { backStack.add(LockSettingsKey) },
-                onOpenSfmSettings = { backStack.add(SfmSettingsKey) },
+                // Now reached from Settings → SfM run, not the menu.
+                // onOpenSfmSettings = { backStack.add(SfmSettingsKey) },
                 onOpenPhoto = { photoId -> backStack.add(PhotoDetailKey(photoId)) },
             )
         }
@@ -130,9 +140,19 @@ fun App() {
                 entry<SettingsKey> {
                     SettingsScreen(
                         onBack = { pop() },
+                        onOpenSection = { backStack.add(SettingsSectionKey(it)) },
+                    )
+                }
+                // The sub-pages (2026-11-07); the links that the single
+                // Settings page had moved here with their controls.
+                entry<SettingsSectionKey> { key ->
+                    SettingsSectionScreen(
+                        section = key.section,
+                        onBack = { pop() },
                         onOpenLogin = { backStack.add(LoginKey) },
                         onOpenPanoramaxInfo = { backStack.add(PanoramaxInfoKey) },
                         onOpenLicenseInfo = { backStack.add(LicenseInfoKey(it)) },
+                        onOpenSfmSettings = { backStack.add(SfmSettingsKey) },
                     )
                 }
                 entry<DevicePhotosKey> {

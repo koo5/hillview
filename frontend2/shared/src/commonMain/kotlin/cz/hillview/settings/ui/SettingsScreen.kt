@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContentPadding
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -68,40 +69,144 @@ import org.koin.compose.koinInject
  * it reads). The server URL takes effect for auth/login on next app start
  * (BackendConfig is resolved once at startup); the upload stack reads it
  * per drain.
+ *
+ * Since 2026-11-07 this is the list of [SettingsSection]s, each a page of
+ * its own ([SettingsSectionScreen]); the controls below are grouped into
+ * those pages unchanged. The build stamp stays here, on the list, where a
+ * bug report looks for it.
  */
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    onOpenSection: (SettingsSection) -> Unit = {},
+    repository: UploadSettingsRepository = koinInject(),
+    mapRepository: cz.hillview.settings.MapSettingsRepository = koinInject(),
+    sessionManager: cz.hillview.auth.SessionManager = koinInject(),
+    runtimeConfig: cz.hillview.core.net.BackendConfig = koinInject(),
+) {
+    val settings by repository.settings.collectAsState()
+    val mapSettings by mapRepository.settings.collectAsState()
+    val sessionState by sessionManager.state.collectAsState()
+    SettingsIndex(
+        upload = settings,
+        map = mapSettings,
+        loggedIn = sessionState is cz.hillview.auth.SessionState.LoggedIn,
+        runtimeApiUrl = runtimeConfig.apiUrl,
+        onBack = onBack,
+        onOpenSection = onOpenSection,
+    )
+}
+
+/** The list itself, stateless so a test can draw it from plain values. */
+@Composable
+fun SettingsIndex(
+    upload: cz.hillview.settings.UploadSettings,
+    map: cz.hillview.settings.MapSettings,
+    loggedIn: Boolean,
+    runtimeApiUrl: String,
+    onBack: () -> Unit,
+    onOpenSection: (SettingsSection) -> Unit,
+    buildInfo: @Composable () -> Unit = { BuildInfoFooter() },
+) {
+    SettingsPage(title = "Settings", tag = "settings-screen", onBack = onBack) {
+        SettingsSection.entries.forEach { section ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = { onOpenSection(section) })
+                    .testTag("settings-section-link-${section.key}"),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(section.title, style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        settingsSectionSummary(section, upload, map, loggedIn, runtimeApiUrl),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.testTag("settings-section-summary-${section.key}"),
+                    )
+                }
+                Text("›", style = MaterialTheme.typography.titleLarge)
+            }
+        }
+        buildInfo()
+    }
+}
+
+/** One Settings sub-page: the same controls the single page had, grouped. */
+@Composable
+fun SettingsSectionScreen(
+    section: SettingsSection,
+    onBack: () -> Unit,
     onOpenLogin: () -> Unit = {},
     onOpenPanoramaxInfo: () -> Unit = {},
     onOpenLicenseInfo: (String) -> Unit = {},
-    repository: UploadSettingsRepository = koinInject(),
-    compassRepository: CompassSettingsRepository = koinInject(),
-    mapRepository: cz.hillview.settings.MapSettingsRepository = koinInject(),
-    sessionManager: cz.hillview.auth.SessionManager = koinInject(),
+    onOpenSfmSettings: () -> Unit = {},
 ) {
-    val settings by repository.settings.collectAsState()
-    val compass by compassRepository.settings.collectAsState()
-    val mapSettings by mapRepository.settings.collectAsState()
-    val sessionState by sessionManager.state.collectAsState()
-    val requestNotifications = rememberNotificationPermissionRequester()
+    SettingsPage(title = section.title, tag = "settings-section-${section.key}", onBack = onBack) {
+        when (section) {
+            SettingsSection.Uploads -> {
+                UploadSwitches()
+                AccountAndLicense(
+                    onOpenLogin = onOpenLogin,
+                    onOpenPanoramaxInfo = onOpenPanoramaxInfo,
+                    onOpenLicenseInfo = onOpenLicenseInfo,
+                )
+            }
+            SettingsSection.Capture -> CaptureRows(onOpenSfmSettings = onOpenSfmSettings)
+            SettingsSection.Storage -> {
+                StorageRows()
+                PhotoIndexRow()
+            }
+            SettingsSection.Location -> {
+                TrackingExportRows()
+                GpsIntervalRow()
+                DiagnosticRows()
+            }
+            SettingsSection.Servers -> ServerRows()
+        }
+    }
+}
 
+/**
+ * The frame every Settings page shares: back, title, a scrolling column.
+ * [tag] marks the page; its back button is "$tag-back".
+ */
+@Composable
+private fun SettingsPage(
+    title: String,
+    tag: String,
+    onBack: () -> Unit,
+    content: @Composable () -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .safeContentPadding()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+            .padding(16.dp)
+            .testTag(tag),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("< Back") }
+            TextButton(onClick = onBack, modifier = Modifier.testTag("$tag-back")) { Text("< Back") }
             Text(
-                text = "Settings",
+                text = title,
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.padding(start = 8.dp),
             )
         }
+        content()
+    }
+}
+
+// The controls, one function per contiguous block of the former single
+// page — moved, not rewritten; each re-reads the state it needs.
+
+@Composable
+private fun ServerRows(
+    repository: UploadSettingsRepository = koinInject(),
+) {
+    val settings by repository.settings.collectAsState()
 
         // The field edits RAW text (normalizing per keystroke would fight
         // the cursor); the persisted setting is normalized — trimmed, no
@@ -230,6 +335,14 @@ fun SettingsScreen(
                 ) { Text("Restart now") }
             }
         }
+}
+
+@Composable
+private fun UploadSwitches(
+    repository: UploadSettingsRepository = koinInject(),
+) {
+    val settings by repository.settings.collectAsState()
+    val requestNotifications = rememberNotificationPermissionRequester()
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -281,7 +394,10 @@ fun SettingsScreen(
                 modifier = Modifier.testTag("settings-wifi-only"),
             )
         }
+}
 
+@Composable
+private fun TrackingExportRows() {
         // Geo tracking export: the CSVs that let photos be stamped
         // retroactively as if taken in the moment (the effective stream
         // samples the same arbitration the shutter runs). Auto-export
@@ -356,6 +472,13 @@ fun SettingsScreen(
                 }
             }
         }
+}
+
+@Composable
+private fun GpsIntervalRow(
+    mapRepository: cz.hillview.settings.MapSettingsRepository = koinInject(),
+) {
+    val mapSettings by mapRepository.settings.collectAsState()
 
         // How often the fused provider is asked for a fix. The value goes
         // straight through BindGeoToActivity into the GeoEngine — one of the
@@ -397,6 +520,18 @@ fun SettingsScreen(
                 }
             }
         }
+}
+
+@Composable
+private fun AccountAndLicense(
+    onOpenLogin: () -> Unit,
+    onOpenPanoramaxInfo: () -> Unit,
+    onOpenLicenseInfo: (String) -> Unit,
+    repository: UploadSettingsRepository = koinInject(),
+    sessionManager: cz.hillview.auth.SessionManager = koinInject(),
+) {
+    val settings by repository.settings.collectAsState()
+    val sessionState by sessionManager.state.collectAsState()
 
         // Uploads are impossible logged out, and this section is where a
         // user chasing the auto-upload prompt lands — so the way in sits
@@ -491,6 +626,13 @@ fun SettingsScreen(
                 modifier = Modifier.testTag("settings-panoramax-info"),
             ) { Text("About contributing to Panoramax") }
         }
+}
+
+@Composable
+private fun StorageRows(
+    repository: UploadSettingsRepository = koinInject(),
+) {
+    val settings by repository.settings.collectAsState()
 
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("Photo storage", style = MaterialTheme.typography.bodyLarge)
@@ -558,6 +700,16 @@ fun SettingsScreen(
                 modifier = Modifier.testTag("settings-write-exif"),
             )
         }
+}
+
+@Composable
+private fun CaptureRows(
+    onOpenSfmSettings: () -> Unit,
+    repository: UploadSettingsRepository = koinInject(),
+    mapRepository: cz.hillview.settings.MapSettingsRepository = koinInject(),
+) {
+    val settings by repository.settings.collectAsState()
+    val mapSettings by mapRepository.settings.collectAsState()
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -582,6 +734,36 @@ fun SettingsScreen(
             )
         }
 
+        CaptureSoundSection(repository = repository)
+
+        // The SfM run's own page, reached from here rather than the main
+        // menu (user, 2026-11-07: "make the SfM dialog a part of the settings
+        // screen, like a sub-screen"). It is a capture preference you set
+        // once, not a place you visit mid-shoot. The row says whether it is
+        // on, so the state is readable without opening it.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onOpenSfmSettings)
+                .testTag("settings-sfm-run"),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("SfM run", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Stills for 3-D reconstruction, a shot each time you have moved " +
+                        "or turned far enough. " +
+                        if (mapSettings.sfmRunEnabled) "On — offered in the shutter's ladder."
+                        else "Off.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Text("›", style = MaterialTheme.typography.titleLarge)
+        }
+}
+
+@Composable
+private fun PhotoIndexRow() {
         // Not a switch: the dump always runs. What the screen owes the user
         // is where it went, so the file can be found — and a way to write it
         // again when it cannot be. See PhotoIndexExport.
@@ -619,6 +801,15 @@ fun SettingsScreen(
                 modifier = Modifier.testTag("settings-photo-index-write"),
             ) { Text(if (writing) "Writing…" else "Write it now") }
         }
+}
+
+@Composable
+private fun DiagnosticRows(
+    compassRepository: CompassSettingsRepository = koinInject(),
+    mapRepository: cz.hillview.settings.MapSettingsRepository = koinInject(),
+) {
+    val compass by compassRepository.settings.collectAsState()
+    val mapSettings by mapRepository.settings.collectAsState()
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -661,9 +852,7 @@ fun SettingsScreen(
                 modifier = Modifier.testTag("settings-landscape-workaround"),
             )
         }
-
-        BuildInfoFooter()
-    }
+        // BuildInfoFooter() moved to the list page (SettingsIndex).
 }
 
 /**

@@ -34,7 +34,42 @@ class DuplicateFileException(message: String) : Exception(message)
  * Deliberately not an IOException so the generic network catches don't
  * swallow it into a per-photo failure.
  */
-class WorkerBusyException(message: String) : Exception(message)
+//class WorkerBusyException(message: String) : Exception(message)
+/**
+ * The worker said it is full (HTTP 503 from /ready or the upload itself).
+ * [retryAfterSeconds] is its `Retry-After`, when it sent a number of seconds:
+ * the pace the WORKER asks for, which the drain honours instead of WorkManager's
+ * exponential backoff — see PhotoUploadManager.resumeAfterWorkerBusy.
+ */
+class WorkerBusyException(message: String, val retryAfterSeconds: Long? = null) : Exception(message)
+
+/**
+ * A row still `uploading` this long after its last heartbeat (every 30 s while the
+ * body is in flight) belonged to a drain that died — hand it back.
+ */
+internal const val UPLOADING_STALE_MS = 10L * 60_000
+
+/**
+ * How long a photo the worker ACCEPTED may stay in `processing` before the phone
+ * gives up on it and uploads it again (2026-11-06: 8 h, was 1 h).
+ *
+ * The phone cannot ask the worker about a photo — only the API, whose status
+ * says `authorized` both for a photo still queued at the worker and for one the
+ * worker lost (crash, restart: its queue is in memory). So this timer is the
+ * only thing that recovers a lost photo, and it cannot tell lost from queued.
+ * At 1 h — set while hunting upload bugs, when a fast retry was the point — a
+ * worker with a few hundred photos queued saw them re-sent while they still
+ * waited their turn: the API deletes the `authorized` row and authorizes again,
+ * so the same photo was processed twice. 8 h covers a deep queue; the cost is
+ * that a genuinely lost photo waits that long. A real answer needs the server
+ * to know lost from queued (the worker telling the API it received a photo,
+ * and that it restarted).
+ */
+internal const val PROCESSING_STALE_MS = 8L * 60 * 60_000
+
+/** `Retry-After` as seconds; null for the HTTP-date form or anything unparseable. */
+internal fun retryAfterSeconds(header: String?): Long? =
+	header?.trim()?.toLongOrNull()?.takeIf { it >= 0 }
 
 /**
  * Secure Upload Manager for Android Background Uploads
@@ -226,12 +261,15 @@ class PhotoUploadLogic(internal val context: Context) {
 				//	nowSnap
 				//).count { isEligibleNow(it, triggerSource, nowSnap) }
 				val total = photoDao.getUploadableCandidateStates(
-					nowSnap - 1000 * 60 * 10,
-					nowSnap - 1000 * 60 * 60,
+					nowSnap - UPLOADING_STALE_MS,
+					//nowSnap - 1000 * 60 * 60,
+					nowSnap - PROCESSING_STALE_MS,
 					nowSnap
 				).count { isEligibleNow(it.uploadStatus, it.lastUploadAttempt, it.retryCount, triggerSource, nowSnap) }
 
 				var workerBusy = false
+				// The worker's own Retry-After, from the 503 that set workerBusy.
+				var workerBusyRetryAfterSeconds: Long? = null
 				var networkDeferred = false
 				// Set when the loop stops because a precondition went away
 				// rather than because the work is done — see the return below.
@@ -310,8 +348,10 @@ class PhotoUploadLogic(internal val context: Context) {
 					else
 					{
 						val now = System.currentTimeMillis()
-						val uploadingStaleThreshold = now - 1000 * 60 * 10  // 10 minutes
-						val processingStaleThreshold = now - 1000 * 60 * 60 // 1 hour
+						//val uploadingStaleThreshold = now - 1000 * 60 * 10  // 10 minutes
+						//val processingStaleThreshold = now - 1000 * 60 * 60 // 1 hour
+						val uploadingStaleThreshold = now - UPLOADING_STALE_MS
+						val processingStaleThreshold = now - PROCESSING_STALE_MS
 						photo = photoDao.getNextPhotoForUpload(seen, uploadingStaleThreshold, processingStaleThreshold, now)
 					}
 
@@ -446,6 +486,7 @@ class PhotoUploadLogic(internal val context: Context) {
 						Log.w(TAG, "⏳ Worker busy, aborting upload pass: ${e.message}")
 						photoDao.updateUploadStatus(photo.id, photo.uploadStatus, photo.uploadedAt)
 						workerBusy = true
+						workerBusyRetryAfterSeconds = e.retryAfterSeconds
 						break
 					} catch (e: CancellationException) {
 						// WorkManager stopped this run (network constraint lost,
@@ -499,10 +540,24 @@ class PhotoUploadLogic(internal val context: Context) {
 					PhotoUploadManager(context).schedulePostUploadStatusSync()
 				}
 
+				//if (workerBusy) {
+				//	Log.d(TAG, "Worker busy — letting WorkManager reschedule the drain")
+				//	recordDrain(triggerSource, "worker busy, will retry")
+				//	return ListenableWorker.Result.retry()
+				//}
+				// Busy is not a failure: the worker is full and has said when to
+				// come back. Result.retry() handed that to WorkManager's exponential
+				// backoff, whose count only resets on success — so a long backlog
+				// against a worker that is merely at capacity waited 10 min, 20, 40…
+				// up to 5 h between refills while the worker sat idle (2026-11-06,
+				// 5385 photos against a 100-slot queue). The resume follows the
+				// worker's pace instead; real FAILURES below keep the exponential
+				// backoff, so a broken setup still backs off hard.
 				if (workerBusy) {
-					Log.d(TAG, "Worker busy — letting WorkManager reschedule the drain")
-					recordDrain(triggerSource, "worker busy, will retry")
-					return ListenableWorker.Result.retry()
+					val delayMs = PhotoUploadManager(context).resumeAfterWorkerBusy(workerBusyRetryAfterSeconds)
+					Log.d(TAG, "Worker busy — resuming the drain in ${delayMs / 1000}s")
+					recordDrain(triggerSource, "worker busy, resuming in ${delayMs / 1000}s")
+					return ListenableWorker.Result.success()
 				}
 
 				if (networkDeferred) {
@@ -1048,7 +1103,11 @@ class PhotoUploadLogic(internal val context: Context) {
 				if (readyResponse.code == 503) {
 					pinnedWorkerMachine = null
 					noteWorker(workerUrl, "ready: HTTP 503 (queue full)", failed = true)
-					throw WorkerBusyException("Worker upload queue is full (readiness check)")
+					//throw WorkerBusyException("Worker upload queue is full (readiness check)")
+					throw WorkerBusyException(
+						"Worker upload queue is full (readiness check)",
+						retryAfterSeconds(readyResponse.header("Retry-After")),
+					)
 				}
 				if (readyResponse.code != 200 && readyResponse.code != 404) {
 					noteWorker(workerUrl, "ready: HTTP ${readyResponse.code}", failed = true)
@@ -1136,7 +1195,11 @@ class PhotoUploadLogic(internal val context: Context) {
 					val error = response.body?.string() ?: "Unknown error"
 					Log.w(TAG, "Worker rejected upload as busy: $error")
 					noteWorker(workerUrl, "upload: HTTP 503 (queue full)", failed = true)
-					throw WorkerBusyException("Worker upload queue is full")
+					//throw WorkerBusyException("Worker upload queue is full")
+					throw WorkerBusyException(
+						"Worker upload queue is full",
+						retryAfterSeconds(response.header("Retry-After")),
+					)
 				}
 
 				if (!response.isSuccessful) {

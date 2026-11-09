@@ -48,6 +48,13 @@ class PhotoUploadManager(private val context: Context) {
          * was.
          */
         private const val BACKSTOP_PERIOD_MINUTES = 6L * 60
+
+        /**
+         * How long after a drain the status sync runs, and so the most often
+         * it runs while drains keep finishing (see schedulePostUploadStatusSync).
+         * Processing takes a while anyway, so a result is rarely ready sooner.
+         */
+        private const val POST_DRAIN_STATUS_SYNC_DELAY_S = 120L
     }
 
     // Reconciliation touches prefs, Room and WorkManager, and its callers
@@ -214,12 +221,65 @@ class PhotoUploadManager(private val context: Context) {
      * Foreground promotion is NOT decided here — the worker calls setForeground()
      * based on app-backgrounded state at run time.
      */
+    /**
+     * The drain stopped because the worker is FULL (a 503) — schedule its
+     * continuation at the worker's pace, and return the delay chosen (ms).
+     *
+     * Not WorkManager's retry: that backoff is exponential in the job's run count,
+     * which only resets on success, so a long backlog against a worker that is
+     * merely at capacity waited longer at every refill — 10 min, 20, 40… up to 5 h
+     * — while the worker went idle (2026-11-06). Busy is the worker TELLING us when
+     * to come back, so this follows its `Retry-After`:
+     *  - clamped to [BUSY_RESUME_MIN_S, BUSY_RESUME_MAX_S], so a missing or odd
+     *    header cannot make a client either hammer or vanish;
+     *  - plus up to [BUSY_RESUME_JITTER] extra, never less, so phones turned away
+     *    together do not all come back in the same second;
+     *  - FAILURES keep the exponential backoff (the drain still returns retry() for
+     *    those) — with everything in development, errors are expected, and clients
+     *    must not hammer a production worker that is failing (user, 2026-11-06).
+     *
+     * Enqueued under the OTHER unique name from the drain that is calling this:
+     * that drain is still RUNNING under its own, and KEEP would drop the
+     * enqueue while REPLACE would cancel the caller. The other name is free —
+     * the reconciler never enqueues while a drain runs — or holds only a stale
+     * retry chain, which REPLACE retires in favour of this. Both names are what
+     * [readScheduledWork] and [cancelQueuedUploads] already cover, so the
+     * reconciler sees and can cancel this like any other drain.
+     */
+    fun resumeAfterWorkerBusy(retryAfterSeconds: Long?): Long {
+        val delayMs = busyResumeDelayMs(retryAfterSeconds, kotlin.random.Random.nextDouble())
+        val workManager = WorkManager.getInstance(context)
+        fun isRunning(name: String) = runCatching { workManager.getWorkInfosForUniqueWork(name).get() }
+            .getOrNull().orEmpty().any { it.state == WorkInfo.State.RUNNING }
+        val target = when {
+            isRunning(WORK_BATCH) -> WORK_NOW
+            else -> WORK_BATCH
+        }
+        if (isRunning(target)) {
+            // Both names running is not a state the reconciler creates; if it
+            // happens, the other drain is the continuation already.
+            Log.w(TAG, "🢄📤 busy resume: $target is already running — leaving it to continue")
+            return delayMs
+        }
+        val prefs = context.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
+        enqueueUpload(
+            "worker_busy",
+            prefs.getBoolean("wifi_only", false),
+            target,
+            delayMs = delayMs,
+            expedited = false,
+            policy = ExistingWorkPolicy.REPLACE,
+        )
+        return delayMs
+    }
+
     private fun enqueueUpload(
         triggerSource: String,
         wifiOnly: Boolean,
         uniqueName: String,
         delayMs: Long,
         expedited: Boolean,
+        policy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP,
     ) {
         val networkType = if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
         val constraints = Constraints.Builder()
@@ -249,7 +309,8 @@ class PhotoUploadManager(private val context: Context) {
                 (if (wifiOnly) "needs unmetered" else "any network") +
                 (if (expedited) ", expedited" else ", in ${delayMs / 1000}s") + ")",
         )
-        WorkManager.getInstance(context).enqueueUniqueWork(uniqueName, ExistingWorkPolicy.KEEP, builder.build())
+        //WorkManager.getInstance(context).enqueueUniqueWork(uniqueName, ExistingWorkPolicy.KEEP, builder.build())
+        WorkManager.getInstance(context).enqueueUniqueWork(uniqueName, policy, builder.build())
     }
 
 
@@ -276,6 +337,8 @@ class PhotoUploadManager(private val context: Context) {
      * waiting on the status round-trip. Short delay + REPLACE: back-to-back
      * drains coalesce into one sync, which re-queries the DB when it runs,
      * and the delay gives the server a moment to actually finish processing.
+     * (Since 2026-11-07: a 2-minute delay + KEEP, so a stream of drains makes
+     * at most one sync every 2 minutes rather than one per drain.)
      */
     fun schedulePostUploadStatusSync() {
         val constraints = Constraints.Builder()
@@ -283,12 +346,24 @@ class PhotoUploadManager(private val context: Context) {
             .build()
         val request = OneTimeWorkRequestBuilder<PhotoStatusSyncWorker>()
             .setConstraints(constraints)
-            .setInitialDelay(5, TimeUnit.SECONDS)
+            //.setInitialDelay(5, TimeUnit.SECONDS)
+            .setInitialDelay(POST_DRAIN_STATUS_SYNC_DELAY_S, TimeUnit.SECONDS)
             .build()
         Log.d(TAG, "🢄📤 enqueue ${PhotoStatusSyncWorker.WORK_NAME}")
+        // KEEP, not REPLACE (2026-11-07): during interval shooting with
+        // auto-upload on, a drain finishes every ~15 s (WINDOW_MS), and REPLACE
+        // with a 5 s delay meant one status request — carrying every
+        // processing photo's id — per drain, all session long. With KEEP the
+        // first drain's sync stands and later drains fold into it: at most one
+        // sync per POST_DRAIN_STATUS_SYNC_DELAY_S. It reads the database when
+        // it runs, so photos uploaded meanwhile are included. (REPLACE with
+        // the long delay would instead push the sync back on every drain and
+        // starve it while shooting.) A drain finishing while a sync is RUNNING
+        // is kept out too; the next drain, or the next stats poll, covers it.
         WorkManager.getInstance(context).enqueueUniqueWork(
             PhotoStatusSyncWorker.WORK_NAME,
-            ExistingWorkPolicy.REPLACE,
+            //ExistingWorkPolicy.REPLACE,
+            ExistingWorkPolicy.KEEP,
             request,
         )
     }
@@ -344,4 +419,22 @@ class PhotoUploadManager(private val context: Context) {
         }
     }
 
+}
+
+// Resuming after a worker-busy 503 — see PhotoUploadManager.resumeAfterWorkerBusy.
+// The default is the worker's own QUEUE_FULL_RETRY_AFTER_SECONDS, for a 503 that
+// arrives without a usable Retry-After.
+internal const val BUSY_RESUME_DEFAULT_S = 500L
+internal const val BUSY_RESUME_MIN_S = 60L
+internal const val BUSY_RESUME_MAX_S = 30L * 60
+internal const val BUSY_RESUME_JITTER = 0.25
+
+/**
+ * How long to wait before resuming a drain the worker turned away: its
+ * `Retry-After` (or the default), clamped, then stretched by [unitRandom] in
+ * [0, 1) times [BUSY_RESUME_JITTER] — later, never sooner, than it asked.
+ */
+internal fun busyResumeDelayMs(retryAfterSeconds: Long?, unitRandom: Double): Long {
+    val baseS = (retryAfterSeconds ?: BUSY_RESUME_DEFAULT_S).coerceIn(BUSY_RESUME_MIN_S, BUSY_RESUME_MAX_S)
+    return (baseS * 1000 * (1.0 + unitRandom.coerceIn(0.0, 1.0) * BUSY_RESUME_JITTER)).toLong()
 }

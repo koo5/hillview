@@ -119,6 +119,17 @@ data class UploadSettings(
     val workerEndpoints: List<WorkerEndpoint> = emptyList(),
     /** The one uploads go to, or null for whatever the server names. */
     val workerOverrideUrl: String? = null,
+    // Capture sounds (CaptureSoundSettings.kt). They live here beside the
+    // other capture preferences (storage, EXIF, exact time) because this is
+    // the store the capture pipeline already reads per shot.
+    /** The healthy-capture sound. */
+    val shutterSound: ShutterSound = ShutterSound.Click,
+    /** The double beep when the photo's position is not a fresh GPS fix. */
+    val warnDegradedPosition: Boolean = true,
+    /** The volume control both sounds obey. */
+    val captureSoundChannel: SoundChannel = SoundChannel.Media,
+    /** 0..1, applied on top of the channel's own volume. */
+    val captureSoundVolume: Float = CAPTURE_SOUND_VOLUME_DEFAULT,
 )
 
 /**

@@ -20,7 +20,7 @@ import kotlinx.coroutines.launch
  * say, a series can: WHEN the heap started to climb, how fast, and what the app was
  * doing then (the event log around it).
  *
- * Every [SAMPLE_MS] (2 s) a line goes to logcat. The event log, which holds 500 entries of
+ * Every [SAMPLE_MS] (a minute) a line goes to logcat. The event log, which holds 500 entries of
  * everything and is what a phone in the field keeps, gets one only when the heap has
  * moved by [RECORD_STEP_BYTES] since the last one or [RECORD_EVERY_MS] has passed — a
  * steady app adds two lines an hour, a climbing one draws its own curve.
@@ -31,11 +31,12 @@ import kotlinx.coroutines.launch
  */
 object HeapLog {
     private val TAG = hvTag("Heap")
-    // Every 2 s while the OOM is being hunted (user, 2026-11-06: "make it more frequent
-    // for now"). It is the LOGCAT cadence; the event log keeps its change-based rule
-    // below, since a line every 2 s would roll its 500 entries over in 17 minutes and
-    // take the crash context with them.
-    private const val SAMPLE_MS = 2_000L
+    // Every 2 s while the OOM was being hunted (user, 2026-11-06: "make it more
+    // frequent for now"); quietened the same day once it was found (the upload
+    // drain loading every queued photo row whole). It is the LOGCAT cadence; the
+    // event log keeps its change-based rule below either way.
+    //private const val SAMPLE_MS = 2_000L
+    private const val SAMPLE_MS = 60_000L
     private const val RECORD_EVERY_MS = 30 * 60_000L
     private const val RECORD_STEP_BYTES = 16L * 1024 * 1024
     private const val MIB = 1024 * 1024

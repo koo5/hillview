@@ -1272,7 +1272,7 @@ async def metrics():
 	return Response("\n".join(out) + "\n", media_type="text/plain; version=0.0.4")
 
 
-def validate_upload_parameters(upload_auth: dict, file) -> (str, str):
+def validate_upload_parameters(upload_auth: dict, file) -> tuple[str, str]:
 
 	# Extract upload authorization data
 	raw_photo_id = upload_auth["photo_id"]

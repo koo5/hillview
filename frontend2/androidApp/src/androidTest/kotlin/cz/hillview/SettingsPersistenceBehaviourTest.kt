@@ -67,32 +67,38 @@ class SettingsPersistenceBehaviourTest {
         }
     }
 
-    private fun openSettings() {
-        compose.openMenu()
-        compose.onNodeWithTag("settings-menu-link").performClick()
-        compose.waitUntil(10_000) {
-            compose.onAllNodesWithTag("settings-auto-upload")
-                .fetchSemanticsNodes().isNotEmpty()
-        }
+    // Settings is a list of sub-pages since 2026-11-07: the upload controls
+    // live under "uploads", the compass workaround under "location".
+    // private fun openSettings() {
+    //     compose.openMenu()
+    //     compose.onNodeWithTag("settings-menu-link").performClick()
+    //     compose.waitUntil(10_000) {
+    //         compose.onAllNodesWithTag("settings-auto-upload")
+    //             .fetchSemanticsNodes().isNotEmpty()
+    //     }
+    // }
+    private fun openSettings(section: String = "uploads") = compose.openSettingsSection(section)
+
+    // private fun goHome() {
+    //     compose.activityRule.scenario.onActivity {
+    //         it.onBackPressedDispatcher.onBackPressed()
+    //     }
+    //     compose.waitUntil(10_000) {
+    //         compose.onAllNodesWithTag("hamburger-menu")
+    //             .fetchSemanticsNodes().isNotEmpty()
+    //     }
+    // }
+    private fun goHome() = compose.backToMain {
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
     }
 
-    private fun goHome() {
-        compose.activityRule.scenario.onActivity {
-            it.onBackPressedDispatcher.onBackPressed()
-        }
-        compose.waitUntil(10_000) {
-            compose.onAllNodesWithTag("hamburger-menu")
-                .fetchSemanticsNodes().isNotEmpty()
-        }
-    }
-
-    private fun recreateAndReopenSettings() {
+    private fun recreateAndReopenSettings(section: String = "uploads") {
         compose.activityRule.scenario.recreate()
         compose.waitUntil(15_000) {
             compose.onAllNodesWithTag("hamburger-menu")
                 .fetchSemanticsNodes().isNotEmpty()
         }
-        openSettings()
+        openSettings(section)
     }
 
     private fun pickLicense(license: String) {
@@ -171,7 +177,7 @@ class SettingsPersistenceBehaviourTest {
      */
     @Test
     fun compassSettingPersistsIndependentlyOfUploadChanges() {
-        openSettings()
+        openSettings("location")
         compose.setSwitch("settings-landscape-workaround", true)
         goHome()
         assertTrue(compassPrefs.getBoolean("landscape_armor22_workaround", false))
@@ -189,8 +195,59 @@ class SettingsPersistenceBehaviourTest {
             uploadPrefs.getString("auto_upload_license", null),
         )
 
-        recreateAndReopenSettings()
+        recreateAndReopenSettings("location")
         compose.onNodeWithTag("settings-landscape-workaround")
             .performScrollTo().assertIsOn()
+    }
+
+    /**
+     * Settings is a list of sub-pages (user, 2026-11-07): each link opens
+     * its page, and system Back from a page returns to the list, not to
+     * the map.
+     */
+    @Test
+    fun settingsIsAListOfSubPages() {
+        val sections = listOf("uploads", "capture", "storage", "location", "servers")
+        sections.forEach { key ->
+            compose.openSettingsSection(key)
+            compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+            compose.waitUntil(10_000) {
+                compose.onAllNodesWithTag("settings-screen").fetchSemanticsNodes().isNotEmpty()
+            }
+            assertTrue(
+                compose.onAllNodesWithTag("settings-section-$key").fetchSemanticsNodes().isEmpty(),
+            )
+            goHome()
+        }
+    }
+
+    /**
+     * The SfM run's page lives under Settings now, not the main menu
+     * (user, 2026-11-07): the row opens it, and Back from it returns to
+     * Settings rather than to the map. Since the same day's split the row
+     * sits on the Capture sub-page.
+     */
+    @Test
+    fun sfmRunIsASettingsSubPage() {
+        compose.openMenu()
+        assertTrue(
+            compose.onAllNodesWithTag("menu-sfm-settings").fetchSemanticsNodes().isEmpty(),
+        )
+        // compose.onNodeWithTag("settings-menu-link").performClick()
+        // compose.waitUntil(10_000) {
+        //     compose.onAllNodesWithTag("settings-auto-upload")
+        //         .fetchSemanticsNodes().isNotEmpty()
+        // }
+        compose.openSettingsSection("capture")
+        compose.onNodeWithTag("settings-sfm-run").performScrollTo().performClick()
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithTag("sfm-settings-screen")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("sfm-settings-back").performClick()
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithTag("settings-sfm-run")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
     }
 }

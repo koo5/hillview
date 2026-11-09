@@ -232,30 +232,70 @@ private class AndroidPhotoCapture(
 
     // The shutter's voice: the stock click for a healthy capture, a double
     // beep when the position is degraded — audible from a pocket.
+    // Since 2026-11-07 only the click is still used, and only where the law
+    // requires a shutter sound; everything else goes through
+    // CaptureSoundPlayer (see playCaptureTone).
     private val shutterSound by lazy {
         android.media.MediaActionSound().apply {
             load(android.media.MediaActionSound.SHUTTER_CLICK)
         }
     }
-    private val warnTone by lazy {
-        android.media.ToneGenerator(android.media.AudioManager.STREAM_NOTIFICATION, 90)
-    }
+    // Retired 2026-11-07: the warning is CaptureCue.Warning on the chosen stream.
+    // private val warnTone by lazy {
+    //     android.media.ToneGenerator(android.media.AudioManager.STREAM_NOTIFICATION, 90)
+    // }
 
+    // Read once: the platform's answer doesn't change while the app runs.
+    private val shutterSoundRequiredByLaw by lazy { CaptureSoundPlayer.shutterSoundRequiredByLaw() }
+
+    /**
+     * The capture's sound, on the stream the user chose (Settings → Capture
+     * sound). It used to be the two platform players above, each bound to a
+     * stream of its own choosing — the click to the "enforced" stream (ring
+     * volume on one phone, no slider at all on another), the warning to the
+     * notification stream — so what silenced them varied by device
+     * (user-reported, 2026-11-07).
+     *
+     * Where the law requires a shutter sound, the system click still plays
+     * on every photo whatever the settings say, and the warning, if due,
+     * plays as well.
+     */
     private fun playCaptureTone(snapshot: SensorSnapshot) {
         val tone = captureTone(snapshot.locationSource, snapshot.locationAgeMs)
-        Log.d(TAG, "capture tone: $tone (source=${snapshot.locationSource} age=${snapshot.locationAgeMs})")
-        try {
-            when (tone) {
-                CaptureTone.Normal ->
-                    shutterSound.play(android.media.MediaActionSound.SHUTTER_CLICK)
-                CaptureTone.Degraded -> {
-                    warnTone.startTone(android.media.ToneGenerator.TONE_PROP_BEEP2, 250)
-                }
+        val s = uploadSettings.settings.value
+        val cue = captureCue(tone, s.shutterSound, s.warnDegradedPosition)
+        Log.d(TAG, "capture tone: $tone cue=$cue channel=${s.captureSoundChannel.key} " +
+            "volume=${s.captureSoundVolume} (source=${snapshot.locationSource} age=${snapshot.locationAgeMs})")
+        if (shutterSoundRequiredByLaw) {
+            try {
+                shutterSound.play(android.media.MediaActionSound.SHUTTER_CLICK)
+            } catch (e: Exception) {
+                Log.w(TAG, "required shutter sound failed", e)
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "capture tone failed", e)
+            if (cue == CaptureCue.Warning) {
+                CaptureSoundPlayer.shared.play(cue, s.captureSoundChannel, s.captureSoundVolume)
+            }
+            return
         }
+        cue?.let { CaptureSoundPlayer.shared.play(it, s.captureSoundChannel, s.captureSoundVolume) }
     }
+
+    // The previous body, on the platform players:
+    // private fun playCaptureTone(snapshot: SensorSnapshot) {
+    //     val tone = captureTone(snapshot.locationSource, snapshot.locationAgeMs)
+    //     Log.d(TAG, "capture tone: $tone (source=${snapshot.locationSource} age=${snapshot.locationAgeMs})")
+    //     try {
+    //         when (tone) {
+    //             CaptureTone.Normal ->
+    //                 shutterSound.play(android.media.MediaActionSound.SHUTTER_CLICK)
+    //             CaptureTone.Degraded -> {
+    //                 warnTone.startTone(android.media.ToneGenerator.TONE_PROP_BEEP2, 250)
+    //             }
+    //         }
+    //     } catch (e: Exception) {
+    //         Log.w(TAG, "capture tone failed", e)
+    //     }
+    // }
 
     private var camera: Camera? = null
     private var isoRange: android.util.Range<Int>? = null
@@ -1703,6 +1743,12 @@ private class AndroidPhotoCapture(
     }
 
     init {
+        // Build the capture sounds now, off the main thread, so the first
+        // shot of a run doesn't wait ~300 ms for its track (CaptureSoundPlayer).
+        CaptureSoundPlayer.shared.prewarm(uploadSettings.settings.value.captureSoundChannel)
+    }
+
+    init {
         CaptureStatsLog.platformLines = {
             buildList {
                 // The knobs the timings above were taken under.
@@ -2408,7 +2454,7 @@ private class AndroidPhotoCapture(
         lifecycleOwner.lifecycle.removeObserver(orientationLifecycle)
         try {
             shutterSound.release()
-            warnTone.release()
+            // warnTone.release()
         } catch (e: Exception) {
             // lazy instances may never have been created
         }

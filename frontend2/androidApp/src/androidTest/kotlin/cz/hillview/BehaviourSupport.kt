@@ -287,6 +287,39 @@ fun ComposeTestRule.openMenu() {
     }
 }
 
+/**
+ * Menu → Settings → one sub-page. Settings has been a list of pages since
+ * 2026-11-07; [key] is a SettingsSection key ("uploads", "capture",
+ * "storage", "location", "servers").
+ */
+fun ComposeTestRule.openSettingsSection(key: String) {
+    openMenu()
+    onNodeWithTag("settings-menu-link").performClick()
+    waitUntil(10_000) {
+        onAllNodesWithTag("settings-section-link-$key").fetchSemanticsNodes().isNotEmpty()
+    }
+    onNodeWithTag("settings-section-link-$key").performClick()
+    waitUntil(10_000) {
+        onAllNodesWithTag("settings-section-$key").fetchSemanticsNodes().isNotEmpty()
+    }
+}
+
+/**
+ * Press system Back until the Main page shows — from a Settings sub-page
+ * that is two presses, from Settings one. [pressBack] is the activity's
+ * dispatcher, which only the caller's rule can reach.
+ */
+fun ComposeTestRule.backToMain(pressBack: () -> Unit) {
+    repeat(4) {
+        if (onAllNodesWithTag("hamburger-menu").fetchSemanticsNodes().isNotEmpty()) return
+        pressBack()
+        waitForIdle()
+    }
+    waitUntil(10_000) {
+        onAllNodesWithTag("hamburger-menu").fetchSemanticsNodes().isNotEmpty()
+    }
+}
+
 /** Close the menu via its scrim (the click-outside path). */
 fun ComposeTestRule.closeMenu() {
     if (onAllNodesWithTag("navigation-menu").fetchSemanticsNodes().isEmpty()) return
