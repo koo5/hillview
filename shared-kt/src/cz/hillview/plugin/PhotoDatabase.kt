@@ -13,6 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     entities = [
         PhotoEntity::class, EditEntity::class, PhotoOutboxEntity::class,
         PhotoExportChangeEntity::class, PhotoExportSequenceEntity::class,
+        PhotoImuSamplesEntity::class,
     ],
     version = PHOTO_DB_VERSION,
     // Schemas are exported per app (they compile these entities with different
@@ -638,6 +639,42 @@ abstract class PhotoDatabase : RoomDatabase() {
 			}
 		}
 
+		private val MIGRATION_31_32 = object : Migration(31, 32) {
+			override fun migrate(db: SupportSQLiteDatabase) {
+				// The raw IMU window moves off `photos` into its own table — see
+				// PhotoImuSamplesEntity for why (2026-11-06: as a column it rode
+				// along with every SELECT *, and a 5385-photo upload queue was an
+				// OutOfMemoryError at app start).
+				//
+				// The statement is Room's own createSql for the entity; the
+				// exported schema (shared-kt/schemas/) is what it is checked by.
+				db.execSQL(
+					"CREATE TABLE IF NOT EXISTS `photo_imu_samples` (" +
+						"`photoId` TEXT NOT NULL, `samplesJson` TEXT NOT NULL, " +
+						"PRIMARY KEY(`photoId`), " +
+						"FOREIGN KEY(`photoId`) REFERENCES `photos`(`id`) " +
+						"ON UPDATE NO ACTION ON DELETE CASCADE )",
+				)
+				db.execSQL(
+					"INSERT OR REPLACE INTO photo_imu_samples (photoId, samplesJson) " +
+						"SELECT id, imuSamplesJson FROM photos WHERE imuSamplesJson IS NOT NULL",
+				)
+				// The column stays, emptied: SQLite gained DROP COLUMN in 3.35
+				// (Android 14), minSdk is 24, and rebuilding `photos` — its
+				// triggers, indices and the edits foreign key — to shed one
+				// column is a far bigger risk than a column of NULLs.
+				//
+				// Emptying it is an UPDATE, which the export trigger would turn
+				// into a re-export of every photo that had a window, for a column
+				// the export does not even write. So the trigger steps aside and
+				// is put back exactly as it was (create() is idempotent and
+				// re-seeds nothing with seedExistingPhotos = false).
+				db.execSQL("DROP TRIGGER IF EXISTS photos_export_update")
+				db.execSQL("UPDATE photos SET imuSamplesJson = NULL WHERE imuSamplesJson IS NOT NULL")
+				PhotoExportChangeTracking.create(db, seedExistingPhotos = false)
+			}
+		}
+
 		/**
 		 * Every migration, in one list, so the runtime builder and
 		 * PhotoDatabaseMigrationTest cannot disagree about which ones exist.
@@ -650,6 +687,7 @@ abstract class PhotoDatabase : RoomDatabase() {
 			MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25,
 			MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28,
 			MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31,
+			MIGRATION_31_32,
 		)
 
         fun getDatabase(context: Context): PhotoDatabase {
@@ -677,6 +715,6 @@ abstract class PhotoDatabase : RoomDatabase() {
  * the inertial rename) were never once validated against the entities. A hardcoded
  * target in a test whose job is to catch drift is the one place drift hides.
  */
-const val PHOTO_DB_VERSION = 31
+const val PHOTO_DB_VERSION = 32
 
 

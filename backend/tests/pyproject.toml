@@ -20,6 +20,10 @@ dependencies = [
     # Image generation for test photos
     "pillow",
     "piexif",
+
+    # STAC validation in the Panoramax federation E2E (panoramax/scripts/e2e_federation.py).
+    # 1.15 splits into pystac-core plus ~25 extension packages; 1.14 validates the same.
+    "pystac[validation]~=1.14.3",
 ]
 
 [tool.uv.sources]

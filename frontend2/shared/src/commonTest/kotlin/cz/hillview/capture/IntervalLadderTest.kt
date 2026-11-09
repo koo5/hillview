@@ -28,6 +28,32 @@ class IntervalLadderTest {
         assertTrue(intervals.first().ms < 1_000)
     }
 
+    /**
+     * The SfM run sits between the slowest interval and VIDEO, and is a RUN:
+     * the shutter starts it, colours it and names it the way it does an
+     * interval (user, 2026-11-05: "the sweet spot is somewhere in the middle").
+     */
+    @Test
+    fun theOverlapRunSitsJustUnderVideoAndIsARun() {
+        val ladder = intervalLadder(overlap = true)
+        assertSame(LadderRung.Overlap, ladder[ladder.size - 2])
+        assertSame(LadderRung.Video, ladder.last())
+        val runs: List<LadderRung> = ladder.filter { it is LadderRung.Run }
+        assertTrue(LadderRung.Overlap in runs)
+        assertFalse(LadderRung.Video in runs)
+        assertEquals(
+            ladderBandColor(LadderRung.Every(1_000), selected = true, armed = true),
+            ladderBandColor(LadderRung.Overlap, selected = true, armed = true),
+        )
+    }
+
+    /** Opt-in (user, 2026-11-05: "lets make it all opt-in and configurable"). */
+    @Test
+    fun withoutOptingInTheLadderIsAsItWas() {
+        assertFalse(LadderRung.Overlap in INTERVAL_LADDER)
+        assertEquals(INTERVAL_LADDER, intervalLadder(overlap = true).filter { it != LadderRung.Overlap })
+    }
+
     @Test
     fun everyRungIsSlowerThanTheOneBelowIt() {
         val ms = INTERVAL_LADDER.filterIsInstance<LadderRung.Every>().map { it.ms }

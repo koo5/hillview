@@ -59,6 +59,7 @@ import cz.hillview.settings.StorageMode
 import cz.hillview.settings.storageFacts
 import cz.hillview.settings.storageFolderName
 import cz.hillview.settings.UploadSettingsRepository
+import cz.hillview.settings.activeWorker
 import org.koin.compose.koinInject
 
 /**
@@ -154,6 +155,37 @@ fun SettingsScreen(
                     )
                 }
             }
+        }
+
+        // The worker override: like the API URL, but a list — a dev worker
+        // may be http or self-signed, so each saved one carries its own
+        // trust (WorkerUrlDialog). Applies live: the upload stack reads it
+        // per photo.
+        var workerDialogOpen by rememberSaveable { mutableStateOf(false) }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .selectable(selected = false, onClick = { workerDialogOpen = true }, role = Role.Button)
+                .testTag("settings-worker-url"),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Worker URL", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    settings.activeWorker?.let { w -> w.url + if (w.pin != null) " · pinned certificate" else "" }
+                        ?: "As the server says",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.testTag("settings-worker-url-value"),
+                )
+            }
+            Text("›", style = MaterialTheme.typography.titleLarge)
+        }
+        if (workerDialogOpen) {
+            WorkerUrlDialog(
+                settings = settings,
+                update = { transform -> repository.update(transform) },
+                onDismiss = { workerDialogOpen = false },
+            )
         }
 
         // The web app, for the viewer's "open in web app" link. Applies

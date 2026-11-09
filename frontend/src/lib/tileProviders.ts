@@ -2,6 +2,8 @@ import L from 'leaflet';
 import 'leaflet-providers';
 import { writable, get } from 'svelte/store';
 import {localStorageSharedStore} from "$lib/svelte-shared-store";
+import { loadEarth } from '$world/earth';
+import { earthUrl, earthChannel } from '$lib/world';
 
 const doLog = false;
 
@@ -63,6 +65,14 @@ const CUSTOM_PROVIDERS: Record<string, TileProviderConfig> = {
 		maxZoom: 23,
 		maxNativeZoom: 20,
 	},
+	// The base under earth's orthophoto (see EARTH_ORTHO_PROVIDER): Hillview (world), so the map still shows
+	// outside Czechia, where a tile is still downloading, and when earth cannot be reached
+	'earth.ortho': {
+		url: 'https://tiles4.ueueeu.eu/tile/{z}/{x}/{y}.png',
+		attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+		maxZoom: 23,
+		maxNativeZoom: 20,
+	},
 	// DEV-only: internal Ortofoto ČR (ČÚZK) WMTS proxy. Open data under CC BY 4.0.
 	'ortofoto.jj.internal': {
 		url: 'https://ortofoto.jj.internal/wmts/oi/webmercator/{z}/{x}/{y}.png',
@@ -74,8 +84,9 @@ const CUSTOM_PROVIDERS: Record<string, TileProviderConfig> = {
 
 // Available tile providers with descriptions
 export const AVAILABLE_PROVIDERS = {
-	'tiles.ueueeu.eu': 'Hillview (CZ)',
 	'tiles4.ueueeu.eu': 'Hillview (world)',
+	'earth.ortho': 'Aerial photo (CZ)',
+	'tiles.ueueeu.eu': 'Hillview (CZ)',
 
     // Standard 'leaflet-providers' providers
     'OpenStreetMap.Mapnik': 'OpenStreetMap',
@@ -104,6 +115,98 @@ export const DEFAULT_TILE_PROVIDER: ProviderName = 'tiles4.ueueeu.eu';
 
 // Current selected provider (can be changed at runtime)
 export const currentTileProvider = localStorageSharedStore<ProviderName>('currentTileProvider', DEFAULT_TILE_PROVIDER);
+
+/**
+ * Earth's orthophoto (ČÚZK Ortofoto ČR), drawn as an overlay above the 'earth.ortho' provider's base.
+ *
+ * Its tile URL names the release the channel serves, so it is read once from earth (loadEarth, the same
+ * reader the 3D world uses) rather than written here: VITE_EARTH_URL and VITE_EARTH_CHANNEL, as the 3D world.
+ * The picker always offers the layer; without VITE_EARTH_URL it is the base map alone.
+ */
+export const EARTH_ORTHO_PROVIDER: ProviderName = 'earth.ortho';
+// the ortho service's grid is z0-20 (z20 ~ 10 cm/px here, the source is 12.5 cm); finer is Leaflet's upscaling
+const EARTH_ORTHO_MAX_NATIVE_ZOOM = 20;
+
+export interface EarthOrthoLayer {
+	url: string;
+	bounds: [[number, number], [number, number]];
+	maxNativeZoom: number;
+	attribution: string;
+}
+
+/** null until loaded, and for good when earth could not be read (the base map stays alone) */
+export const earthOrtho = writable<EarthOrthoLayer | null>(null);
+let earthOrthoLoading: Promise<void> | null = null;
+
+// The credit is built from earth's /attribution (network data) and rendered as HTML (Leaflet's attribution
+// control, the map's and About's {@html}): every text escaped, and a link only to an http(s) URL, since
+// escaping alone would still let a javascript: href through
+function escapeHtml(s: string): string {
+	return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+}
+
+function creditLink(url: string | undefined, text: string): string {
+	let ok = false;
+	try {
+		ok = !!url && ['https:', 'http:'].includes(new URL(url).protocol);
+	} catch { /* not a URL: the text alone */ }
+	return ok ? `<a href="${escapeHtml(url!)}">${escapeHtml(text)}</a>` : escapeHtml(text);
+}
+
+// A tile whose ČÚZK sheets are not fetched yet is a 503 with Retry-After: 60 (earth's ortho.py), at once; a busy
+// address gets a 429. An <img> cannot read the status, so any failed tile is asked again after that minute, a few
+// times. Stock Leaflet would leave it empty (the base map showing through) until panned away and back.
+const ORTHO_RETRY_MS = 60_000;
+const ORTHO_RETRIES = 3;
+const orthoRetries = new WeakMap<HTMLElement, number>();
+
+/** the orthophoto layer's tileerror handler */
+export function retryOrthoTile(e: L.TileErrorEvent): void {
+	const img = e.tile as HTMLImageElement;
+	const n = orthoRetries.get(img) ?? 0;
+	if (n >= ORTHO_RETRIES) return;
+	orthoRetries.set(img, n + 1);
+	const src = img.src;
+	setTimeout(() => {
+		// gone (pruned or the layer removed) or aborted by Leaflet (src swapped for its empty image): leave it
+		// setting the same src fetches again: a failed load is never served from the image cache, nor a 503 from HTTP's
+		if (img.isConnected && img.src === src) img.src = src;
+	}, ORTHO_RETRY_MS);
+}
+
+/** read earth's channel once (on first use of the layer); later calls are no-ops */
+export function ensureEarthOrtho(): Promise<void> {
+	earthOrthoLoading ??= (async () => {
+		if (!earthUrl) {
+			console.warn('tileProviders: VITE_EARTH_URL is not set, no orthophoto over the base map');
+			return;
+		}
+		try {
+			const earth = await loadEarth(earthUrl, earthChannel);
+			const release = earth.releases.ortho;
+			if (!release || !earth.orthoExtent || !earth.orthoYear) {
+				console.warn(`tileProviders: earth channel ${earthChannel} has no orthophoto`);
+				return;
+			}
+			const src = earth.sources['cuzk-ortho'];
+			if (!src) throw new Error('earth: /attribution has no cuzk-ortho');
+			const [w, s, e, n] = earth.orthoExtent;
+			// ČÚZK's terms: "ČÚZK, <year>", linking the terms; CC BY 4.0
+			const attribution = `Ortofoto ČR &copy; ${creditLink(src.url, src.text.replace('{year}', earth.orthoYear))}, ` +
+				creditLink(src.terms_url, src.licence);
+			earthOrtho.set({
+				url: `${earth.base}/t/${encodeURIComponent(release)}/ortho/{z}/{x}/{y}.jpg`,
+				bounds: [[s, w], [n, e]],
+				maxNativeZoom: EARTH_ORTHO_MAX_NATIVE_ZOOM,
+				attribution
+			});
+		} catch (e) {
+			console.warn('tileProviders: earth orthophoto unavailable, showing the base map alone', e);
+			earthOrthoLoading = null; // a later selection of the layer asks again
+		}
+	})();
+	return earthOrthoLoading;
+}
 
 /**
  * Set the current tile provider

@@ -87,7 +87,7 @@ router = APIRouter(prefix="/api/photos", tags=["photos"])
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "./uploads"))
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-from sqlalchemy import func, and_, or_
+from sqlalchemy import func, and_, or_, text
 
 async def get_ratings_for_photos(db: AsyncSession, photo_ids: list, user_id: str) -> dict:
 	"""Get ratings data for a list of photo IDs.
@@ -886,6 +886,54 @@ async def list_license_history(
 		"current": outflow_license(photo.legal_rights, photo.panoramax_owner_share),
 		"entries": [serialize_entry(r) for r in rows],
 		"outflow_entries": [serialize_entry(r, outflow=True) for r in outflow_rows],
+	}
+
+
+@router.get("/{photo_id}/panoramax-status")
+async def get_panoramax_status(
+	photo_id: str,
+	current_user: User = Depends(get_current_active_user),
+	db: AsyncSession = Depends(get_db)
+):
+	"""Whether the Panoramax sequencer published this photo, and if not, why.
+
+	For the owner and moderators. Reads what the sequencer recorded on its
+	last pass (panoramax.photo_status, migration 040) rather than evaluating
+	the gates here, so the answer is the outcome that pass actually reached:
+
+	- ``member``: in ``sequence_id`` at ``rank``;
+	- ``suppressed``: eligible, but ``winner_uid`` represents its grid cell
+	  and bearing sector;
+	- ``ineligible``: ``failed_gates`` names the gates it failed (GATES in
+	  panoramax/app/eligibility.py, plus ``coordinates``);
+	- ``pending``: no pass has looked at it yet.
+
+	``decided_at`` is when the outcome was first recorded, ``last_pass_at``
+	when the last pass ran: a change since then shows on the next pass.
+	"""
+	photo = (await db.execute(select(Photo).where(Photo.id == photo_id))).scalars().first()
+	if not photo:
+		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
+	is_moderator = current_user.role in (UserRole.ADMIN, UserRole.MODERATOR)
+	if photo.owner_id != str(current_user.id) and not is_moderator:
+		raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+			detail="Only the owner and moderators can see a photo's Panoramax status")
+
+	row = (await db.execute(text("""
+		SELECT ps.outcome, ps.winner_id, ps.failed_gates, ps.decided_at, sp.sequence_id, sp.rank,
+		       (SELECT max(finished_at) FROM panoramax.sequencer_passes) AS last_pass_at
+		FROM (SELECT CAST(:photo_id AS VARCHAR) AS id) p
+		LEFT JOIN panoramax.photo_status ps ON ps.photo_id = p.id
+		LEFT JOIN panoramax.sequence_photos sp ON sp.photo_id = p.id
+	"""), {'photo_id': photo_id})).mappings().one()
+	return {
+		"outcome": row['outcome'] or 'pending',
+		"sequence_id": str(row['sequence_id']) if row['sequence_id'] else None,
+		"rank": row['rank'],
+		"winner_uid": f"hillview-{row['winner_id']}" if row['winner_id'] else None,
+		"failed_gates": list(row['failed_gates'] or []),
+		"decided_at": format_utc(row['decided_at']),
+		"last_pass_at": format_utc(row['last_pass_at']),
 	}
 
 

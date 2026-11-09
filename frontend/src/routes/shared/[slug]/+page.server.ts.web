@@ -1,11 +1,13 @@
-import { error, redirect } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { backendInternalUrl } from '$lib/config.server';
+import { loadPhotoPreview } from '$lib/photoPreview.server';
+import { HILLVIEW_BASE_URL } from '$lib/urlUtilsServer';
 
-// Resolve the short link and 301 to its map target. The resolve endpoint also
-// counts the visit. Social scrapers follow the redirect and read the photo's
-// OpenGraph tags off the SSR'd map page, so no head tags are needed here.
-export const load: PageServerLoad = async ({ params, fetch }) => {
+// Serve a complete HTML preview at the shared URL itself. A messenger should
+// not need to follow a redirect or execute JavaScript to discover the card.
+// Browsers continue to the saved map view after hydration.
+export const load: PageServerLoad = async ({ params, fetch, locals }) => {
 	const res = await fetch(`${backendInternalUrl}/shared/${encodeURIComponent(params.slug)}`);
 
 	if (res.status === 404) {
@@ -17,5 +19,7 @@ export const load: PageServerLoad = async ({ params, fetch }) => {
 	}
 
 	const data = await res.json();
-	throw redirect(301, data.target);
+	const target = new URL(data.target, HILLVIEW_BASE_URL);
+	const preview = await loadPhotoPreview(target.searchParams.get('photo'), fetch, locals);
+	return { target: data.target as string, ...preview };
 };

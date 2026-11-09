@@ -33,10 +33,11 @@ const config = {
 			// the 3D world (WorldScene and its layers), shared with the workbench's atlas viewer
 			$world: '../hillview_common/world'
 		},
-		// hillview_common/world imports three (for types), copc and laz-perf from outside this tree:
-		// resolve them to this app's copies, as vite's resolve.dedupe does at run time
+		// Shared components must use this app's Svelte types (Snippet has a unique symbol).
+		// Resolve three, copc and laz-perf to this app's copies too, as vite's resolve.dedupe does at run time.
 		typescript: {
 			config: (c) => {
+				c.compilerOptions.paths.svelte = ['../node_modules/svelte'];
 				c.compilerOptions.paths.three = ['../node_modules/@types/three'];
 				c.compilerOptions.paths['three/addons/*'] = ['../node_modules/@types/three/examples/jsm/*'];
 				c.compilerOptions.paths.copc = ['../node_modules/copc'];

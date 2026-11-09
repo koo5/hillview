@@ -97,6 +97,7 @@ fun MainScreen(
     onOpenUploadStatus: () -> Unit = {},
     onOpenEventLog: () -> Unit = {},
     onOpenLockSettings: () -> Unit = {},
+    onOpenSfmSettings: () -> Unit = {},
     /** The shutter's thumbnail opens the photo it just took. */
     onOpenPhoto: (String) -> Unit = {},
     settingsRepo: MapSettingsRepository = koinInject(),
@@ -480,6 +481,10 @@ fun MainScreen(
                     MenuLink("Lock controls", "menu-lock-settings") {
                         menuOpen = false
                         onOpenLockSettings()
+                    }
+                    MenuLink("SfM run", "menu-sfm-settings") {
+                        menuOpen = false
+                        onOpenSfmSettings()
                     }
                     // (External camera moved OUT of the menu to a floating
                     // 🎞 button beside 📷 — it is an activity you toggle,

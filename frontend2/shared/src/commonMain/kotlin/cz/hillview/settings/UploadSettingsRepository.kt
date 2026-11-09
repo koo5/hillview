@@ -115,6 +115,10 @@ data class UploadSettings(
     val exactCaptureTime: Boolean = false,
     /** Default for future shots; each photo keeps its own copy. */
     val shareToPanoramax: Boolean = false,
+    /** Saved worker URLs — see WorkerEndpoints.kt. */
+    val workerEndpoints: List<WorkerEndpoint> = emptyList(),
+    /** The one uploads go to, or null for whatever the server names. */
+    val workerOverrideUrl: String? = null,
 )
 
 /**

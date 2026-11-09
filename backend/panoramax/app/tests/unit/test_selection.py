@@ -23,7 +23,7 @@ def photo(id='photo', **changes):
     (337.499, 7), (337.5, 0), (None, -1), (math.nan, -1), (math.inf, -1),
 ])
 def test_compass_sectors(bearing, expected):
-    assert bearing_bucket(bearing) == expected
+    assert bearing_bucket(bearing, 8) == expected
 
 
 def test_configurable_sector_width():
@@ -76,22 +76,22 @@ def test_global_winner_prefers_daylight_then_capture_recency_then_id():
     night = photo('night', captured_at=NOON.replace(year=2026, hour=0))
     unknown = photo('unknown', captured_at=None, effective_at=NOON.replace(year=2026))
     for order in permutations([older, newer, tied, night, unknown]):
-        assert [p.id for p in select_photos(list(order))] == ['a-tie']
+        assert [p.id for p in select_photos(list(order), 8)] == ['a-tie']
 
 
 def test_a_night_photo_can_fill_a_bucket_and_fallback_promotes_the_next_candidate():
     day = photo('day')
     night = photo('night', captured_at=NOON.replace(hour=0))
-    assert select_photos([night, day]) == [day]
-    assert select_photos([night]) == [night]
-    assert select_photos([]) == []
+    assert select_photos([night, day], 8) == [day]
+    assert select_photos([night], 8) == [night]
+    assert select_photos([], 8) == []
 
 
 def test_unknown_capture_time_is_preferred_to_known_night_and_uses_effective_recency():
     night = photo('night', captured_at=NOON.replace(hour=0))
     unknown = photo('unknown', captured_at=None)
     newer = photo('newer', captured_at=None, effective_at=NOON + timedelta(days=1))
-    assert select_photos([night, unknown, newer]) == [newer]
+    assert select_photos([night, unknown, newer], 8) == [newer]
 
 
 def test_only_photos_in_the_same_cell_and_sector_compete():
@@ -100,11 +100,11 @@ def test_only_photos_in_the_same_cell_and_sector_compete():
         photo('north-east', bearing=45), photo('unknown', bearing=None),
         photo('east-cell', grid_x=100001), photo('north-cell', grid_y=1100001),
         photo('other-zone', grid_srid=32632), photo('other-hemisphere', grid_srid=32731)]
-    assert select_photos(candidates) == candidates
+    assert select_photos(candidates, 8) == candidates
 
 
 def test_selection_preserves_capture_order_for_session_ranking():
     older = photo('older')
     other_cell = photo('middle', grid_x=100001)
     winner = photo('winner', captured_at=NOON + timedelta(days=1))
-    assert select_photos([older, other_cell, winner]) == [other_cell, winner]
+    assert select_photos([older, other_cell, winner], 8) == [other_cell, winner]

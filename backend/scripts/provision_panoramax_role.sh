@@ -45,7 +45,8 @@ GRANT SELECT ON photos, users, photo_ratings, flagged_photos TO panoramax_ro;
 GRANT USAGE ON SCHEMA panoramax TO panoramax_ro;
 GRANT SELECT, INSERT, UPDATE, DELETE
     ON panoramax.sequences, panoramax.sequence_photos,
-       panoramax.departed_photos TO panoramax_ro;
+       panoramax.departed_photos, panoramax.photo_status,
+       panoramax.sequencer_passes TO panoramax_ro;
 EOSQL
 
 echo "panoramax_ro provisioned."

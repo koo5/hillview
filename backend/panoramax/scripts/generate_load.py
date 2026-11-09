@@ -21,9 +21,11 @@ Shape (all knobs are flags; RNG is seeded so a run is reproducible):
   sequences is exact, not statistical.
 - ~10% of photos are ineligible in every way the eligibility filter knows
   (ARR licence, private, soft-deleted, failed processing, thumbs-down rated,
-  unresolved flag), plus one inactive user and one test user whose photos
-  are all ineligible. The expectation written to --summary accounts for all
-  of it.
+  unresolved flag, no LLM analysis, signage in the analysis), plus one
+  inactive user whose photos are all ineligible. Every other photo carries the
+  signage-free analysis the gates require.
+  One user is a test user, federated like anyone else. The expectation
+  written to --summary accounts for all of it.
 
 All synthetic rows are tagged by the username prefix; --cleanup removes them
 (and their sequences) and a normal run cleans up first, so reruns are exact.
@@ -49,7 +51,7 @@ from pathlib import Path
 # Its session/count oracle below is independent of the sequencer's session code.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'app'))
 from selection import CANDIDATES_SQL, Candidate, select_photos
-from settings import active_scope, bearing_buckets
+from settings import active_scope, bearing_buckets, cell_size_m
 
 
 NS = uuid.UUID('7d0f2b3a-5c1e-4c6f-9a8e-2f4b6c8d0e1f')  # namespace for deterministic ids
@@ -147,7 +149,7 @@ def make_users(rng: random.Random, n: int, prefix: str) -> list[User]:
 		))
 	if n >= 4:
 		users[-1].is_active = False   # everything they have must be excluded
-		users[-2].is_test = True
+		users[-2].is_test = True     # federated like anyone: the suites drive it
 		users[-3].panoramax_contributor = False
 	return users
 
@@ -254,12 +256,14 @@ def generate(rng: random.Random, users: list[User], total_photos: int, years: fl
 			p.excluded = 'doodled'
 		elif r < 0.18:
 			p.excluded = 'manual'
+		elif r < 0.19:
+			p.excluded = 'unanalyzed'
+		elif r < 0.20:
+			p.excluded = 'signage'
 		if not p.owner.panoramax_contributor:
 			p.excluded = p.excluded or 'non_contributor'
 		if not p.owner.is_active:
 			p.excluded = p.excluded or 'owner_inactive'
-		if p.owner.is_test:
-			p.excluded = p.excluded or 'owner_test'
 	return photos
 
 
@@ -374,7 +378,7 @@ def insert(db: Db, rng: random.Random, users: list[User], photos: list[Photo], p
 		'width', 'height', 'captured_at', 'effective_at', 'uploaded_at', 'record_created_ts',
 		'processed_at', 'title', 'description', 'is_public', 'processing_status', 'sizes',
 		'legal_rights', 'featured', 'deleted', 'version', 'owner_id',
-		'panoramax_owner_share', 'panoramax_moderator_approved', 'detected_objects']
+		'panoramax_owner_share', 'panoramax_moderator_approved', 'detected_objects', 'analysis']
 	rows = []
 	ratings = []
 	flags = []
@@ -410,6 +414,10 @@ def insert(db: Db, rng: random.Random, users: list[User], photos: list[Photo], p
 					if p.excluded == 'doodled' else [],
 				**({'manual': True} if p.excluded == 'manual' else {}),
 			}),
+			None if p.excluded == 'unanalyzed' else json.dumps({
+				'features': ['street', 'signage'] if p.excluded == 'signage' else ['landscape'],
+				'schema_version': 1, 'analyzer_version': 1,
+			}),
 		])
 		if p.excluded == 'thumbs_down':
 			ratings.append([str(uuid.uuid4()), rater.id, 'hillview', p.id, 'THUMBS_DOWN', now])
@@ -430,7 +438,7 @@ def expected_selected_ids(db: Db) -> set[str]:
 	ranks are independently derived above from the resulting fixture ids.
 	"""
 	grants = ','.join("'" + value.replace("'", "''") + "'" for value in active_scope().legal_rights)
-	query = CANDIDATES_SQL.replace(':scope_legal_rights', f'ARRAY[{grants}]')
+	query = CANDIDATES_SQL.replace(':scope_legal_rights', f'ARRAY[{grants}]').replace(':cell_size_m', repr(cell_size_m()))
 	rows = db.run(f'SELECT row_to_json(candidate) FROM ({query}) candidate')
 	photos = []
 	for line in rows.splitlines():

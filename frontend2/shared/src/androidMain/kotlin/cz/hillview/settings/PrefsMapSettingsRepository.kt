@@ -50,6 +50,14 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
             lockDarkTheme = prefs.getBoolean("lock_dark_theme", false),
             lockHideSystemBars = prefs.getBoolean("lock_hide_system_bars", true),
             lockPinScreen = prefs.getBoolean("lock_pin_screen", false),
+            sfmRunEnabled = prefs.getBoolean("sfm_run_enabled", false),
+            sfmDistanceOn = prefs.getBoolean("sfm_distance_on", true),
+            sfmMetres = prefs.getFloat("sfm_metres", 1.5f),
+            sfmTurnOn = prefs.getBoolean("sfm_turn_on", true),
+            sfmTurnDeg = prefs.getFloat("sfm_turn_deg", 15f),
+            sfmHeartbeatOn = prefs.getBoolean("sfm_heartbeat_on", true),
+            sfmHeartbeatMs = prefs.getLong("sfm_heartbeat_ms", 5_000L),
+            sfmMinGapMs = prefs.getLong("sfm_min_gap_ms", 200L),
         )
     )
     override val settings: StateFlow<MapSettings> = _settings.asStateFlow()
@@ -85,6 +93,14 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
             .putBoolean("lock_dark_theme", next.lockDarkTheme)
             .putBoolean("lock_hide_system_bars", next.lockHideSystemBars)
             .putBoolean("lock_pin_screen", next.lockPinScreen)
+            .putBoolean("sfm_run_enabled", next.sfmRunEnabled)
+            .putBoolean("sfm_distance_on", next.sfmDistanceOn)
+            .putFloat("sfm_metres", next.sfmMetres.coerceIn(SFM_METRES_RANGE))
+            .putBoolean("sfm_turn_on", next.sfmTurnOn)
+            .putFloat("sfm_turn_deg", next.sfmTurnDeg.coerceIn(SFM_TURN_DEG_RANGE))
+            .putBoolean("sfm_heartbeat_on", next.sfmHeartbeatOn)
+            .putLong("sfm_heartbeat_ms", next.sfmHeartbeatMs.coerceIn(SFM_HEARTBEAT_MS_RANGE))
+            .putLong("sfm_min_gap_ms", next.sfmMinGapMs.coerceIn(SFM_MIN_GAP_MS_RANGE))
             .apply()
         _settings.value = next
     }

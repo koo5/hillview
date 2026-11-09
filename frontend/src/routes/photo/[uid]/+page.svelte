@@ -18,8 +18,9 @@
 	import { http, handleApiError, TokenExpiredError } from '$lib/http';
 	import { auth } from '$lib/auth.svelte';
 	import { constructPhotoMapUrl, constructUserProfileUrl, parsePhotoUidParts } from '$lib/urlUtils';
-	import { licenseLabelFor } from '$lib/photoUtils';
+	import { licenseLabelFor, licenseUrlFor } from '$lib/photoUtils';
 	import { uploadGrant, canGrantPanoramax } from '$lib/licenses';
+	import { ineligibleReasons, type PanoramaxStatus } from '$lib/panoramaxStatus';
 	import LicenseChoiceControl from '$lib/components/LicenseChoiceControl.svelte';
 	import ContributionSummary from '$lib/components/ContributionSummary.svelte';
 	import PanoramaxShareControl from '$lib/components/PanoramaxShareControl.svelte';
@@ -363,6 +364,27 @@
 	$: isPhotoOwner = !!photo && $auth.is_authenticated && photo.is_own_photo && photo.owner_id === $auth.user?.id;
 	$: canEditPhoto = !!photo && $auth.is_authenticated && photo.source === 'hillview' && (isPhotoOwner || $isModerator);
 
+	// Whether the Panoramax sequencer published the photo, and why not — for
+	// the owner and moderators. Its own reactive fetch rather than part of
+	// loadPhoto, which a server-rendered own batch skips entirely.
+	let panoramaxStatus: PanoramaxStatus | null = null;
+	let panoramaxStatusFor = '';
+	$: panoramaxStatusKey = canEditPhoto && photo ? photo.id : '';
+	$: if (panoramaxStatusKey !== panoramaxStatusFor) {
+		panoramaxStatusFor = panoramaxStatusKey;
+		panoramaxStatus = null;
+		if (panoramaxStatusKey) loadPanoramaxStatus(panoramaxStatusKey);
+	}
+
+	async function loadPanoramaxStatus(photoId: string) {
+		try {
+			const resp = await http.get(`/photos/${encodeURIComponent(photoId)}/panoramax-status`);
+			if (resp.ok && panoramaxStatusFor === photoId) panoramaxStatus = await resp.json();
+		} catch (err) {
+			console.error('🢄 Error loading Panoramax status:', err);
+		}
+	}
+
 	$: editIdentity = photo ? `${photo.uid}:${photo.is_own_photo}:${$isModerator}:${photo.license_granted ?? ''}` : '';
 	$: if (photo && editIdentity !== editUid) {
 		editUid = editIdentity;
@@ -576,7 +598,7 @@
 					{#if licenseLabelFor(photo.license)}
 						<span class="detail">
 							<span class="detail-label">License</span>
-							<span data-testid="photo-detail-license">{licenseLabelFor(photo.license)}</span>
+							<a href={licenseUrlFor(photo.license)} data-testid="photo-detail-license">{licenseLabelFor(photo.license)}</a>
 							{#if outflowHistory.length > 0}
 								<!-- A disclosure, not an always-open list: the trail matters
 								     to whoever comes looking for it, and would otherwise
@@ -595,7 +617,7 @@
 					{#if canEditPhoto && photo.license_granted}
 						<span class="detail">
 							<span class="detail-label">Upload grant</span>
-							<span data-testid="photo-detail-license-granted">{licenseLabelFor(photo.license_granted)}</span>
+							<a href={licenseUrlFor(photo.license_granted)} data-testid="photo-detail-license-granted">{licenseLabelFor(photo.license_granted)}</a>
 							{#if licenseHistory.length > 0}
 								<button
 									type="button"
@@ -606,6 +628,29 @@
 									{showGrantHistory ? 'hide' : 'changed'} ({licenseHistory.length})
 								</button>
 							{/if}
+						</span>
+					{/if}
+					{#if canEditPhoto && panoramaxStatus}
+						<span class="detail" data-testid="photo-detail-panoramax-status">
+							<span class="detail-label">Panoramax</span>
+							<span
+								data-testid="photo-detail-panoramax-outcome"
+								data-outcome={panoramaxStatus.outcome}
+								title={panoramaxStatus.last_pass_at ? `As of the sequencer pass at ${formatDateTime(panoramaxStatus.last_pass_at)}` : undefined}
+							>
+								{#if panoramaxStatus.outcome === 'member'}
+									published, photo {panoramaxStatus.rank} of sequence
+									<code data-testid="photo-detail-panoramax-sequence">{panoramaxStatus.sequence_id?.slice(0, 8)}</code>
+								{:else if panoramaxStatus.outcome === 'suppressed'}
+									not published:
+									<a href={`/photo/${panoramaxStatus.winner_uid}`} data-testid="photo-detail-panoramax-winner">another photo</a>
+									represents its spot and direction
+								{:else if panoramaxStatus.outcome === 'ineligible'}
+									not published: {ineligibleReasons(panoramaxStatus.failed_gates).join('; ')}
+								{:else}
+									not decided yet; the next sequencer pass will
+								{/if}
+							</span>
 						</span>
 					{/if}
 				</div>

@@ -4,13 +4,14 @@
 	import {LatLng} from 'leaflet';
 	import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, LocateFixed, Pause, ArrowUp, ArrowDown, Layers, Eye, Map as MapIcon, Info, Filter, Clock, Leaf} from 'lucide-svelte';
 	import FiltersModal from './filters-modal/FiltersModal.svelte';
-	import { activeFilterCount, openFiltersModal, clearFilters } from './filters-modal/filtersStore';
+	import { activeFilterCount, openFiltersModal, clearFilters, filters, filtersFromUrl, FILTER_URL_PREFIX } from './filters-modal/filtersStore';
+	import { replaceState } from '$app/navigation';
 	import { longPress } from '$lib/actions/longPress';
 	import L from 'leaflet';
 import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, toggleTimeline } from '$lib/timeline';
 	import 'leaflet/dist/leaflet.css';
 	import 'leaflet-textpath';
-	import { getCurrentProviderConfig, setTileProvider, currentTileProvider } from '$lib/tileProviders';
+	import { getCurrentProviderConfig, setTileProvider, currentTileProvider, EARTH_ORTHO_PROVIDER, earthOrtho, ensureEarthOrtho, retryOrthoTile } from '$lib/tileProviders';
 	import Spinner from './Spinner.svelte';
 	import TileProviderSelector from './TileProviderSelector.svelte';
 	import CompassButton from './CompassButton.svelte';
@@ -357,6 +358,24 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 		// Clear filters when navigating via URL so the target photo isn't filtered out
 		if (positionChanged || photoParam) {
 			clearFilters();
+		}
+
+		// Filters preset by the link (?filters_cat=1, see filtersFromUrl) replace the
+		// visitor's saved ones. Applied once, then removed from the address bar: the
+		// store persists them, and a lingering param would reapply on every reload
+		// over whatever the visitor changed in the Filters modal since.
+		const urlFilters = filtersFromUrl(urlParams);
+		if (urlFilters) {
+			filters.set(urlFilters);
+			const url = new URL(window.location.href);
+			for (const key of [...url.searchParams.keys()]) {
+				if (key.startsWith(FILTER_URL_PREFIX)) url.searchParams.delete(key);
+			}
+			try {
+				replaceState(url.toString(), {});
+			} catch (e) {
+				console.error('🢄Failed to strip URL filter params', e);
+			}
 		}
 
 		// Handle photo parameter and enable corresponding source
@@ -1726,6 +1745,13 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 		tileConfig = getCurrentProviderConfig();
 	}
 
+	// Earth's orthophoto over the 'earth.ortho' provider's base map (Hillview world), once its channel is read
+	$: showEarthOrtho = $currentTileProvider === EARTH_ORTHO_PROVIDER;
+	$: if (showEarthOrtho) ensureEarthOrtho();
+	$: orthoLayer = showEarthOrtho ? $earthOrtho : null;
+	$: attributionHtml = [tileConfig.attribution || '© OpenStreetMap contributors', orthoLayer?.attribution]
+		.filter(Boolean).join(' | ');
+
 	// Reactive updates for spatial changes (photos from worker include filtered placeholders)
 	$: if ($visiblePhotos && map && $app.activity !== 'terrain') {
 		//console.log(`🢄Map: Reactive update triggered - updating markers with ${$visiblePhotos.length} total photos`);
@@ -2046,6 +2072,27 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 		/>
 		{/key}
 
+		{#if orthoLayer}
+		<TileLayer
+				options={{
+					// ČÚZK's terms: named on the view itself, not only in the ⓘ popup
+					attribution: orthoLayer.attribution,
+					maxZoom: 23,
+					maxNativeZoom: orthoLayer.maxNativeZoom,
+					minZoom: 3,
+					tileSize: 256,
+					crossOrigin: true,
+					updateInterval: 100,
+					// Czechia only: no request for a tile wholly outside (earth would answer 404)
+					bounds: orthoLayer.bounds,
+					className: 'map-tiles ortho-tiles'
+				}}
+				zIndex={2}
+				events={{ tileerror: retryOrthoTile }}
+				url={orthoLayer.url}
+		/>
+		{/if}
+
 
 		{#if ($app.activity != 'capture') && $spatialState.center && $mapReady}
 			<Circle
@@ -2220,7 +2267,8 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 			on:keydown={(e) => e.key === 'Escape' && (showAttribution = false)}
 		>
 			<!-- SECURITY: @html is safe here - attribution comes from hardcoded strings in tileProviders.ts, not user input -->
-			{@html tileConfig.attribution || '© OpenStreetMap contributors'}
+			<!-- (the orthophoto's credit is built from earth's /attribution, HTML-escaped in tileProviders.ts) -->
+			{@html attributionHtml}
 		</div>
 	{/if}
 {/if}

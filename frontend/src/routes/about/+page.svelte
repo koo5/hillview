@@ -14,7 +14,10 @@
     // Lazy-load it on mount so the page is SSR-safe for crawlers.
     let tileConfig: TileProviderConfig | null = null;
     let tileProviderName = '';
+    // earth's orthophoto credit, while that layer is the one chosen (it draws over the base map)
+    let orthoAttribution = '';
     let unsubscribeTileProvider: () => void = () => {};
+    let unsubscribeEarthOrtho: () => void = () => {};
 
     onMount(async () => {
         // In Tauri context, get the version from the native API
@@ -31,10 +34,18 @@
         unsubscribeTileProvider = tp.currentTileProvider.subscribe((provider) => {
             tileConfig = tp.getProviderConfig(provider);
             tileProviderName = tp.getProviderDisplayName(provider);
+            unsubscribeEarthOrtho();
+            orthoAttribution = '';
+            if (provider === tp.EARTH_ORTHO_PROVIDER) {
+                tp.ensureEarthOrtho();
+                unsubscribeEarthOrtho = tp.earthOrtho.subscribe((o) => orthoAttribution = o?.attribution ?? '');
+            } else {
+                unsubscribeEarthOrtho = () => {};
+            }
         });
     });
 
-    onDestroy(() => unsubscribeTileProvider());
+    onDestroy(() => { unsubscribeTileProvider(); unsubscribeEarthOrtho(); });
 
     // appActions pulls in the app/map store modules; lazy-load it on click to
     // keep this page SSR-safe for crawlers (same reason as tileProviders above).
@@ -142,13 +153,26 @@
         <div class="app-icon">
             <img src="/icons/icon.png" alt="Hillview Icon" width="48" height="48" />
         </div>
-        <h1>Hillview</h1>
-        <p class="version">Version {appVersion}</p>
+
+		<div class="title-row">
+			<span class="version version-spacer" aria-hidden="true">Version {appVersion}</span>
+			<div class="title-row">
+			    <h1>Hillview</h1>
+			</div>
+		</div>
+
         <p class="tagline">Identify what you're looking at from any hilltop</p>
     </header>
 
     <section class="about-section" id="how-it-works">
-        <h2>How Hillview fits together</h2>
+        <h2>Introduction</h2>
+        <p>
+            <strong>Where to start.</strong>
+            Browse the <b><a href="/bestof">best views</a></b>, or <b><a href="/?filters_cat=1&filters_show_unanalyzed=0&lat=50&lon=12&zoom=4" data-testid="about-cats-europe-link">all cats in Europe</a></b>. Rate what you like. And when you're somewhere
+            with a view — or just walking down a random street — <a href="/" class="take-photo-link" data-testid="about-take-photo-link" on:click|preventDefault={takePhoto}><Camera size={16} /><b>take a photo</b></a>.
+            It's one tap on the camera icon on the main page, and it's already a contribution.
+        </p>
+        <br/>
         <p>
             <strong>Photos that know where they look.</strong>
             Every Hillview photo records not just where it was taken, but which direction the camera faced.
@@ -156,6 +180,7 @@
             looking this way, these things are visible.</em> Most photo platforms discard it. Hillview is
             built on it.
         </p>
+        <br/>
         <p>
             <strong>From views to knowledge.</strong>
             A panorama from a viewpoint shows hundreds of distant features — peaks, towers, buildings,
@@ -164,23 +189,19 @@
             a <code>?</code> — a feature nobody has identified yet. Knowing what something is, and writing
             it down, is the most valuable thing anyone can contribute here.
         </p>
+        <br/>
         <p>
             <strong>Finding the unanswered.</strong>
             The same bearings work in reverse. If something on the horizon puzzles you, photos from other
             places looking at the same spot can reveal it — two bearings crossing on the map pinpoint
             what you're seeing. That's the Lines tool.
         </p>
+        <br/>
         <p>
             <strong>Part of the commons.</strong>
             Most Hillview photos are contributed under CC BY-SA, and all with an explicit grant for
             OpenStreetMap use. That means they can help OSM mappers verify the world — and the work
             contributors put in stays useful beyond this site, whatever happens to it.
-        </p>
-        <p>
-            <strong>Where to start.</strong>
-            Browse the <a href="/bestof">best views</a>. Rate what you like. And when you're somewhere
-            with a view — or just walking down a random street — <a href="/" class="take-photo-link" data-testid="about-take-photo-link" on:click|preventDefault={takePhoto}><Camera size={16} />take a photo</a>.
-            It's one tap on the camera icon on the main page, and it's already a contribution.
         </p>
     </section>
 
@@ -214,6 +235,9 @@
                     role="presentation"
                 >
                     {@html processAttributionHTML(tileConfig.attribution)}
+                    {#if orthoAttribution}
+                        <br>{@html processAttributionHTML(orthoAttribution)}
+                    {/if}
                 </div>
             </div>
         {/if}
@@ -308,11 +332,10 @@
     }
 
     .about-header {
-        line-height: 1.6;
         color: #374151;
         text-align: center;
-		padding: 32px 16px;
-        margin-bottom: 48px;
+		padding: 2px 16px;
+        margin-bottom: 0px;
         position: relative;
         z-index: 10;
     }
@@ -323,7 +346,7 @@
         justify-content: center;
         border-radius: 20px;
         color: white;
-        margin-bottom: 16px;
+        margin: 16px;
         box-shadow: 0 10px 25px rgba(22, 163, 74, 0.4);
     }
 
@@ -334,15 +357,61 @@
         margin: 0 0 8px 0;
     }
 
+    /* Block-level, shrink-wrapped to the h1, so the icon stays on its own line
+       and the absolutely positioned version doesn't affect centering. */
+    .title-row {
+        position: relative;
+        width: fit-content;
+        margin: 0 auto;
+    }
+
+    .title-row .version {
+        position: absolute;
+        left: 100%;
+        bottom: 0.9rem;
+        margin-left: 0.5rem;
+        white-space: nowrap;
+    }
+
     .version {
         font-size: 1rem;
         color: #6b7280;
-        margin: 0 0 8px 0;
         font-family: monospace;
     }
 
+
+.title-row {
+	position: relative;
+	display: inline-block;
+	margin: 0 auto;
+}
+
+.title-row h1 {
+	margin: 0;
+}
+
+.title-row .version-spacer {
+	visibility: hidden;
+}
+
+.title-row .version {
+	position: absolute;
+	left: 100%;
+	top: 50%;
+	transform: translate(0.5rem, -50%);
+	white-space: nowrap;
+}
+
+.about-header {
+	text-align: center;
+}
+
+.version-spacer {
+	visibility: hidden; /* keeps width, not visible */
+}
+
     .tagline {
-        font-size: 1.125rem;
+        font-size: 0.9rem;
         color: #4b5563;
         margin: 0;
         font-style: italic;
@@ -505,6 +574,8 @@
     .about-footer :global(.heart-icon) {
         color: #ef4444;
     }
+
+
 
     /* Responsive adjustments */
     @media (max-width: 768px) {

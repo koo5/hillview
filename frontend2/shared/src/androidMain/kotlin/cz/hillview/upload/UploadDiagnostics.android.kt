@@ -54,6 +54,29 @@ actual suspend fun collectUploadDiagnostics(): UploadDiagnostics = withContext(D
 
     rows += DiagRow("Server", prefs.getString("server_url", null) ?: "unset")
 
+    // The worker override (Settings → Worker URL) and how the last worker
+    // contact went — the place a refused pin or an unreachable dev worker
+    // shows up without a cable (user, 2026-11-05: "we'll need some
+    // status/logging to debug this in the UI").
+    val workerOverride = prefs.getString(cz.hillview.plugin.PREF_WORKER_URL_OVERRIDE, null)
+    val workerPinned = prefs.getString(cz.hillview.plugin.PREF_WORKER_PINNED_CERT, null) != null
+    rows += DiagRow(
+        "Worker",
+        workerOverride?.let { it + if (workerPinned) " · pinned certificate" else "" }
+            ?: "as the server says",
+        note = if (workerOverride != null) {
+            "Overridden in Settings — uploads skip the worker the server names."
+        } else null,
+    )
+    rows += cz.hillview.settings.lastWorkerContact()?.let { line ->
+        DiagRow(
+            "Last worker contact", line,
+            if (prefs.getBoolean(cz.hillview.plugin.PREF_LAST_WORKER_FAILED, false)) DiagVerdict.Blocking
+            else DiagVerdict.Ok,
+            note = "Each failure is also in the event log, category \"upload\".",
+        )
+    } ?: DiagRow("Last worker contact", "none this install")
+
     // ---- the network rule, and whether reality satisfies it ------------
     val wifiOnly = prefs.getBoolean("wifi_only", false)
     val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager

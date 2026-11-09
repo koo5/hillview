@@ -15,6 +15,13 @@ Only full1/panoramax_in grants can qualify, with owner consent and both
 moderation gates. Skip and manual anonymization cannot establish that the
 detector found no doodles, so only detector records without blurred objects
 qualify. The data migration already made every blurred flag explicit.
+The detection gates read that record without casting, and anything they
+cannot read (a non-array `objects`, a non-boolean flag, a non-object
+detection) fails them: GATE_RESULTS_SQL evaluates every gate on every photo,
+so one malformed row that raised would fail the whole sequencer pass.
+
+Test users are treated like anyone else: the automated suites drive the
+federation through them.
 
 Moderation signals also exclude a photo from federation: any thumbs-down
 rating, or an unresolved flag (resolved flags don't exclude — an admin looked
@@ -24,49 +31,90 @@ catalog on the sequencer's cadence (membership prune bumps updated_at), while
 serve-time filtering hides the item immediately.
 
 A fix the receiver itself put more than MAX_LOCATION_ACCURACY_M off excludes
-the photo too: the selection places one photo per 5 m cell, and Panoramax
+the photo too: the selection places one photo per few-metre cell, and Panoramax
 readers take the position as given. An unknown radius passes, since no photo
 captured before 2026-09-13 carries one. The radius is photos.location_accuracy_m
 (migration 039), and exif_data changes don't bump the sequence either, so a
 change reaches the catalog on the sequencer's cadence like the ratings above.
+
+A photo judged blurry (photos.blurry, common/image_quality.py: shake, motion
+smear, nothing in focus) stays out too. An unjudged one passes: the curated
+camera work wider than 8000 px is deliberately left unmeasured, and uploads
+wait for the worker. Verdict changes are batch writes that do not bump the
+sequence, so they reach the catalog on the sequencer's cadence as well.
+
+An LLM analysis (photos.analysis, written by backend/analyzer) is required,
+and its `features` list (the feature names the analyzer found true,
+distill.py) must not name signage: a photographed information board is the
+derived-data case the Licence Ouverte catch in docs/panoramax-federation.md
+names, which Hillview cannot guard against in prose. "No signage" is only a
+finding once the analyzer has looked, so unlike the blur verdict an unanalyzed
+photo stays out until the analyzer reaches it; any analyzer_version counts. A
+document without a readable features list fails the analysis gate rather than
+raising. The analyzer alone writes the document and it does not bump the
+sequence, so analyses too reach the catalog on the sequencer's cadence.
 """
 
 MAX_LOCATION_ACCURACY_M = 5
 
-ELIGIBLE_PHOTO_WHERE = f"""
-	p.legal_rights = ANY(:scope_legal_rights)
-	AND p.panoramax_owner_share
-	AND p.panoramax_moderator_approved
-	AND u.panoramax_contributor
-	AND p.detected_objects IS NOT NULL
-	AND json_typeof(p.detected_objects) = 'object'
-	AND COALESCE((p.detected_objects->>'manual')::boolean, false) = false
-	AND NOT EXISTS (
-		SELECT 1 FROM json_array_elements(COALESCE(p.detected_objects->'objects', '[]'::json)) o
-		WHERE (o->>'blurred')::boolean
-	)
-	AND p.deleted = false
-	AND p.is_public = true
-	AND p.processing_status = 'completed'
-	AND p.geometry IS NOT NULL
-	AND p.effective_at IS NOT NULL
-	AND p.captured_at IS NOT NULL
-	AND p.sizes IS NOT NULL
-	AND COALESCE(p.location_accuracy_m, 0) <= {MAX_LOCATION_ACCURACY_M}
-	AND u.is_active = true
-	AND u.is_test = false
-	AND NOT EXISTS (
+# Each gate by name, so a pass can record which ones a photo failed
+# (panoramax.photo_status) from the same conditions that decide it. The names
+# are an API: the photo page words them (PANORAMAX_GATE_TEXT in the frontend).
+GATES: list[tuple[str, str]] = [
+	('grant', "p.legal_rights = ANY(:scope_legal_rights)"),
+	('owner_share', "p.panoramax_owner_share"),
+	('moderator_approval', "p.panoramax_moderator_approved"),
+	('contributor', "u.panoramax_contributor"),
+	('detections', "p.detected_objects IS NOT NULL AND json_typeof(p.detected_objects) = 'object'"),
+	('manual_anonymization', """p.detected_objects->'manual' IS NULL
+		OR json_typeof(p.detected_objects->'manual') = 'null'
+		OR p.detected_objects->>'manual' = 'false'"""),
+	('doodles', """CASE
+		WHEN p.detected_objects->'objects' IS NULL THEN true
+		WHEN json_typeof(p.detected_objects->'objects') <> 'array' THEN false
+		ELSE NOT EXISTS (
+			SELECT 1 FROM json_array_elements(p.detected_objects->'objects') o
+			WHERE json_typeof(o) <> 'object'
+			   OR json_typeof(o->'blurred') NOT IN ('boolean', 'null')
+			   OR o->>'blurred' = 'true'
+		)
+	END"""),
+	('deleted', "p.deleted = false"),
+	('private', "p.is_public = true"),
+	('processing', "p.processing_status = 'completed'"),
+	('location', "p.geometry IS NOT NULL"),
+	# The range CANDIDATES_SQL (selection.py) can project onto its grid.
+	('coordinates', "ST_X(p.geometry) BETWEEN -180 AND 180 AND ST_Y(p.geometry) BETWEEN -90 AND 90"),
+	('capture_time', "p.effective_at IS NOT NULL AND p.captured_at IS NOT NULL"),
+	('renditions', "p.sizes IS NOT NULL"),
+	('location_accuracy', f"COALESCE(p.location_accuracy_m, 0) <= {MAX_LOCATION_ACCURACY_M}"),
+	('blurry', "p.blurry IS NOT TRUE"),
+	('analysis', "jsonb_typeof(p.analysis->'features') = 'array'"),
+	('signage', "(jsonb_typeof(p.analysis->'features') = 'array' AND p.analysis->'features' ? 'signage') IS NOT TRUE"),
+	('owner_inactive', "u.is_active = true"),
+	('thumbs_down', """NOT EXISTS (
 		SELECT 1 FROM photo_ratings pr
 		WHERE pr.photo_source = 'hillview'
 		  AND pr.photo_id = p.id
 		  AND pr.rating = 'THUMBS_DOWN'
-	)
-	AND NOT EXISTS (
+	)"""),
+	('unresolved_flag', """NOT EXISTS (
 		SELECT 1 FROM flagged_photos fp
 		WHERE fp.photo_source = 'hillview'
 		  AND fp.photo_id = p.id
 		  AND fp.resolved = false
-	)
+	)"""),
+]
+
+ELIGIBLE_PHOTO_WHERE = '\n\tAND '.join(f'({condition})' for _, condition in GATES)
+
+# Every photo with whether it passes each gate. A NULL (an unset flag, say)
+# counts as failing, as it does in a WHERE clause. Deleted photos are left
+# out: nobody looks up their outcome, and they are a growing share of rows.
+GATE_RESULTS_SQL = f"""
+	SELECT p.id, {', '.join(f'COALESCE(({condition}), false) AS "{name}"' for name, condition in GATES)}
+	FROM photos p JOIN users u ON u.id = p.owner_id
+	WHERE p.deleted = false
 """
 
 # Deterministic capture order within an owner — same tiebreak as the timeline

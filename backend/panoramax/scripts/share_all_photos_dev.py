@@ -32,7 +32,7 @@ this cannot reach through `docker exec hillview_postgres`, or to read first.
 That skips the DEBUG_ENDPOINTS check below, which cannot travel with the file,
 and the sequencer pass, so whoever runs the script owns both. Photos still have to pass every other
 gate in eligibility.py: full1 / panoramax_in intake, a capture time, a detector
-run with nothing blurred, and the rest.
+run with nothing blurred, an LLM analysis listing no signage, and the rest.
 
 On a real deployment this would publish every user's photos without their
 consent, so it refuses unless the api container runs with DEBUG_ENDPOINTS on,

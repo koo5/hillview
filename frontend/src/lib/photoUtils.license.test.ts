@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getCanonicalPhotoUrl, getLicenseId, getLicenseLabel, getUserProfileUrl } from './photoUtils';
+import { getCanonicalPhotoUrl, getLicenseId, getLicenseLabel, getUserProfileUrl, licenseUrlFor } from './photoUtils';
 import type { PhotoData } from './types/photoTypes';
 
 // Minimal mock — functions under test only read `source` and `license` off
@@ -42,6 +42,28 @@ describe('getLicenseId', () => {
     it('handles string source (not object)', () => {
         const photo = mockPhoto({ source: 'mapillary' });
         expect(getLicenseId(photo)).toBe('ccbysa4-mapillary');
+    });
+});
+
+describe('licenseUrlFor', () => {
+    it('points published Hillview licences at their /licensing section', () => {
+        expect(licenseUrlFor('arr')).toBe('/licensing#arr-osm');
+        expect(licenseUrlFor('ccbysa4+osm')).toBe('/licensing#cc-osm');
+        expect(licenseUrlFor('panoramax')).toBe('/licensing#lo-derivatives');
+    });
+
+    it('points intake grants at their /licensing section', () => {
+        expect(licenseUrlFor('full1')).toBe('/licensing#full1');
+        expect(licenseUrlFor('panoramax_in')).toBe('/licensing#lo-derivatives');
+    });
+
+    it('uses the canonical text for third-party licences', () => {
+        expect(licenseUrlFor('ccbysa4-mapillary')).toBe('https://creativecommons.org/licenses/by-sa/4.0/');
+    });
+
+    it('falls back to the page for unknown or missing ids', () => {
+        expect(licenseUrlFor('something-new')).toBe('/licensing');
+        expect(licenseUrlFor(null)).toBe('/licensing');
     });
 });
 

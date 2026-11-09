@@ -22,7 +22,7 @@ from photo_filters import PhotoFilters, apply_photo_filters, build_filter_expres
 def photos():
 	engine = create_engine('sqlite://')
 	with engine.begin() as db:
-		db.execute(text('CREATE TABLE photos (id TEXT, width INTEGER, analysis TEXT, featured BOOLEAN)'))
+		db.execute(text('CREATE TABLE photos (id TEXT, width INTEGER, analysis TEXT, featured BOOLEAN, blurry BOOLEAN)'))
 		rows = [
 			('narrow', 1999, {'time_of_day': 'day'}, False),
 			('boundary', 2000, {'time_of_day': 'day'}, False),
@@ -34,10 +34,13 @@ def photos():
 			('featured_narrow', 1000, {'time_of_day': 'day'}, True),
 			('featured_wide', 4000, {'time_of_day': 'day'}, True),
 		]
-		db.execute(text('INSERT INTO photos VALUES (:id, :width, :analysis, :featured)'), [
+		db.execute(text('INSERT INTO photos (id, width, analysis, featured) VALUES (:id, :width, :analysis, :featured)'), [
 			{'id': id_, 'width': width, 'analysis': json.dumps(analysis) if analysis is not None else None, 'featured': featured}
 			for id_, width, analysis, featured in rows
 		])
+		# Blur verdicts: two blurry, one judged sharp, the rest unjudged (NULL).
+		db.execute(text("UPDATE photos SET blurry = 1 WHERE id IN ('narrow', 'wide_night')"))
+		db.execute(text("UPDATE photos SET blurry = 0 WHERE id = 'boundary'"))
 		yield db
 	engine.dispose()
 
@@ -111,3 +114,31 @@ def test_invalid_json_is_rejected():
 	with pytest.raises(HTTPException) as exc:
 		parse_photo_filters('{', None)
 	assert exc.value.status_code == 400
+
+
+ALL_IDS = {'narrow', 'boundary', 'wide_night', 'wide_unanalyzed', 'narrow_unanalyzed', 'unknown_width',
+		   'missing_analysis_field', 'featured_narrow', 'featured_wide'}
+
+
+def test_not_blurry_keeps_sharp_and_unjudged_photos(photos):
+	matching, _ = matches(photos, PhotoFilters.model_validate({'properties': {'not_blurry': True}}))
+	assert matching == ALL_IDS - {'narrow', 'wide_night'}
+
+
+def test_blurry_view_shows_only_blurry_photos(photos):
+	matching, _ = matches(photos, PhotoFilters.model_validate({'properties': {'blurry': True}}))
+	assert matching == {'narrow', 'wide_night'}
+
+
+def test_not_blurry_applies_to_analyzed_and_unanalyzed_alike(photos):
+	filters = PhotoFilters.model_validate({
+		'analysis': {'time_of_day': 'day', 'show_unanalyzed': False}, 'properties': {'not_blurry': True},
+	})
+	matching, _ = matches(photos, filters)
+	assert matching == {'boundary', 'unknown_width', 'featured_narrow', 'featured_wide'}
+
+
+def test_blur_flags_default_off_and_are_strict_booleans():
+	assert parse_photo_filters('{"properties":{}}', None).properties.not_blurry is False
+	with pytest.raises(HTTPException):
+		parse_photo_filters('{"properties":{"not_blurry":"yes"}}', None)

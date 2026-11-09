@@ -13,6 +13,8 @@ import {parsePhotoUidParts} from "$lib/urlUtilsServer";
 import {photoInFront, photoToLeft, photoToRight, photoUp, photoDown} from './mapState';
 import {updateBearingWithPhoto} from './bearingTracking';
 import {getSettings, updateSettings} from "$lib/settings";
+import {worldModeAvailable} from "$lib/world";
+import {terrainModeAvailable} from "$lib/terrainAvailability";
 
 const doLog = false;
 
@@ -202,8 +204,8 @@ export let app = writable<{
 // A saved activity this build cannot show (its service is not configured: no button to leave it, an
 // empty pane where the gallery was) opens as the photo view instead.
 function availableActivity(activity: AppActivity): AppActivity {
-	if (activity === 'world' && !import.meta.env.VITE_EARTH_URL) return 'view';
-	if (activity === 'terrain' && !import.meta.env.VITE_TERRAIN_API) return 'view';
+	if (activity === 'world' && !worldModeAvailable) return 'view';
+	if (activity === 'terrain' && !terrainModeAvailable) return 'view';
 	return activity;
 }
 

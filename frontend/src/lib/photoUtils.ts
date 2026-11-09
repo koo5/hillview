@@ -268,6 +268,24 @@ export function getLicenseUrl(photo: PhotoData | null): string | null {
 	return EXTERNAL_LICENSE_URLS[id] ?? null;
 }
 
+// Hillview's own ids, both intake grants and published licences, each have a
+// section of /licensing that explains them.
+const LICENSING_ANCHORS: Record<string, string> = {
+	'arr': 'arr-osm',
+	'full1': 'full1',
+	'ccbysa4+osm': 'cc-osm',
+	'panoramax_in': 'lo-derivatives',
+	'panoramax': 'lo-derivatives',
+};
+
+/** Where a license id is explained: the canonical text of a third-party
+ * license, else its section of /licensing, else the page itself. */
+export function licenseUrlFor(id: string | null | undefined): string {
+	if (id && EXTERNAL_LICENSE_URLS[id]) return EXTERNAL_LICENSE_URLS[id];
+	const anchor = id ? LICENSING_ANCHORS[id] : undefined;
+	return anchor ? `/licensing#${anchor}` : '/licensing';
+}
+
 /**
  * Returns a URL for the photo creator's profile, or undefined if unavailable.
  * Hillview → internal user profile URL. Mapillary → external mapillary.com profile.

@@ -87,3 +87,33 @@ class ControlsLockStateTest {
         assertTrue(o.hideSystemBars)
     }
 }
+
+/**
+ * When the lock dims: not under the system's pinning confirmation (user,
+ * 2026-11-05: "there should be a delay like 10 seconds, because Android pops
+ * up a dialogue that the user first has to confirm").
+ */
+class LockDimTest {
+
+    @Test
+    fun withoutPinningThereIsNoDialogSoItDimsAtOnce() {
+        assertTrue(dimNow(pinRequested = false, pinned = false, sinceLockMs = 0))
+    }
+
+    @Test
+    fun withPinningItWaitsWhileTheDialogIsUp() {
+        assertFalse(dimNow(pinRequested = true, pinned = false, sinceLockMs = 0))
+        assertFalse(dimNow(pinRequested = true, pinned = false, sinceLockMs = DIM_AFTER_PIN_PROMPT_MS - 1))
+    }
+
+    @Test
+    fun aConfirmedPinDimsStraightAway() {
+        assertTrue(dimNow(pinRequested = true, pinned = true, sinceLockMs = 300))
+    }
+
+    @Test
+    fun aDeclinedOrIgnoredDialogDimsAfterTheWait() {
+        assertTrue(dimNow(pinRequested = true, pinned = false, sinceLockMs = DIM_AFTER_PIN_PROMPT_MS))
+        assertEquals(10_000L, DIM_AFTER_PIN_PROMPT_MS)
+    }
+}

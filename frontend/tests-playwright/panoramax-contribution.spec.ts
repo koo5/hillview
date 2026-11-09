@@ -298,9 +298,15 @@ test.describe('Panoramax browser contribution', () => {
 		await ready(page, `/photo/hillview-${capturedServerId}`);
 		await expect(page.getByTestId('photo-edit-license-current')).toHaveText('Full rights to Hillview');
 		await expect(page.getByTestId('photo-detail-license')).toContainText('CC BY-SA 4.0 + LO derivatives');
+		await expect(page.getByTestId('photo-detail-license')).toHaveAttribute('href', '/licensing#lo-derivatives');
+		// The owner sees what the sequencer decided; which outcome depends on
+		// whether a pass has run since the upload, so any of them will do.
+		await expect(page.getByTestId('photo-detail-panoramax-outcome'))
+			.toHaveAttribute('data-outcome', /^(member|suppressed|ineligible|pending)$/);
 		await page.getByTestId('photo-edit-panoramax-share').uncheck();
 		await page.getByTestId('photo-edit-save-button').click();
 		await expect(page.getByTestId('photo-detail-license')).toContainText('All rights reserved');
+		await expect(page.getByTestId('photo-detail-license')).toHaveAttribute('href', '/licensing#arr-osm');
 		await expect(page.getByTestId('photo-detail-status')).toContainText('Saved:');
 		await expect(page.getByTestId('photo-edit-license-current')).toHaveText('Full rights to Hillview');
 		await page.getByTestId('photo-detail-license-history-toggle').click();

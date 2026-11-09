@@ -59,7 +59,7 @@
 			</section>
 		{/each}
 
-		<section class="document-section">
+		<section class="document-section" id="cc-osm" data-testid="licensing-cc-osm">
 			<h2>
 				<CreativeCommons size={24} />
 				CC BY-SA 4.0 + OSM grant
@@ -153,7 +153,7 @@
 			</p>
 		</section>
 
-		<section class="document-section">
+		<section class="document-section" id="arr-osm" data-testid="licensing-arr-osm">
 			<h2>
 				<Copyright size={24} />
 				All rights reserved + OSM grant
