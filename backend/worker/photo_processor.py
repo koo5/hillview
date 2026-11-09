@@ -19,7 +19,7 @@ from datetime import datetime, timezone, timedelta
 import cv2
 import numpy as np
 from PIL import Image
-from image_formats import HILLVIEW_AUX, require_supported_image
+from image_formats import HILLVIEW_AUX, require_supported_image, require_supported_source
 import httpx
 from blur import read_image, apply_blackout, normalize_to_srgb
 from throttle import Throttle
@@ -1701,6 +1701,7 @@ class PhotoProcessor:
 		output_base: Optional[str] = None,
 		keep_pics_in_worker: bool = False,
 		local_pyramid_path: Optional[str] = None,
+		local_source: bool = False,
 	) -> Optional[Dict[str, Any]]:
 		"""Process a user-uploaded photo and return processing results.
 
@@ -1715,6 +1716,9 @@ class PhotoProcessor:
 		output_base: This job's output root (its per-job work dir). Defaults to
 			self.upload_dir. Must be a parameter, not singleton state: concurrent
 			jobs run as threads sharing this PhotoProcessor instance.
+		local_source: True only when file_path was named by local_photo_path
+			rather than received as an upload body. Defaults to False, so a
+			caller that leaves it out gets JPEG-only, the closed side.
 		"""
 
 		validate_user_id(str(user_id))
@@ -1728,7 +1732,8 @@ class PhotoProcessor:
 			raise ValueError(f"Invalid filename: {e}")
 
 		# Enforce the worker policy before dcraw, metadata tools or any decoder.
-		require_supported_image(file_path)
+		# Source-aware: on an aux worker, non-JPEG only from local_photo_path.
+		require_supported_source(file_path, local_source=local_source)
 
 		# Canon RAW (CR2): convert to TIFF so downstream PIL/cv2/exiftool see
 		# a standard image. Output is 8-bit sRGB (dcraw -T), which is what
