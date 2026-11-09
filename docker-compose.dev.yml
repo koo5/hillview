@@ -113,6 +113,7 @@ services:
       # Non-JPEG inputs and external pyramids: trusted auxiliary workers only.
       # These additional decoder paths may need further security audits.
       - HILLVIEW_AUX=${HILLVIEW_AUX:-0}
+      - ALLOW_AUX_FORMATS_IN_UPLOADS=${ALLOW_AUX_FORMATS_IN_UPLOADS:-}
       # vips materializes full-decode loads (notably EXR) up to this size in
       # RAM instead of a /tmp/vips-*.v temp file; bigger rasters still spill
       # to disc gracefully. Sized with mem_limit in mind.

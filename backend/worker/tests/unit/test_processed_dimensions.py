@@ -92,7 +92,9 @@ def probe(case):
                 operation = processor.process_uploaded_photo(str(source), source.name,
                     user_id='11111111-1111-4111-8111-111111111111', photo_id='probe',
                     metadata=metadata, anonymization_override=override, fast=True,
-                    keep_pics_in_worker=True, local_pyramid_path=dzi)
+                    keep_pics_in_worker=True, local_pyramid_path=dzi,
+                    # A PNG source is aux input, which only local_photo_path may supply.
+                    local_source=True)
                 if case == 'pyramid-mismatch':
                     try:
                         asyncio.run(operation)
