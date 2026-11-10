@@ -16,6 +16,17 @@
 	let pitch = $state(-5);
 	/** the first view stands 20 m over the ground, not at a standing 2 m (the operator, 11-10) */
 	let eyeM = $state(20);
+	/** a photo picked on the map moved the observer to its position (spatialState.photoUid): it stands there at a
+	 * photographer's eye height, from whatever height it had -- flown, kept from a pan, raised by the stick or the
+	 * first view's (the operator, 11-10). Only a new pick: the one the app opened on does not lower the first view */
+	const PHOTO_EYE_M = 2;
+	const pickedPhoto = $derived($spatialState.photoUid);
+	let seenPhoto = get(spatialState).photoUid;
+	$effect(() => {
+		const uid = pickedPhoto;
+		if (uid && uid !== seenPhoto) eyeM = PHOTO_EYE_M;
+		seenPhoto = uid;
+	});
 	/** one map pixel on the ground at the map's zoom: the map rounds its centre to its pixels, so a flight's own
 	 * position can come back this far off (WorldScene's echo test) */
 	const mapPixelM = $derived(

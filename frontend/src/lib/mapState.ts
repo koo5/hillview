@@ -30,8 +30,8 @@ export interface SpatialState {
 	range: number;
 	source: 'gps' | 'map';
 	// The photo whose position this is, when picking it moved the location (as BearingState.photoUid says which
-	// photo set the bearing). Any other move of the centre clears it (updateSpatialState). The 3D world lands a
-	// flight at the eye height on it, where a pan keeps the height flown (WorldPane).
+	// photo set the bearing). Any other move of the centre clears it (updateSpatialState). The 3D world stands the
+	// observer at a photographer's 2 m on it, where a pan mid-flight keeps the height flown (WorldPane).
 	photoUid?: string;
 	// Timestamp of the last intentional update (user interaction, URL params, or persisted-from-previous-session).
 	// Undefined on a true first visit — used to decide whether the featured-photo auto-navigation should kick in.
