@@ -560,6 +560,19 @@ import TimelinePanel from './TimelinePanel.svelte';
 	<Camera size={24} class="camera-button-icon" />
 </button>
 
+{#if worldModeAvailable}
+<button
+	class="world-button {showWorldPane ? 'active' : ''}"
+	on:click={toggleWorld}
+	on:keydown={(e) => e.key === 'Enter' && toggleWorld()}
+	aria-label="{showWorldPane ? 'Close 3D world' : 'Show 3D world'}"
+	title="{showWorldPane ? 'Close 3D world' : 'Show 3D world'}"
+	data-testid="world-button"
+>
+	<span class="world-button-label">3D</span>
+</button>
+{/if}
+
 <button
 	class="lines-button {showLinesEditor ? 'active' : ''}"
 	on:click={toggleLines}
@@ -585,19 +598,6 @@ import TimelinePanel from './TimelinePanel.svelte';
 	data-testid="terrain-button"
 >
 	<Mountain size={24} />
-</button>
-{/if}
-
-{#if worldModeAvailable}
-<button
-	class="world-button {showWorldPane ? 'active' : ''}"
-	on:click={toggleWorld}
-	on:keydown={(e) => e.key === 'Enter' && toggleWorld()}
-	aria-label="{showWorldPane ? 'Close 3D world' : 'Show 3D world'}"
-	title="{showWorldPane ? 'Close 3D world' : 'Show 3D world'}"
-	data-testid="world-button"
->
-	<span class="world-button-label">3D</span>
 </button>
 {/if}
 
@@ -796,7 +796,7 @@ import TimelinePanel from './TimelinePanel.svelte';
 	.lines-button {
 		position: absolute;
 		top: calc(0px + var(--safe-area-inset-top, 10px));
-		left: calc(100px + var(--safe-area-inset-left, 10px));
+		left: calc(150px + var(--safe-area-inset-left, 10px));
 		z-index: 30001;
 		background: white;
 		border-radius: 50%;
@@ -850,35 +850,6 @@ import TimelinePanel from './TimelinePanel.svelte';
 	.terrain-button {
 		position: absolute;
 		top: calc(0px + var(--safe-area-inset-top, 10px));
-		left: calc(150px + var(--safe-area-inset-left, 10px));
-		z-index: 30001;
-		background: white;
-		border-radius: 50%;
-		width: 40px;
-		height: 40px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-		cursor: pointer;
-		border: none;
-		padding: 0;
-		transition: all 0.2s ease;
-		color: #3a7d44;
-	}
-
-	.terrain-button.active {
-		background: #3a7d44;
-		color: white;
-	}
-
-	.terrain-button:hover {
-		transform: scale(1.05);
-	}
-
-	.world-button {
-		position: absolute;
-		top: calc(0px + var(--safe-area-inset-top, 10px));
 		left: calc(200px + var(--safe-area-inset-left, 10px));
 		z-index: 30001;
 		background: white;
@@ -893,11 +864,38 @@ import TimelinePanel from './TimelinePanel.svelte';
 		border: none;
 		padding: 0;
 		transition: all 0.2s ease;
-		color: #3a7d44;
+	}
+
+	.terrain-button.active {
+		background: #4a90e2;
+		color: white;
+	}
+
+	.terrain-button:hover {
+		transform: scale(1.05);
+	}
+
+	.world-button {
+		position: absolute;
+		top: calc(0px + var(--safe-area-inset-top, 10px));
+		left: calc(100px + var(--safe-area-inset-left, 10px));
+		z-index: 30001;
+		background: white;
+		border-radius: 50%;
+		width: 40px;
+		height: 40px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+		cursor: pointer;
+		border: none;
+		padding: 0;
+		transition: all 0.2s ease;
 	}
 
 	.world-button.active {
-		background: #3a7d44;
+		background: #4a90e2;
 		color: white;
 	}
 

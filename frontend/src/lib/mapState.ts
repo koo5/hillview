@@ -29,6 +29,10 @@ export interface SpatialState {
 	bounds: Bounds | null;
 	range: number;
 	source: 'gps' | 'map';
+	// The photo whose position this is, when picking it moved the location (as BearingState.photoUid says which
+	// photo set the bearing). Any other move of the centre clears it (updateSpatialState). The 3D world stands the
+	// observer at a photographer's 2 m on it, where a pan mid-flight keeps the height flown (WorldPane).
+	photoUid?: string;
 	// Timestamp of the last intentional update (user interaction, URL params, or persisted-from-previous-session).
 	// Undefined on a true first visit — used to decide whether the featured-photo auto-navigation should kick in.
 	ts?: number;
@@ -408,15 +412,17 @@ export function setElectedLocationSource(source: 'android' | 'manual'): void {
 export async function updateSpatialState(updates: Partial<SpatialState>, source: 'gps' | 'map' = 'map', setTimestamp: boolean = true) {
 	if (doLog) console.log(`Spatial: updateSpatialState called with updates ${JSON.stringify(updates)} from source ${source}, setTimestamp=${setTimestamp}`);
 	let old = get(spatialState);
+	// a move of the centre that names no photo is no longer that photo's position
+	const photoUid = updates.center && !updates.photoUid ? undefined : (updates.photoUid ?? old.photoUid);
 	// Compare without `ts` so dedup still works when only the timestamp would change.
 	const {ts: _oldTs, ...oldNoTs} = old;
 	const {ts: _updTs, ...updatesNoTs} = updates;
-	if (JSON.stringify(oldNoTs) === JSON.stringify({...oldNoTs, ...updatesNoTs, source})) {
+	if (JSON.stringify(oldNoTs) === JSON.stringify({...oldNoTs, ...updatesNoTs, photoUid, source})) {
 		//console.log('Spatial: No changes in spatial state, skipping update');
 		return;
 	}
 	const nextTs = setTimestamp ? Date.now() : old.ts;
-	spatialState.update(state => ({...state, ...updates, source, ts: nextTs}));
+	spatialState.update(state => ({...state, ...updates, photoUid, source, ts: nextTs}));
 	if (source !== 'gps' && TAURI)
 	{
 		const state = get(spatialState);

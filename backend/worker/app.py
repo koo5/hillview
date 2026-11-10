@@ -1673,6 +1673,9 @@ async def process(file: Optional[UploadFile], client_signature: str, photo_id: s
 					"output_base": str(work_dir),
 					"keep_pics_in_worker": keep_pics_in_worker,
 					"local_pyramid_path": local_pyramid_path,
+					# Decides whether an aux worker's non-JPEG parsers may see
+					# this file (image_formats.require_supported_source).
+					"local_source": local_photo_path is not None,
 				},
 				timeout=PROCESSING_TIMEOUT_SECONDS,
 			)
