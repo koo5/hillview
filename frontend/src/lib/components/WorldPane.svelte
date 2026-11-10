@@ -14,7 +14,8 @@
 	import { atlasChannels, atlasUrl, earthChannel, earthUrl } from '$lib/world';
 
 	let pitch = $state(-5);
-	let eyeM = $state(2);
+	/** the first view stands 20 m over the ground, not at a standing 2 m (the operator, 11-10) */
+	let eyeM = $state(20);
 	/** one map pixel on the ground at the map's zoom: the map rounds its centre to its pixels, so a flight's own
 	 * position can come back this far off (WorldScene's echo test) */
 	const mapPixelM = $derived(
@@ -32,6 +33,7 @@
 			bearing={$bearingState.bearing}
 			{pitch}
 			{eyeM}
+			landAtEye={!!$spatialState.photoUid}
 			onlook={(look) => {
 				pitch = look.pitch;
 				userTurn(get(bearingState).bearing, look.bearing, 'world3d');

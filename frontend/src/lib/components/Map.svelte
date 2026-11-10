@@ -1065,11 +1065,12 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 				map.flyTo(newCenter, map.getZoom(), { duration: Math.min(250, px) / 1000 });
 			}
 
-			// Update spatial state
+			// Update spatial state: the location is this photo's position (the 3D world lands at the eye height on it)
 			updateSpatialState({
 				center: newCenter,
 				zoom: map.getZoom(),
 				bounds: null,
+				photoUid: photo.uid,
 			});
 
 			// Update bearing to the photo (this stores photoUid so it will be selected once in range)

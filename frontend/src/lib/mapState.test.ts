@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { computePhotoInFront, toTableSource, kotlinOwnsSource } from './mapState';
+import { get } from 'svelte/store';
+import { computePhotoInFront, toTableSource, kotlinOwnsSource, spatialState, updateSpatialState } from './mapState';
 
 /**
  * The boundary where the app's own bearing/location source names become the
@@ -121,5 +122,31 @@ describe('kotlinOwnsSource', () => {
 		// "compass"/"sensor"/"tauri"; the vocabulary is exact now.
 		expect(kotlinOwnsSource('manual-android')).toBe(false);
 		expect(kotlinOwnsSource('not-gps-kalman')).toBe(false);
+	});
+});
+
+/**
+ * spatialState.photoUid says the location is a photo's position, because picking it moved there. The 3D world
+ * lands a flight at the eye height on such a move and keeps the height flown on any other (WorldPane), so a move
+ * that names no photo must not inherit the last one's.
+ */
+describe('updateSpatialState photoUid', () => {
+	it('is set by the move that names the photo, and cleared by the next move of the centre', async () => {
+		await updateSpatialState({ center: { lat: 50.3, lng: 14.1 }, photoUid: 'panoramax-a' });
+		expect(get(spatialState).photoUid).toBe('panoramax-a');
+		await updateSpatialState({ center: { lat: 50.31, lng: 14.1 } });
+		expect(get(spatialState).photoUid).toBeUndefined();
+	});
+
+	it('survives a write that leaves the centre where the photo put it', async () => {
+		await updateSpatialState({ center: { lat: 50.4, lng: 14.2 }, photoUid: 'panoramax-b' });
+		await updateSpatialState({ zoom: 17 });
+		expect(get(spatialState).photoUid).toBe('panoramax-b');
+	});
+
+	it('changes on a move to another photo at the same point (not deduplicated away)', async () => {
+		await updateSpatialState({ center: { lat: 50.5, lng: 14.3 }, photoUid: 'panoramax-c' });
+		await updateSpatialState({ center: { lat: 50.5, lng: 14.3 }, photoUid: 'panoramax-d' });
+		expect(get(spatialState).photoUid).toBe('panoramax-d');
 	});
 });
