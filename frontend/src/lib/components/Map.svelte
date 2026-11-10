@@ -1037,13 +1037,16 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 			picks.set(new Set([photo.uid, ...get(timelinePinned)]));
 		}
 
-		if (isInRange) {
+		// In the 3D world a pick stands the observer on the photo (WorldPane: at 2 m), so even one inside the range
+		// circle moves the location there; on the map alone such a pick only turns to it (the operator, 11-10)
+		const standOnIt = get(app).activity === 'world';
+		if (isInRange && !standOnIt) {
 			// Photo is in range, just update bearing to select it
 			console.log('🢄Photo in range, selecting directly');
 			updateBearingWithPhoto(photo, source);
 		} else {
-			// Photo is not in range, move map to photo location first
-			console.log('🢄Photo not in range, moving map to photo location');
+			// Photo is not in range (or the 3D world stands on it), move map to photo location first
+			console.log(`🢄Photo ${isInRange ? 'in range, the 3D world open' : 'not in range'}, moving map to photo location`);
 
 			// If a programmatic move is already in flight (e.g. fast timeline
 			// stepping), jump instantly instead of animating — otherwise Leaflet
@@ -1065,7 +1068,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 				map.flyTo(newCenter, map.getZoom(), { duration: Math.min(250, px) / 1000 });
 			}
 
-			// Update spatial state: the location is this photo's position (the 3D world lands at the eye height on it)
+			// Update spatial state: the location is this photo's position (the 3D world stands at 2 m on it)
 			updateSpatialState({
 				center: newCenter,
 				zoom: map.getZoom(),
