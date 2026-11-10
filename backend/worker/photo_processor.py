@@ -1468,14 +1468,10 @@ class PhotoProcessor:
 				logger.info(f"Successfully uploaded {relative_path} ({file_size} bytes) to API server")
 
 				# The API decides which storage pool the file lands on and returns
-				# its public URL. Fall back to PICS_URL for older API servers that
-				# don't return one yet, so the worker and API need not be upgraded
-				# in lockstep during a rolling deploy.
+				# its public URL.
 				url = response.json().get("url")
 				if url:
 					return url
-				if PICS_URL:
-					return PICS_URL + relative_path
 				raise RuntimeError(f"API returned no url for {relative_path} and PICS_URL is not configured")
 
 		except PhotoDeletedException:
