@@ -867,7 +867,7 @@ import TimelinePanel from './TimelinePanel.svelte';
 	}
 
 	.terrain-button.active {
-		background: #3a7d44;
+		background: #4a90e2;
 		color: white;
 	}
 
@@ -895,7 +895,7 @@ import TimelinePanel from './TimelinePanel.svelte';
 	}
 
 	.world-button.active {
-		background: #3a7d44;
+		background: #4a90e2;
 		color: white;
 	}
 
