@@ -21,7 +21,7 @@ const doLog = false;
 
 // Draggable split store for gallery/map split percentage (0-100, percentage for photo panel)
 export let splitPercent = localStorageReadOnceSharedStore('splitPercent', 50);
-export type AppActivity = 'capture' | 'view' | 'lines' | 'terrain' | 'world';
+export type AppActivity = 'capture' | 'view' | 'lines' | 'terrain' | '3d';
 
 export interface Line {
 	label: string;
@@ -186,6 +186,11 @@ export let appSettings = localStorageReadOnceSharedStore('appSettings', {
 	activity: 'view' as AppActivity,
 },500);
 
+// Upgrade the activity saved by older builds before syncing it to the app.
+if ((get(appSettings).activity as string) === 'world') {
+	appSettings.update(settings => ({...settings, activity: '3d'}));
+}
+
 // Main app store with both persisted and session-specific fields
 export let app = writable<{
 	error: string | null;
@@ -204,9 +209,24 @@ export let app = writable<{
 // A saved activity this build cannot show (its service is not configured: no button to leave it, an
 // empty pane where the gallery was) opens as the photo view instead.
 function availableActivity(activity: AppActivity): AppActivity {
-	if (activity === 'world' && !worldModeAvailable) return 'view';
+	if (import.meta.env.VITE_PICS_OFF) return 'view';
+	if (activity === '3d' && !worldModeAvailable) return 'view';
 	if (activity === 'terrain' && !terrainModeAvailable) return 'view';
 	return activity;
+}
+
+/** URL parameters use the same activity identifiers as the app state. */
+export function parseActivityParam(value: string | null): AppActivity | null {
+	switch (value) {
+		case 'view':
+		case '3d':
+		case 'terrain':
+		case 'lines':
+		case 'capture':
+			return availableActivity(value);
+		default:
+			return null;
+	}
 }
 
 // Sync persisted settings with main app store
@@ -220,7 +240,7 @@ appSettings.subscribe(settings => {
 			...a,
 			debug: settings.debug,
 			debug_enabled: settings.debug_enabled,
-			activity: !!import.meta.env.VITE_PICS_OFF ? 'view' : availableActivity(settings.activity)
+			activity: availableActivity(settings.activity)
 		}));
 	}
 });

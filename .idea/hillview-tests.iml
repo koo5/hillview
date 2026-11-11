@@ -2,6 +2,7 @@
 <module external.system.id="pyproject.toml" type="PYTHON_MODULE" version="4">
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$/backend/tests">
+      <sourceFolder url="file://$MODULE_DIR$/backend/tests/src" />
       <excludeFolder url="file://$MODULE_DIR$/backend/tests/venv" />
     </content>
     <orderEntry type="jdk" jdkName="~/repos/koo5/hillview/0/hillview/backend/.venv" jdkType="Python SDK" />

@@ -72,11 +72,11 @@ import TimelinePanel from './TimelinePanel.svelte';
 	$: showCameraView = $app.activity === 'capture';
 	$: showLinesEditor = $app.activity === 'lines';
 	$: showTerrainPane = $app.activity === 'terrain';
-	$: showWorldPane = $app.activity === 'world';
+	$: showWorldPane = $app.activity === '3d';
 
 	function toggleWorld() {
-		const mode = showWorldPane ? 'view' : 'world';
-		track(mode === 'world' ? 'activityWorld' : 'activityView');
+		const mode = showWorldPane ? 'view' : '3d';
+		track(mode === '3d' ? 'activityWorld' : 'activityView');
 		app.update(a => ({...a, activity: mode}));
 	}
 
@@ -99,6 +99,10 @@ import TimelinePanel from './TimelinePanel.svelte';
 	function flushPhotoToUrl(photo: any) {
 		if (!photo) return;
 		updateUrlParams({ photo: photo.uid });
+	}
+
+	$: if (update_url) {
+		updateUrlParams({ activity: $app.activity });
 	}
 
 	// When update_url becomes true, flush current photo state that may have

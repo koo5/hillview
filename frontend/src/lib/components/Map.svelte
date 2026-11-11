@@ -57,7 +57,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 	import {gpsOrientationEnabled} from "$lib/gpsOrientation.svelte";
 	import {enableSourceForPhotoUid, sources, showPhotoInfoWindow, togglePhotoInfoWindow} from "$lib/data.svelte.js";
 	import { simplePhotoWorker } from '$lib/simplePhotoWorker';
-	import { turn_to_photo_to, app, sourceLoadingStatus, powerSavingActive } from "$lib/data.svelte.js";
+	import { turn_to_photo_to, app, parseActivityParam, sourceLoadingStatus, powerSavingActive } from "$lib/data.svelte.js";
 	import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation, locationTracking, lastKnownGpsLocation, backgroundLocationTracking, setBackgroundLocationTracking } from "$lib/location.svelte.js";
 	import { enterBackgroundTracking } from '$lib/userMove';
 	import { isOnMapRoute } from "$lib/compass.svelte.js";
@@ -302,6 +302,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 		const zoom = urlParams.get('zoom');
 		const bearingParam = urlParams.get('bearing');
 		const photoParam = urlParams.get('photo');
+		const urlActivity = parseActivityParam(urlParams.get('activity'));
 
 		// Create a fresh object - don't mutate the store's internal state
 		const oldState = get(spatialState);
@@ -385,10 +386,13 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 			pendingZoomViewError.set(null); // fresh open attempt
 			enableSourceForPhotoUid(photoUid);
 			picks.set(new Set([photoUid])); // ensure culling grid keeps this photo
-			// Switch to view mode when opening a specific photo
-			app.update(a => ({...a, activity: 'view'}));
 			// Auto-set hunterMode once this photo arrives in range
 			setUrlRequestedPhoto(photoUid, bearingParam !== null && Number.isFinite(Number(bearingParam)) ? Number(bearingParam) : undefined);
+		}
+
+		// Explicit activity wins over the saved mode and the photo link's default.
+		if (urlActivity !== null || photoUid) {
+			app.update(a => ({...a, activity: urlActivity ?? 'view'}));
 		}
 
 		// Only stamp spatialState.ts when the user actually directed navigation (URL params).
@@ -1039,7 +1043,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 
 		// In the 3D world a pick stands the observer on the photo (WorldPane: at 2 m), so even one inside the range
 		// circle moves the location there; on the map alone such a pick only turns to it (the operator, 11-10)
-		const standOnIt = get(app).activity === 'world';
+		const standOnIt = get(app).activity === '3d';
 		if (isInRange && !standOnIt) {
 			// Photo is in range, just update bearing to select it
 			console.log('🢄Photo in range, selecting directly');

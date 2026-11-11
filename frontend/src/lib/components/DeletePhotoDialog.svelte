@@ -23,6 +23,13 @@
 		message = '';
 	}
 
+	function handleKeydown(event: KeyboardEvent) {
+		if (event.key !== 'Escape') return;
+		event.preventDefault();
+		event.stopPropagation();
+		if (!isDeleting) cancel();
+	}
+
 	async function confirm() {
 		if (!photo || isDeleting) return;
 
@@ -47,7 +54,15 @@
 
 {#if show && photo}
 	<div class="dialog-overlay" use:portal>
-		<div class="dialog" data-testid="delete-photo-dialog">
+		<div
+			class="dialog"
+			role="dialog"
+			aria-modal="true"
+			aria-label="Delete photo"
+			tabindex="-1"
+			onkeydown={handleKeydown}
+			data-testid="delete-photo-dialog"
+		>
 			<h3>Delete photo</h3>
 			<p>
 				This permanently removes
