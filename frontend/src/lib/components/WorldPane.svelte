@@ -7,13 +7,21 @@
 	 * following goes to the background first), so the map follows the flight and the next fix does not land it.
 	 */
 	import WorldScene from '$world/WorldScene.svelte';
+	import { onDestroy, untrack } from 'svelte';
+	import type { WorldView } from '$world/worldView';
 	import { get } from 'svelte/store';
 	import { bearingState, spatialState } from '$lib/mapState';
 	import { userTurn } from '$lib/userTurn';
 	import { userMove } from '$lib/userMove';
 	import { atlasChannels, atlasUrl, earthChannel, earthUrl } from '$lib/world';
+	import { constructWorldShareUrl, parseWorldViewParams } from '$lib/worldViewUrl';
+	import { worldView } from '$lib/worldViewState';
+	import { externalBaseUrl } from '$lib/urlUtils';
+	import { shareLink } from '$lib/shareUtils';
+	import { TAURI } from '$lib/tauri';
 
-	let pitch = $state(-5);
+	const initialView = untrack(() => parseWorldViewParams(new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search)));
+	let pitch = $state(initialView.pitch);
 	/** the first view stands 20 m over the ground, not at a standing 2 m (the operator, 11-10) */
 	let eyeM = $state(20);
 	/** a photo picked on the map moved the observer to its position (spatialState.photoUid): it stands there at a
@@ -32,6 +40,13 @@
 	const mapPixelM = $derived(
 		(40_075_016.686 * Math.cos(($spatialState.center.lat * Math.PI) / 180)) / (256 * 2 ** $spatialState.zoom)
 	);
+
+	async function share(view: WorldView) {
+		const url = constructWorldShareUrl(externalBaseUrl(), get(spatialState).zoom, view);
+		await shareLink(url, '3D view on Hillview', 'Check out this 3D view on Hillview');
+		return TAURI ? 'Link shared' : 'Share link copied to clipboard!';
+	}
+	onDestroy(() => worldView.set(null));
 </script>
 
 <div class="world-pane" data-testid="world-pane">
@@ -44,6 +59,10 @@
 			bearing={$bearingState.bearing}
 			{pitch}
 			{eyeM}
+			initialAltitude={initialView.altitude}
+			fovY={initialView.fov}
+			onview={view => worldView.set(view)}
+			onshare={share}
 			landAtEye={!!$spatialState.photoUid}
 			onlook={(look) => {
 				pitch = look.pitch;

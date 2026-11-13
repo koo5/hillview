@@ -28,7 +28,8 @@
 		bearingState,
 		spatialState,
 		updateBearingByDiff,
-		photoInFront
+		photoInFront,
+		mapReady
 	} from "$lib/mapState";
 	import {replaceState} from "$app/navigation";
 	import {derived, get} from "svelte/store";
@@ -41,6 +42,7 @@
 	import TerrainPane from './TerrainPane.svelte';
 	import WorldPane from './WorldPane.svelte';
 	import { worldModeAvailable } from '$lib/world';
+	import { worldView } from '$lib/worldViewState';
 	import { terrainModeAvailable, terrainViewRect } from '$lib/terrain.svelte';
 import TimelinePanel from './TimelinePanel.svelte';
 	import PhotoInfoWindow from './PhotoInfoWindow.svelte';
@@ -103,6 +105,16 @@ import TimelinePanel from './TimelinePanel.svelte';
 
 	$: if (update_url) {
 		updateUrlParams({ activity: $app.activity });
+	}
+	$: if (update_url && $app.activity !== '3d') {
+		updateUrlParams({ altitude: null, pitch: null, fov: null });
+	}
+	$: if (update_url && $app.activity === '3d' && $worldView) {
+		updateUrlParams({
+			altitude: $worldView.altitude.toFixed(2),
+			pitch: $worldView.pitch.toFixed(4),
+			fov: $worldView.fov.toFixed(4)
+		});
 	}
 
 	// When update_url becomes true, flush current photo state that may have
@@ -674,7 +686,7 @@ import TimelinePanel from './TimelinePanel.svelte';
 		{:else if showTerrainPane}
 			<TerrainPane />
 		{:else if showWorldPane}
-			<WorldPane />
+			{#if $mapReady}<WorldPane />{/if}
 		{:else}
 			<PhotoGallery/>
 		{/if}
