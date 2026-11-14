@@ -5,6 +5,7 @@ import cz.hillview.settings.MapSettings
 import cz.hillview.settings.ShutterSound
 import cz.hillview.settings.StorageMode
 import cz.hillview.settings.UploadSettings
+import cz.hillview.settings.activeWorker
 import kotlinx.serialization.Serializable
 
 /**
@@ -61,7 +62,7 @@ fun settingsSectionSummary(
             add("Shutter: " + upload.shutterSound.label.lowercase())
             add(upload.captureSoundChannel.label)
         }
-        add(if (map.sfmRunEnabled) "SfM run on" else "SfM run off")
+        //add(if (map.sfmRunEnabled) "SfM run on" else "SfM run off")
     }.joinToString(" · ")
 
     SettingsSection.Storage -> buildList {
@@ -83,10 +84,18 @@ fun settingsSectionSummary(
 
     SettingsSection.Servers -> {
         val host = upload.serverUrl.substringAfter("://").substringBefore('/')
-        if (upload.serverUrl.trimEnd('/') != runtimeApiUrl.trimEnd('/')) {
+        //if (upload.serverUrl.trimEnd('/') != runtimeApiUrl.trimEnd('/')) {
+        //    "$host — restart the app to apply"
+        //} else {
+        //    host
+        //}
+        val api = if (upload.serverUrl.trimEnd('/') != runtimeApiUrl.trimEnd('/')) {
             "$host — restart the app to apply"
         } else {
             host
         }
+        // A worker picked by hand is worth seeing from the list: every
+        // upload goes there instead of where the server says (2026-11-09).
+        upload.activeWorker?.let { w -> "$api · worker ${w.url.substringAfter("://")}" } ?: api
     }
 }

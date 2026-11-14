@@ -278,10 +278,13 @@ fun CaptureScreen(
     // The rung a release would commit to, as an index into INTERVAL_LADDER;
     // it survives the gesture, so a stopped run remembers its own speed.
     // repeating is the running-run flag.
-    var intervalIndex by rememberSaveable { mutableStateOf(0) }
-    // The ladder in force: the SfM rung only when opted into (Settings →
-    // SfM run). Indices below are into THIS list.
-    val ladder = remember(mapSettings.sfmRunEnabled) { intervalLadder(mapSettings.sfmRunEnabled) }
+    //var intervalIndex by rememberSaveable { mutableStateOf(0) }
+    var intervalIndex by rememberSaveable { mutableStateOf(DEFAULT_LADDER_INDEX) }
+    //// The ladder in force: the SfM rung only when opted into (Settings →
+    //// SfM run). Indices below are into THIS list.
+    //val ladder = remember(mapSettings.sfmRunEnabled) { intervalLadder(mapSettings.sfmRunEnabled) }
+    // One ladder, the SfM rung always at its foot (2026-11-09).
+    val ladder = INTERVAL_LADDER
     var repeating by rememberSaveable { mutableStateOf(false) }
     var runCount by remember { mutableStateOf(0) }
 

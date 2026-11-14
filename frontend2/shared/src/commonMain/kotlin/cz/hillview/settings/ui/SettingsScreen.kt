@@ -141,6 +141,7 @@ fun SettingsSectionScreen(
     onOpenPanoramaxInfo: () -> Unit = {},
     onOpenLicenseInfo: (String) -> Unit = {},
     onOpenSfmSettings: () -> Unit = {},
+    onOpenUploads: () -> Unit = {},
 ) {
     SettingsPage(title = section.title, tag = "settings-section-${section.key}", onBack = onBack) {
         when (section) {
@@ -162,7 +163,8 @@ fun SettingsSectionScreen(
                 GpsIntervalRow()
                 DiagnosticRows()
             }
-            SettingsSection.Servers -> ServerRows()
+            //SettingsSection.Servers -> ServerRows()
+            SettingsSection.Servers -> ServerRows(onOpenUploads = onOpenUploads)
         }
     }
 }
@@ -204,137 +206,179 @@ private fun SettingsPage(
 
 @Composable
 private fun ServerRows(
+    onOpenUploads: () -> Unit,
     repository: UploadSettingsRepository = koinInject(),
 ) {
     val settings by repository.settings.collectAsState()
 
-        // The field edits RAW text (normalizing per keystroke would fight
-        // the cursor); the persisted setting is normalized — trimmed, no
-        // trailing slash (a stored slash doubles up in every "$url/path").
-        // A combobox: predefined URLs sit under ▾ (serverPresets), and
-        // anything else is typed. Either way it is the FULL …/api URL,
-        // never assembled from a host.
-        var serverUrlText by rememberSaveable { mutableStateOf(settings.serverUrl) }
-        var serverMenuOpen by remember { mutableStateOf(false) }
-        fun setServerUrl(url: String) {
-            serverUrlText = url
-            repository.update { it.copy(serverUrl = url.trim().trimEnd('/')) }
-        }
-        Box(Modifier.fillMaxWidth()) {
-            OutlinedTextField(
-                value = serverUrlText,
-                onValueChange = { setServerUrl(it) },
-                label = { Text("API URL") },
-                supportingText = { Text("Full API URL incl. /api — applies after an app restart") },
-                singleLine = true,
-                trailingIcon = {
-                    IconButton(
-                        onClick = { serverMenuOpen = true },
-                        modifier = Modifier.testTag("settings-server-url-presets"),
-                    ) { Text("▾", style = MaterialTheme.typography.titleLarge) }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("settings-server-url"),
-            )
-            DropdownMenu(
-                expanded = serverMenuOpen,
-                onDismissRequest = { serverMenuOpen = false },
-            ) {
-                serverPresets().forEach { preset ->
-                    val current = settings.serverUrl.trimEnd('/') == preset.apiUrl.trimEnd('/')
-                    DropdownMenuItem(
-                        text = {
-                            Column {
-                                Text((if (current) "✓ " else "") + preset.label)
-                                Text(preset.apiUrl, style = MaterialTheme.typography.bodySmall)
-                            }
-                        },
-                        onClick = {
-                            serverMenuOpen = false
-                            setServerUrl(preset.apiUrl)
-                        },
-                        modifier = Modifier.testTag(
-                            "settings-server-preset-" + preset.label.lowercase().replace(' ', '-'),
-                        ),
-                    )
+    // Three groups (2026-11-09), each saying when its change takes effect:
+    // the API server (on restart — so what is IN USE is shown beside what is
+    // saved, and the restart prompt sits right under the field it is about,
+    // not at the bottom of the page), the web app (at once), and the uploads'
+    // worker (at once; chosen on the Uploads screen, this only links there).
+    // The setting vs the RUNTIME: see the restart prompt below.
+    val runtimeConfig: cz.hillview.core.net.BackendConfig = koinInject()
+
+    ServerGroup("API server", "settings-servers-api") {
+        Text(
+            "In use now: ${runtimeConfig.apiUrl}",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.testTag("settings-server-url-in-use"),
+        )
+            // The field edits RAW text (normalizing per keystroke would fight
+            // the cursor); the persisted setting is normalized — trimmed, no
+            // trailing slash (a stored slash doubles up in every "$url/path").
+            // A combobox: predefined URLs sit under ▾ (serverPresets), and
+            // anything else is typed. Either way it is the FULL …/api URL,
+            // never assembled from a host.
+            var serverUrlText by rememberSaveable { mutableStateOf(settings.serverUrl) }
+            var serverMenuOpen by remember { mutableStateOf(false) }
+            fun setServerUrl(url: String) {
+                serverUrlText = url
+                repository.update { it.copy(serverUrl = url.trim().trimEnd('/')) }
+            }
+            Box(Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = serverUrlText,
+                    onValueChange = { setServerUrl(it) },
+                    label = { Text("API URL") },
+                    supportingText = { Text("Full API URL incl. /api — applies after an app restart") },
+                    singleLine = true,
+                    trailingIcon = {
+                        IconButton(
+                            onClick = { serverMenuOpen = true },
+                            modifier = Modifier.testTag("settings-server-url-presets"),
+                        ) { Text("▾", style = MaterialTheme.typography.titleLarge) }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("settings-server-url"),
+                )
+                DropdownMenu(
+                    expanded = serverMenuOpen,
+                    onDismissRequest = { serverMenuOpen = false },
+                ) {
+                    serverPresets().forEach { preset ->
+                        val current = settings.serverUrl.trimEnd('/') == preset.apiUrl.trimEnd('/')
+                        DropdownMenuItem(
+                            text = {
+                                Column {
+                                    Text((if (current) "✓ " else "") + preset.label)
+                                    Text(preset.apiUrl, style = MaterialTheme.typography.bodySmall)
+                                }
+                            },
+                            onClick = {
+                                serverMenuOpen = false
+                                setServerUrl(preset.apiUrl)
+                            },
+                            modifier = Modifier.testTag(
+                                "settings-server-preset-" + preset.label.lowercase().replace(' ', '-'),
+                            ),
+                        )
+                    }
                 }
             }
-        }
 
-        // The worker override: like the API URL, but a list — a dev worker
-        // may be http or self-signed, so each saved one carries its own
-        // trust (WorkerUrlDialog). Applies live: the upload stack reads it
-        // per photo.
-        var workerDialogOpen by rememberSaveable { mutableStateOf(false) }
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .selectable(selected = false, onClick = { workerDialogOpen = true }, role = Role.Button)
-                .testTag("settings-worker-url"),
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("Worker URL", style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    settings.activeWorker?.let { w -> w.url + if (w.pin != null) " · pinned certificate" else "" }
-                        ?: "As the server says",
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.testTag("settings-worker-url-value"),
-                )
+            // The setting vs the RUNTIME: deliberately separate values. Auth,
+            // the upload workers, and every cached client resolved the runtime
+            // URL at startup; the only sanctioned way to move them all is a
+            // full restart — a live switch leaves components talking to
+            // different servers (the stranded-client-key incident).
+            if (settings.serverUrl.trimEnd('/') != runtimeConfig.apiUrl.trimEnd('/')) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("settings-restart-required"),
+                ) {
+                    Text(
+                        //"Server URL changed — the app must restart to apply it everywhere.",
+                        "Not in use yet — the app must restart to switch everything over to it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        onClick = { cz.hillview.core.restartApp() },
+                        modifier = Modifier.testTag("restart-app-button"),
+                    ) { Text("Restart now") }
+                }
             }
-            Text("›", style = MaterialTheme.typography.titleLarge)
-        }
-        if (workerDialogOpen) {
-            WorkerUrlDialog(
-                settings = settings,
-                update = { transform -> repository.update(transform) },
-                onDismiss = { workerDialogOpen = false },
+    }
+
+    ServerGroup("Web app", "settings-servers-web") {
+            // The web app, for the viewer's "open in web app" link. Applies
+            // live — nothing caches it.
+            var webUrlText by rememberSaveable { mutableStateOf(settings.webUrl) }
+            OutlinedTextField(
+                value = webUrlText,
+                onValueChange = { url ->
+                    webUrlText = url
+                    repository.update { it.copy(webUrl = url.trim().trimEnd('/')) }
+                },
+                label = { Text("Web app URL") },
+                supportingText = { Text("Where \"open in web app\" links go") },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("settings-web-url"),
             )
-        }
+    }
 
-        // The web app, for the viewer's "open in web app" link. Applies
-        // live — nothing caches it.
-        var webUrlText by rememberSaveable { mutableStateOf(settings.webUrl) }
-        OutlinedTextField(
-            value = webUrlText,
-            onValueChange = { url ->
-                webUrlText = url
-                repository.update { it.copy(webUrl = url.trim().trimEnd('/')) }
-            },
-            label = { Text("Web app URL") },
-            supportingText = { Text("Where \"open in web app\" links go") },
-            singleLine = true,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("settings-web-url"),
-        )
-
-        // The setting vs the RUNTIME: deliberately separate values. Auth,
-        // the upload workers, and every cached client resolved the runtime
-        // URL at startup; the only sanctioned way to move them all is a
-        // full restart — a live switch leaves components talking to
-        // different servers (the stranded-client-key incident).
-        val runtimeConfig: cz.hillview.core.net.BackendConfig = koinInject()
-        if (settings.serverUrl.trimEnd('/') != runtimeConfig.apiUrl.trimEnd('/')) {
+    ServerGroup("Uploads", "settings-servers-uploads") {
+            // The worker override: like the API URL, but a list — a dev worker
+            // may be http or self-signed, so each saved one carries its own
+            // trust. Applies live: the upload stack reads it per photo.
+            // Chosen, pinned and tested on the Uploads screen (WorkerPanel), where
+            // each worker's status is (2026-11-09); this row only says which one
+            // is in use and goes there. It opened a dialog with a second, different
+            // set of status lines until then.
+            //var workerDialogOpen by rememberSaveable { mutableStateOf(false) }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("settings-restart-required"),
+                    //.selectable(selected = false, onClick = { workerDialogOpen = true }, role = Role.Button)
+                    .selectable(selected = false, onClick = onOpenUploads, role = Role.Button)
+                    .testTag("settings-worker-url"),
             ) {
-                Text(
-                    "Server URL changed — the app must restart to apply it everywhere.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(
-                    onClick = { cz.hillview.core.restartApp() },
-                    modifier = Modifier.testTag("restart-app-button"),
-                ) { Text("Restart now") }
+                Column(Modifier.weight(1f)) {
+                    //Text("Worker URL", style = MaterialTheme.typography.bodyLarge)
+                    Text("Worker", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        settings.activeWorker?.let { w -> w.url + if (w.pin != null) " · pinned certificate" else "" }
+                            ?: "As the server says",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.testTag("settings-worker-url-value"),
+                    )
+                    Text(
+                        "Choose, pin and test on the Uploads screen",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
+                }
+                Text("›", style = MaterialTheme.typography.titleLarge)
             }
-        }
+            //if (workerDialogOpen) {
+            //    WorkerUrlDialog(
+            //        settings = settings,
+            //        update = { transform -> repository.update(transform) },
+            //        onDismiss = { workerDialogOpen = false },
+            //    )
+            //}
+    }
+}
+
+/** A titled group on the Servers page. */
+@Composable
+private fun ServerGroup(title: String, tag: String, content: @Composable () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().testTag(tag),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        content()
+    }
 }
 
 @Composable
@@ -709,7 +753,8 @@ private fun CaptureRows(
     mapRepository: cz.hillview.settings.MapSettingsRepository = koinInject(),
 ) {
     val settings by repository.settings.collectAsState()
-    val mapSettings by mapRepository.settings.collectAsState()
+    // Read only for the SfM row's on/off, which went with the switch (2026-11-09).
+    //val mapSettings by mapRepository.settings.collectAsState()
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -751,10 +796,12 @@ private fun CaptureRows(
             Column(Modifier.weight(1f)) {
                 Text("SfM run", style = MaterialTheme.typography.bodyLarge)
                 Text(
+                    //"Stills for 3-D reconstruction, a shot each time you have moved " +
+                    //    "or turned far enough. " +
+                    //    if (mapSettings.sfmRunEnabled) "On — offered in the shutter's ladder."
+                    //    else "Off.",
                     "Stills for 3-D reconstruction, a shot each time you have moved " +
-                        "or turned far enough. " +
-                        if (mapSettings.sfmRunEnabled) "On — offered in the shutter's ladder."
-                        else "Off.",
+                        "or turned far enough — the bottom rung of the shutter's ladder.",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }

@@ -153,6 +153,7 @@ fun App() {
                         onOpenPanoramaxInfo = { backStack.add(PanoramaxInfoKey) },
                         onOpenLicenseInfo = { backStack.add(LicenseInfoKey(it)) },
                         onOpenSfmSettings = { backStack.add(SfmSettingsKey) },
+                        onOpenUploads = { backStack.add(UploadStatusKey) },
                     )
                 }
                 entry<DevicePhotosKey> {

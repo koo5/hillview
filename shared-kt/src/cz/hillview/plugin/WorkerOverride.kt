@@ -148,14 +148,68 @@ const val PREF_LAST_WORKER_URL = "last_worker_url"
 const val PREF_LAST_WORKER_RESULT = "last_worker_result"
 const val PREF_LAST_WORKER_FAILED = "last_worker_failed"
 
+/**
+ * The last contact with each worker URL, as a JSON object keyed by URL
+ * (2026-11-09). One slot for every worker made the screens contradict
+ * themselves: an SSL failure against one URL sat beside "HTTP 200" from
+ * another, and nothing said which line was about which (user: "we've created
+ * a total mess"). Written by the uploads AND by the Test button, so a URL's
+ * line is always its newest news, whoever made it.
+ */
+const val PREF_WORKER_CONTACTS = "worker_contacts"
+
+/** The worker authorize-upload last named — "as the server says", made concrete. */
+const val PREF_SERVER_WORKER_URL = "server_worker_url"
+
+//data class WorkerContact(val url: String, val atMs: Long, val outcome: String, val failed: Boolean)
+/**
+ * [busy]: the worker answered 503, queue full — backpressure, not an error
+ * (user, 2026-11-09: "the screens still show 503 as an error"). Never both
+ * busy and failed.
+ */
+data class WorkerContact(
+    val url: String, val atMs: Long, val outcome: String, val failed: Boolean, val busy: Boolean = false,
+)
+
+// The drain and a Test can record at once; read-modify-write the map under one lock.
+private val workerContactsLock = Any()
+
 /** The last contact with a worker, whichever it was and however it went. */
-fun recordWorkerContact(prefs: SharedPreferences, url: String, outcome: String, failed: Boolean) {
-    prefs.edit()
-        .putLong(PREF_LAST_WORKER_AT, System.currentTimeMillis())
-        .putString(PREF_LAST_WORKER_URL, url)
-        .putString(PREF_LAST_WORKER_RESULT, outcome)
-        .putBoolean(PREF_LAST_WORKER_FAILED, failed)
-        .apply()
+//fun recordWorkerContact(prefs: SharedPreferences, url: String, outcome: String, failed: Boolean) {
+fun recordWorkerContact(
+    prefs: SharedPreferences, url: String, outcome: String, failed: Boolean, busy: Boolean = false,
+) {
+    val now = System.currentTimeMillis()
+    synchronized(workerContactsLock) {
+        val all = runCatching { org.json.JSONObject(prefs.getString(PREF_WORKER_CONTACTS, null) ?: "{}") }
+            .getOrElse { org.json.JSONObject() }
+        // Keyed without a trailing slash, the form the settings store URLs in.
+        all.put(url.trimEnd('/'), org.json.JSONObject().put("at", now).put("outcome", outcome).put("failed", failed).put("busy", busy))
+        prefs.edit()
+            .putLong(PREF_LAST_WORKER_AT, now)
+            .putString(PREF_LAST_WORKER_URL, url)
+            .putString(PREF_LAST_WORKER_RESULT, outcome)
+            .putBoolean(PREF_LAST_WORKER_FAILED, failed)
+            .putString(PREF_WORKER_CONTACTS, all.toString())
+            .apply()
+    }
+}
+
+/** Every worker URL's last contact (see [PREF_WORKER_CONTACTS]). */
+fun readWorkerContacts(prefs: SharedPreferences): Map<String, WorkerContact> {
+    val all = runCatching { org.json.JSONObject(prefs.getString(PREF_WORKER_CONTACTS, null) ?: "{}") }
+        .getOrNull() ?: return emptyMap()
+    return all.keys().asSequence().mapNotNull { url ->
+        val c = all.optJSONObject(url) ?: return@mapNotNull null
+        url to WorkerContact(url, c.optLong("at"), c.optString("outcome", ""), c.optBoolean("failed"), c.optBoolean("busy"))
+    }.toMap()
+}
+
+/** Remember the worker the server named, so "as the server says" can show which one that is. */
+fun recordServerWorkerUrl(prefs: SharedPreferences, url: String) {
+    if (prefs.getString(PREF_SERVER_WORKER_URL, null) != url) {
+        prefs.edit().putString(PREF_SERVER_WORKER_URL, url).apply()
+    }
 }
 
 /**
@@ -181,20 +235,34 @@ fun describeFailure(e: Throwable): String {
  * client an upload would use (the pinned one when there is a pin). One line,
  * for the settings dialog's Test button.
  */
-fun checkWorker(base: OkHttpClient, url: String, pinnedCertDer: ByteArray?): String {
+fun checkWorker(base: OkHttpClient, url: String, pinnedCertDer: ByteArray?): String =
+    checkWorkerResult(base, url, pinnedCertDer).line
+
+/**
+ * A Test's answer: the line, and whether it counts as a failure (anything but
+ * 200, 404 from an older worker, or 503 — which is [busy], the worker full).
+ */
+data class WorkerCheck(val line: String, val failed: Boolean, val busy: Boolean = false)
+
+fun checkWorkerResult(base: OkHttpClient, url: String, pinnedCertDer: ByteArray?): WorkerCheck {
     val http = if (pinnedCertDer != null) pinnedClient(base, pinnedCertDer) else base
     val started = System.currentTimeMillis()
     return try {
         http.newCall(Request.Builder().url(url.trimEnd('/') + "/ready").get().build()).execute().use { r ->
             val ms = System.currentTimeMillis() - started
-            when (r.code) {
-                200 -> "Ready — HTTP 200 in ${ms} ms"
-                404 -> "Reachable, but no /ready (an older worker?) — HTTP 404 in ${ms} ms"
-                503 -> "Reachable, queue full — HTTP 503 in ${ms} ms"
-                else -> "Answered HTTP ${r.code} in ${ms} ms"
-            }
+            WorkerCheck(
+                when (r.code) {
+                    200 -> "Ready — HTTP 200 in ${ms} ms"
+                    404 -> "Reachable, but no /ready (an older worker?) — HTTP 404 in ${ms} ms"
+                    503 -> "Reachable, queue full — HTTP 503 in ${ms} ms"
+                    else -> "Answered HTTP ${r.code} in ${ms} ms"
+                },
+                //failed = r.code != 200 && r.code != 404,
+                failed = r.code != 200 && r.code != 404 && r.code != 503,
+                busy = r.code == 503,
+            )
         }
     } catch (e: Exception) {
-        "Failed after ${System.currentTimeMillis() - started} ms — ${describeFailure(e)}"
+        WorkerCheck("Failed after ${System.currentTimeMillis() - started} ms — ${describeFailure(e)}", failed = true)
     }
 }

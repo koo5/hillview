@@ -8,11 +8,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,6 +31,14 @@ import cz.hillview.upload.UploadDiagnostics
 import cz.hillview.upload.collectUploadDiagnostics
 import cz.hillview.upload.pingBackend
 import cz.hillview.upload.triggerUploadNow
+import cz.hillview.core.nowMs
+import cz.hillview.settings.UploadSettingsRepository
+import cz.hillview.settings.WorkerStatus
+import cz.hillview.settings.activeWorker
+import cz.hillview.settings.ago
+import cz.hillview.settings.serverNamedWorkerUrl
+import cz.hillview.settings.workerStatuses
+import org.koin.compose.koinInject
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 
@@ -43,10 +53,23 @@ import kotlinx.coroutines.delay
  * strings in prefs.
  */
 @Composable
-fun UploadStatusScreen(onBack: () -> Unit) {
+fun UploadStatusScreen(
+    onBack: () -> Unit,
+    repository: UploadSettingsRepository = koinInject(),
+) {
+    val settings by repository.settings.collectAsState()
     var diagnostics by remember { mutableStateOf<UploadDiagnostics?>(null) }
+    // The worker panel's inputs, read on the SAME tick as the diagnostics, so
+    // every line and every "… ago" on the page is from one reading.
+    var statuses by remember { mutableStateOf<Map<String, WorkerStatus>>(emptyMap()) }
+    var serverWorker by remember { mutableStateOf<String?>(null) }
+    var readAt by remember { mutableStateOf(0L) }
     var refreshes by remember { mutableStateOf(0) }
     var actionResult by remember { mutableStateOf<String?>(null) }
+    // "Test API server": what it said and when. Labelled as the API server on
+    // screen — unlabelled, its "Reachable — HTTP 200" read as the worker's
+    // answer beside the worker's SSL failure (2026-11-09).
+    var apiCheck by remember { mutableStateOf<Pair<String, Long>?>(null) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
 
     LaunchedEffect(refreshes) {
@@ -54,7 +77,12 @@ fun UploadStatusScreen(onBack: () -> Unit) {
         // states (waiting for a constraint, a scheduled run coming due) are
         // ones you sit and watch.
         while (true) {
-            diagnostics = collectUploadDiagnostics()
+            //diagnostics = collectUploadDiagnostics()
+            val diag = collectUploadDiagnostics()
+            statuses = workerStatuses()
+            serverWorker = serverNamedWorkerUrl()
+            readAt = nowMs()
+            diagnostics = diag
             delay(2_000)
         }
     }
@@ -90,11 +118,23 @@ fun UploadStatusScreen(onBack: () -> Unit) {
         // The headline: the first thing standing in the way, or that nothing
         // is. This is a lookup over the rows below, not a separate opinion.
         val blocker = diag.blocker
+        // Then the worker uploads go to now: its line from the panel below,
+        // when the newest contact with it failed.
+        val activeWorkerUrl = settings.activeWorker?.url ?: serverWorker
+        val activeStatus = activeWorkerUrl?.let { statuses[it] }
+        val workerFailure = activeStatus?.takeIf { it.failed }
+        // Full is not failing: said, but not in red (2026-11-09).
+        val workerBusy = activeStatus?.takeIf { it.busy }
         Text(
+            //text = blocker?.let { "Not uploading — ${it.label.lowercase()}: ${it.value}" }
+            //    ?: "Nothing is blocking uploads.",
             text = blocker?.let { "Not uploading — ${it.label.lowercase()}: ${it.value}" }
+                ?: workerFailure?.let { "Worker failing — ${it.outcome}" }
+                ?: workerBusy?.let { "Worker full — uploads resume when it has room" }
                 ?: "Nothing is blocking uploads.",
             style = MaterialTheme.typography.bodyLarge,
-            color = if (blocker != null) {
+            //color = if (blocker != null) {
+            color = if (blocker != null || workerFailure != null) {
                 MaterialTheme.colorScheme.error
             } else {
                 MaterialTheme.colorScheme.primary
@@ -121,12 +161,14 @@ fun UploadStatusScreen(onBack: () -> Unit) {
             TextButton(
                 onClick = {
                     scope.launch {
-                        actionResult = "pinging…"
-                        actionResult = pingBackend()
+                        //actionResult = "pinging…"
+                        //actionResult = pingBackend()
+                        apiCheck = "testing…" to nowMs()
+                        apiCheck = pingBackend() to nowMs()
                     }
                 },
                 modifier = Modifier.testTag("ping-backend-button"),
-            ) { Text("Test server") }
+            ) { Text("Test API server") }
 
             TextButton(
                 onClick = { refreshes++ },
@@ -142,6 +184,13 @@ fun UploadStatusScreen(onBack: () -> Unit) {
                 modifier = Modifier.testTag("upload-status-action-result"),
             )
         }
+        apiCheck?.let { (line, at) ->
+            Text(
+                "API server: $line · ${ago(readAt - at)}",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.testTag("upload-status-api-result"),
+            )
+        }
 
         Column(
             Modifier
@@ -149,6 +198,15 @@ fun UploadStatusScreen(onBack: () -> Unit) {
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            WorkerPanel(
+                settings = settings,
+                update = { transform -> repository.update(transform) },
+                statuses = statuses,
+                serverWorkerUrl = serverWorker,
+                nowMs = readAt,
+                onContact = { refreshes++ },
+            )
+            HorizontalDivider()
             diag.rows.forEach { row -> DiagRowView(row) }
         }
     }

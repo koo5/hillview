@@ -31,21 +31,30 @@ class SfmSettingsScreenTest {
         }
     }
 
+    //@Test
+    //fun offByDefaultAndNothingElseShows() = runComposeUiTest {
+    //    val repo = FakeSettings()
+    //    setContent { SfmSettingsScreen(onBack = {}, repository = repo) }
+    //    onNodeWithTag("sfm-enabled").assertIsOff()
+    //    onNodeWithTag("sfm-distance-on").assertDoesNotExist()
+    //    onNodeWithTag("sfm-min-gap-slider").assertDoesNotExist()
+    //}
+
+    /** No switch for the whole run since 2026-11-09: the page is only its pacing. */
     @Test
-    fun offByDefaultAndNothingElseShows() = runComposeUiTest {
-        val repo = FakeSettings()
-        setContent { SfmSettingsScreen(onBack = {}, repository = repo) }
-        onNodeWithTag("sfm-enabled").assertIsOff()
-        onNodeWithTag("sfm-distance-on").assertDoesNotExist()
-        onNodeWithTag("sfm-min-gap-slider").assertDoesNotExist()
+    fun thereIsNoSwitchForTheWholeRun() = runComposeUiTest {
+        setContent { SfmSettingsScreen(onBack = {}, repository = FakeSettings()) }
+        onNodeWithTag("sfm-enabled").assertDoesNotExist()
+        onNodeWithTag("sfm-distance-on").assertExists()
     }
 
     @Test
-    fun optingInShowsEachTriggerAndSwitchingOneOffHidesItsValue() = runComposeUiTest {
+    //fun optingInShowsEachTriggerAndSwitchingOneOffHidesItsValue() = runComposeUiTest {
+    fun eachTriggerShowsAndSwitchingOneOffHidesItsValue() = runComposeUiTest {
         val repo = FakeSettings()
         setContent { SfmSettingsScreen(onBack = {}, repository = repo) }
-        onNodeWithTag("sfm-enabled").performClick()
-        assertTrue(repo.settings.value.sfmRunEnabled)
+        //onNodeWithTag("sfm-enabled").performClick()
+        //assertTrue(repo.settings.value.sfmRunEnabled)
         for (tag in listOf("sfm-metres-slider", "sfm-turn-slider", "sfm-heartbeat-slider", "sfm-min-gap-slider")) {
             onNodeWithTag(tag).assertExists()
         }
@@ -58,7 +67,8 @@ class SfmSettingsScreenTest {
     @Test
     fun withNothingPacingTheRunItSaysSo() = runComposeUiTest {
         val repo = FakeSettings(
-            MapSettings(sfmRunEnabled = true, sfmDistanceOn = false, sfmTurnOn = false, sfmHeartbeatOn = false),
+            //MapSettings(sfmRunEnabled = true, sfmDistanceOn = false, sfmTurnOn = false, sfmHeartbeatOn = false),
+            MapSettings(sfmDistanceOn = false, sfmTurnOn = false, sfmHeartbeatOn = false),
         )
         setContent { SfmSettingsScreen(onBack = {}, repository = repo) }
         onNodeWithTag("sfm-nothing-paces").assertExists()

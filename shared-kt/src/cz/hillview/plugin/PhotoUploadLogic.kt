@@ -67,6 +67,10 @@ internal const val UPLOADING_STALE_MS = 10L * 60_000
  */
 internal const val PROCESSING_STALE_MS = 8L * 60 * 60_000
 
+/** ", come back in 500 s" from a `Retry-After`, for a status line; empty without one. */
+internal fun retryAfterNote(header: String?): String =
+	retryAfterSeconds(header)?.let { ", come back in $it s" } ?: ""
+
 /** `Retry-After` as seconds; null for the HTTP-date form or anything unparseable. */
 internal fun retryAfterSeconds(header: String?): Long? =
 	header?.trim()?.toLongOrNull()?.takeIf { it >= 0 }
@@ -129,8 +133,14 @@ class PhotoUploadLogic(internal val context: Context) {
 	// we receive the sibling's ready + id instead. Pin uploads to that machine
 	// via fly-force-instance-id; clear on busy/IO failure so the next preflight
 	// re-discovers. Never persisted — machine ids churn on every deploy.
+	//@Volatile
+	//private var pinnedWorkerMachine: String? = null
+	// Since 2026-11-09 the pin remembers which worker URL it came from, and is
+	// sent only there (WorkerMachinePin.kt): a bare id followed the phone to the
+	// next worker after a switch. A ready answer without a machine id — a
+	// worker off Fly — clears it, as does any /ready that isn't a 200 or 404.
 	@Volatile
-	private var pinnedWorkerMachine: String? = null
+	private var pinnedWorker: WorkerMachinePin? = null
 
 	// The client for a user-pinned worker (WorkerOverride.kt), built once per
 	// pin rather than per photo: an SSLContext and a fresh connection pool
@@ -145,8 +155,14 @@ class PhotoUploadLogic(internal val context: Context) {
 	 * the phone, not only in logcat. Successes stay out of the event log: one
 	 * line per photo would push everything else out of its ring.
 	 */
-	private fun noteWorker(url: String, outcome: String, failed: Boolean) {
-		recordWorkerContact(prefs, url, outcome, failed)
+	//private fun noteWorker(url: String, outcome: String, failed: Boolean) {
+	//	recordWorkerContact(prefs, url, outcome, failed)
+	//	if (failed) EventLog.record("upload", "worker $url: $outcome")
+	//}
+	// [busy]: a 503, the worker full — recorded as such, not as a failure, and
+	// kept out of the event log: with a deep queue every drain ends in one.
+	private fun noteWorker(url: String, outcome: String, failed: Boolean, busy: Boolean = false) {
+		recordWorkerContact(prefs, url, outcome, failed, busy)
 		if (failed) EventLog.record("upload", "worker $url: $outcome")
 	}
 
@@ -1088,21 +1104,26 @@ class PhotoUploadLogic(internal val context: Context) {
 		// settings → Worker URL); workerClient trusts that worker's pinned
 		// certificate, if it has one. Everything below talks to these two.
 		val (workerUrl, workerClient) = workerTarget(serverWorkerUrl)
+		// For the Uploads screen's "as the server says" (WorkerOverride.kt).
+		recordServerWorkerUrl(prefs, serverWorkerUrl.trimEnd('/'))
 		// Pre-flight readiness check — /ready returns 503 only when the WHOLE
 		// fleet is saturated (a single busy machine's 503 carries fly-replay and
 		// the edge re-runs the preflight on a sibling before we ever see it).
 		// The 200 body carries the answering machine's id — pin the upload to it
-		// (see pinnedWorkerMachine). 404 = older worker without /ready; other
+		// (see pinnedWorker). 404 = older worker without /ready; other
 		// failures fall through to the upload attempt itself.
 		try {
 			val readyBuilder = Request.Builder()
 				.url("$workerUrl/ready")
 				.get()
-			pinnedWorkerMachine?.let { readyBuilder.addHeader("fly-force-instance-id", it) }
+			//pinnedWorkerMachine?.let { readyBuilder.addHeader("fly-force-instance-id", it) }
+			pinnedWorker.machineFor(workerUrl)?.let { readyBuilder.addHeader("fly-force-instance-id", it) }
 			workerClient.newCall(readyBuilder.build()).execute().use { readyResponse ->
 				if (readyResponse.code == 503) {
-					pinnedWorkerMachine = null
-					noteWorker(workerUrl, "ready: HTTP 503 (queue full)", failed = true)
+					//pinnedWorkerMachine = null
+					pinnedWorker = null
+					//noteWorker(workerUrl, "ready: HTTP 503 (queue full)", failed = true)
+					noteWorker(workerUrl, "ready: queue full (HTTP 503)${retryAfterNote(readyResponse.header("Retry-After"))}", failed = false, busy = true)
 					//throw WorkerBusyException("Worker upload queue is full (readiness check)")
 					throw WorkerBusyException(
 						"Worker upload queue is full (readiness check)",
@@ -1110,27 +1131,41 @@ class PhotoUploadLogic(internal val context: Context) {
 					)
 				}
 				if (readyResponse.code != 200 && readyResponse.code != 404) {
+					// Whatever is wrong, a pin may be part of it (a machine that
+					// is gone); the next preflight re-discovers, as the web
+					// client does (uploadProtocol.ts).
+					pinnedWorker = null
 					noteWorker(workerUrl, "ready: HTTP ${readyResponse.code}", failed = true)
 				}
+				//if (readyResponse.code == 200) {
+				//	try {
+				//		val machineId = JSONObject(readyResponse.body?.string() ?: "")
+				//			.optString("fly_machine_id")
+				//		if (machineId.isNotEmpty()) {
+				//			if (machineId != pinnedWorkerMachine) {
+				//				Log.d(TAG, "🔌 Pinning uploads to worker machine $machineId")
+				//			}
+				//			pinnedWorkerMachine = machineId
+				//		}
+				//	} catch (e: Exception) {
+				//		Log.w(TAG, "Could not parse /ready body for machine id: ${e.message}")
+				//	}
+				//}
 				if (readyResponse.code == 200) {
-					try {
-						val machineId = JSONObject(readyResponse.body?.string() ?: "")
-							.optString("fly_machine_id")
-						if (machineId.isNotEmpty()) {
-							if (machineId != pinnedWorkerMachine) {
-								Log.d(TAG, "🔌 Pinning uploads to worker machine $machineId")
-							}
-							pinnedWorkerMachine = machineId
-						}
-					} catch (e: Exception) {
-						Log.w(TAG, "Could not parse /ready body for machine id: ${e.message}")
+					val machineId = readyMachineId(readyResponse.body?.string())
+					val pin = machineId?.let { WorkerMachinePin(workerUrl, it) }
+					if (pin != pinnedWorker) {
+						Log.d(TAG, if (pin != null) "🔌 Pinning uploads to worker machine $machineId at $workerUrl"
+							else "🔌 $workerUrl names no machine — uploads unpinned")
 					}
+					pinnedWorker = pin
 				}
 			}
 		} catch (e: IOException) {
 			// The pinned machine may be stopped/gone (force-pinned requests fail
 			// outright) — drop the pin so the next attempt re-discovers.
-			pinnedWorkerMachine = null
+			//pinnedWorkerMachine = null
+			pinnedWorker = null
 			Log.w(TAG, "Readiness check failed for $workerUrl, proceeding with upload: ${e.message}")
 			noteWorker(workerUrl, "ready: ${describeFailure(e)}", failed = true)
 		}
@@ -1169,7 +1204,8 @@ class PhotoUploadLogic(internal val context: Context) {
 			.url("$workerUrl/upload_async")
 			.addHeader("Authorization", "Bearer $uploadJwt")
 			.post(requestBody)
-		pinnedWorkerMachine?.let { requestBuilder.addHeader("fly-force-instance-id", it) }
+		//pinnedWorkerMachine?.let { requestBuilder.addHeader("fly-force-instance-id", it) }
+		pinnedWorker.machineFor(workerUrl)?.let { requestBuilder.addHeader("fly-force-instance-id", it) }
 		val request = requestBuilder.build()
 
 		Log.d(TAG, "Uploading $filename to worker $workerUrl")
@@ -1191,10 +1227,12 @@ class PhotoUploadLogic(internal val context: Context) {
 		try {
 			workerClient.newCall(request).execute().use { response ->
 				if (response.code == 503) {
-					pinnedWorkerMachine = null
+					//pinnedWorkerMachine = null
+					pinnedWorker = null
 					val error = response.body?.string() ?: "Unknown error"
 					Log.w(TAG, "Worker rejected upload as busy: $error")
-					noteWorker(workerUrl, "upload: HTTP 503 (queue full)", failed = true)
+					//noteWorker(workerUrl, "upload: HTTP 503 (queue full)", failed = true)
+					noteWorker(workerUrl, "upload: queue full (HTTP 503)${retryAfterNote(response.header("Retry-After"))}", failed = false, busy = true)
 					//throw WorkerBusyException("Worker upload queue is full")
 					throw WorkerBusyException(
 						"Worker upload queue is full",

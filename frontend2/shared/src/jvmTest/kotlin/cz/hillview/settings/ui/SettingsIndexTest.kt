@@ -10,6 +10,7 @@ import cz.hillview.settings.ShutterSound
 import cz.hillview.settings.SoundChannel
 import cz.hillview.settings.StorageMode
 import cz.hillview.settings.defaultUploadSettings
+import cz.hillview.settings.withWorkerAdded
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -74,19 +75,21 @@ class SettingsIndexTest {
         )
 
         assertEquals(
-            "Silent · SfM run on",
+            //"Silent · SfM run on",
+            "Silent",
             s(
                 SettingsSection.Capture,
                 base.copy(shutterSound = ShutterSound.Off, warnDegradedPosition = false),
-                map.copy(sfmRunEnabled = true),
+                //map.copy(sfmRunEnabled = true),
             ),
         )
         assertEquals(
-            "Shutter: beep · Alarm volume · SfM run off",
+            //"Shutter: beep · Alarm volume · SfM run off",
+            "Shutter: beep · Alarm volume",
             s(
                 SettingsSection.Capture,
                 base.copy(shutterSound = ShutterSound.Beep, captureSoundChannel = SoundChannel.Alarm),
-                map.copy(sfmRunEnabled = false),
+                //map.copy(sfmRunEnabled = false),
             ),
         )
 
@@ -102,6 +105,15 @@ class SettingsIndexTest {
         assertEquals(
             "hv.dev4.local — restart the app to apply",
             s(SettingsSection.Servers, base.copy(serverUrl = "https://hv.dev4.local/api")),
+        )
+
+        // A worker picked by hand shows too: every upload goes there.
+        assertEquals(
+            "hillview.cz · worker aux.lan:8056",
+            s(
+                SettingsSection.Servers,
+                base.withWorkerAdded("https://aux.lan:8056"),
+            ),
         )
     }
 }

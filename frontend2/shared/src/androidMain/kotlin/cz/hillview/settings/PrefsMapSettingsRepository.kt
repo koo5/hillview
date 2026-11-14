@@ -50,7 +50,7 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
             lockDarkTheme = prefs.getBoolean("lock_dark_theme", false),
             lockHideSystemBars = prefs.getBoolean("lock_hide_system_bars", true),
             lockPinScreen = prefs.getBoolean("lock_pin_screen", false),
-            sfmRunEnabled = prefs.getBoolean("sfm_run_enabled", false),
+            //sfmRunEnabled = prefs.getBoolean("sfm_run_enabled", false),
             sfmDistanceOn = prefs.getBoolean("sfm_distance_on", true),
             sfmMetres = prefs.getFloat("sfm_metres", 1.5f),
             sfmTurnOn = prefs.getBoolean("sfm_turn_on", true),
@@ -93,7 +93,7 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
             .putBoolean("lock_dark_theme", next.lockDarkTheme)
             .putBoolean("lock_hide_system_bars", next.lockHideSystemBars)
             .putBoolean("lock_pin_screen", next.lockPinScreen)
-            .putBoolean("sfm_run_enabled", next.sfmRunEnabled)
+            //.putBoolean("sfm_run_enabled", next.sfmRunEnabled)
             .putBoolean("sfm_distance_on", next.sfmDistanceOn)
             .putFloat("sfm_metres", next.sfmMetres.coerceIn(SFM_METRES_RANGE))
             .putBoolean("sfm_turn_on", next.sfmTurnOn)
