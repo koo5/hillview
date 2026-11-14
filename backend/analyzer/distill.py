@@ -3,19 +3,21 @@ Distillation library for merging multiple analysis sessions into a single result
 """
 
 import fcntl
+import hashlib
 import json
 import os
 import re
 import sys
 import tempfile
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 
 # Independent of the model selected for acquisition. Adding a model here makes
 # its already-recorded answers eligible; no history needs rewriting.
 TRUSTED_MODELS = tuple(model.strip() for model in os.environ.get(
 	"ANALYZER_TRUSTED_MODELS",
-	"nvidia/nemotron-nano-12b-v2-vl:free,qwen/qwen3-vl-30b-a3b-thinking",
+	"nvidia/nemotron-nano-12b-v2-vl:free,qwen/qwen3-vl-30b-a3b-thinking,haiku,claude-haiku-4-5-20251001,claude-haiku-5-5,dots-studio/dots-3-note-preview:free",
 ).split(",") if model.strip())
 
 def lock_path_for(json_path: Path) -> Path:
@@ -80,8 +82,12 @@ def load_sessions(json_path: Path, *, lock: bool = True) -> list[dict]:
 			return json.load(f)
 
 
-def save_sessions(json_path: Path, sessions: list[dict], *, lock: bool = True):
-	"""Save sessions to a JSON file with locking. lock=False when the caller already holds file_lock() for this file."""
+def save_sessions(json_path: Path, sessions: list[dict], *, lock: bool = True, durable: bool = True):
+	"""Atomically save history; native answers are durable by default.
+
+	durable=False is only for rebuildable derived records. lock=False means
+	the caller already holds file_lock() for this file.
+	"""
 	json_path.parent.mkdir(parents=True, exist_ok=True)
 
 	if not lock:
@@ -90,7 +96,8 @@ def save_sessions(json_path: Path, sessions: list[dict], *, lock: bool = True):
 			try:
 				json.dump(sessions, f, indent=2)
 				f.flush()
-				os.fsync(f.fileno())
+				if durable:
+					os.fsync(f.fileno())
 				os.replace(f.name, json_path)
 			finally:
 				if os.path.exists(f.name):
@@ -98,7 +105,29 @@ def save_sessions(json_path: Path, sessions: list[dict], *, lock: bool = True):
 		return
 
 	with file_lock(lock_path_for(json_path)):
-		save_sessions(json_path, sessions, lock=False)
+		save_sessions(json_path, sessions, lock=False, durable=durable)
+
+
+def session_fingerprint(session: dict) -> str:
+	"""Stable evidence reference without changing the recorded model answer."""
+	return hashlib.sha256(json.dumps(session, sort_keys=True, separators=(",", ":"),
+		ensure_ascii=False).encode()).hexdigest()
+
+
+def append_assessment(json_path: Path, assessment: dict) -> bool:
+	"""Append a review under the collector's lock; replaying the same review is safe."""
+	if assessment.get("kind") != "assessment" or not assessment.get("review_id"):
+		raise ValueError("An assessment needs kind='assessment' and a review_id")
+	with file_lock(lock_path_for(json_path)):
+		history = load_sessions(json_path, lock=False)
+		for record in history:
+			if record.get("kind") == "assessment" and record.get("review_id") == assessment["review_id"]:
+				if record != assessment:
+					raise ValueError("Review ID already exists with different content; append a new revision")
+				return False
+		history.append(assessment)
+		save_sessions(json_path, history, lock=False)
+	return True
 
 
 def _session_matches(
@@ -108,9 +137,12 @@ def _session_matches(
 	temperature: float,
 	max_tokens: int,
 	verbose: bool = False,
-	label: str = ""
+	label: str = "",
+	response_format: dict | None = None,
 ) -> bool:
 	"""True if the session was run with exactly these parameters (model, temperature, max_tokens, full prompt text)."""
+	if not is_model_session(session):
+		return False
 	meta = session.get("metadata", {})
 	req = session.get("request", {})
 
@@ -130,6 +162,8 @@ def _session_matches(
 	if req.get("max_tokens") != max_tokens:
 		if verbose:
 			print(f"  Session {label}: different max_tokens")
+		return False
+	if req.get("response_format", {"type": "json_object"}) != (response_format or {"type": "json_object"}):
 		return False
 
 	# Check full prompt text
@@ -154,7 +188,8 @@ def find_duplicate(
 	temperature: float,
 	max_tokens: int,
 	image_hash: str | None = None,
-	verbose: bool = False
+	verbose: bool = False,
+	response_format: dict | None = None,
 ) -> dict | None:
 	"""
 	Find an existing successful session with matching parameters.
@@ -178,7 +213,7 @@ def find_duplicate(
 				print(f"  Session {i}: skipping (parse_error)")
 			continue
 
-		if _session_matches(session, model, prompt_text, temperature, max_tokens, verbose=verbose, label=str(i)):
+		if _session_matches(session, model, prompt_text, temperature, max_tokens, verbose=verbose, label=str(i), response_format=response_format):
 			if verbose:
 				print(f"  Session {i}: DUPLICATE FOUND")
 			return session
@@ -191,7 +226,8 @@ def count_failed_attempts(
 	model: str,
 	prompt_text: str,
 	temperature: float,
-	max_tokens: int
+	max_tokens: int,
+	response_format: dict | None = None,
 ) -> int:
 	"""
 	How many times this exact configuration (same match as find_duplicate) has
@@ -201,7 +237,8 @@ def count_failed_attempts(
 	return sum(
 		1 for session in sessions
 		if session.get("result", {}).get("parse_error")
-		and _session_matches(session, model, prompt_text, temperature, max_tokens)
+		and not session.get("result", {}).get("error")
+		and _session_matches(session, model, prompt_text, temperature, max_tokens, response_format=response_format)
 	)
 
 CATEGORY_DEFAULTS = {
@@ -242,7 +279,7 @@ def word_to_number(text: str) -> str:
 	return text
 
 
-def parse_distance_estimate(estimate: str) -> float | None:
+def _parse_legacy_distance_estimate(estimate: str) -> float | None:
 	"""Parse a distance estimate string into meters. Returns None if unparseable."""
 	text = estimate.lower().strip()
 
@@ -353,6 +390,78 @@ def parse_distance_estimate(estimate: str) -> float | None:
 	return None
 
 
+@dataclass(frozen=True)
+class DistanceEstimate:
+	"""Keep bounds and interpretation alongside the legacy scalar DB value."""
+	estimate_m: float
+	lower_m: float | None
+	upper_m: float | None
+	kind: str  # point | range | upper_bound | lower_bound | heuristic | category_default
+	source: str = "distance_estimate"
+
+
+def parse_distance_details(estimate: str) -> DistanceEstimate | None:
+	"""Parse explicit quantities before vague words, preserving mixed-unit bounds."""
+	if not isinstance(estimate, str):
+		return None
+	text = word_to_number(estimate.lower().strip())
+	text = re.sub(r"[–—−]", "-", text)
+	text = re.sub(r"(?<=\d),(?=\d{3}(?:\D|$))", "", text)
+	text = re.sub(r"\bkilomet(?:er|re)s?\b", "km", text)
+	text = re.sub(r"\bmet(?:er|re)s?\b", "m", text)
+	number = r"(?:\d+(?:\.\d+)?|\.\d+)"
+	range_match = re.search(
+		rf"(?<![\d.\-])(?P<first>{number})\s*(?P<u1>km\b|m\b)?\s*"
+		rf"(?P<join>-|\bto\b|\band\b)\s*(?P<second>{number})\s*(?P<u2>km\b|m\b)?",
+		text,
+	)
+	if range_match and (range_match["u1"] or range_match["u2"]):
+		# "and" is a range only in "between X and Y", not two unrelated quantities.
+		if range_match["join"] != "and" or re.search(r"\bbetween\s*$", text[:range_match.start()]):
+			u1 = range_match["u1"] or range_match["u2"]
+			u2 = range_match["u2"] or range_match["u1"]
+			first = float(range_match["first"]) * (1000 if u1 == "km" else 1)
+			second = float(range_match["second"]) * (1000 if u2 == "km" else 1)
+			lower, upper = sorted((first, second))
+			return DistanceEstimate((lower + upper) / 2, lower, upper, "range")
+	if re.search(r"(?:^|\s)-\s*\d", text):
+		return None
+	quantity = re.search(rf"(?<![\d.\-])(?P<value>{number})\s*(?P<plus>\+)?\s*(?P<unit>km\b|m\b)", text)
+	if quantity:
+		value = float(quantity["value"]) * (1000 if quantity["unit"] == "km" else 1)
+		prefix = text[:quantity.start()]
+		if re.search(r"(?:less than|under|up to|at most|within|<=|<|≤)\s*$", prefix):
+			return DistanceEstimate(value, None, value, "upper_bound")
+		if quantity["plus"] or re.search(r"(?:more than|over|at least|>=|>|≥)\s*$", prefix):
+			return DistanceEstimate(value, value, None, "lower_bound")
+		return DistanceEstimate(value, value, value, "point")
+	value = _parse_legacy_distance_estimate(text)
+	if value is not None:
+		return DistanceEstimate(value, None, None, "heuristic")
+	return None
+
+
+def parse_distance_estimate(estimate: str) -> float | None:
+	"""Backward-compatible scalar: midpoint for ranges, stated limit for bounds."""
+	parsed = parse_distance_details(estimate)
+	return parsed.estimate_m if parsed else None
+
+
+def parse_object_distance_details(obj: dict) -> DistanceEstimate | None:
+	parsed = parse_distance_details(obj.get("distance_estimate"))
+	if parsed is not None:
+		return parsed
+	default = CATEGORY_DEFAULTS.get(obj.get("distance_category"))
+	if default is not None:
+		return DistanceEstimate(default, None, None, "category_default", "distance_category")
+	return None
+
+
+def is_model_session(record: dict) -> bool:
+	"""Existing untagged records are model sessions; assessments are never answers."""
+	return record.get("kind", "llm_session") == "llm_session"
+
+
 def parse_object_distance(obj: dict, context: str) -> float | None:
 	"""Parse distance from an object dict. Returns None on failure."""
 	estimate = obj.get("distance_estimate")
@@ -378,7 +487,7 @@ def parse_object_distance(obj: dict, context: str) -> float | None:
 def get_sorted_successful_sessions(sessions: list[dict]) -> list[dict]:
 	"""Return sessions without parse errors, sorted by timestamp (most recent first)."""
 	successful = [s for s in sessions
-		if not s.get("result", {}).get("parse_error", True)
+		if is_model_session(s) and not s.get("result", {}).get("parse_error", True)
 		and s.get("metadata", {}).get("model") in TRUSTED_MODELS]
 	successful.sort(key=lambda s: s.get("metadata", {}).get("timestamp", ""), reverse=True)
 	return successful

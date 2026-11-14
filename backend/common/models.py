@@ -202,6 +202,23 @@ class SiteState(Base):
 	updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
+class AnalyzerBatch(Base):
+	"""Durable Claude submission/collection state; payloads and answers live on disk."""
+	__tablename__ = "analyzer_batches"
+
+	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
+	provider_batch_id: Mapped[Optional[str]] = mapped_column(String, unique=True)
+	status: Mapped[str] = mapped_column(String, nullable=False, index=True)
+	model: Mapped[str] = mapped_column(String, nullable=False)
+	budget_period: Mapped[str] = mapped_column(String, nullable=False, index=True)
+	reserved_usd: Mapped[float] = mapped_column(Float, nullable=False, server_default="0")
+	actual_usd: Mapped[Optional[float]] = mapped_column(Float)
+	manifest: Mapped[dict] = mapped_column(JSONB, nullable=False)
+	error: Mapped[Optional[str]] = mapped_column(Text)
+	created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+	updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
 class PhotoAnalysisQueue(Base):
 	"""Work queue of the LLM photo analyzer (backend/analyzer).
 
@@ -222,6 +239,11 @@ class PhotoAnalysisQueue(Base):
 	and docs/db-session-cancellation.md says why no transaction may span a
 	network call.
 
+	A non-null ``batch_id`` reserves the photo for a durable Claude batch,
+	regardless of next_retry or analyzer version. The batch state machine, not
+	lease expiry, releases that ownership. ``request_id`` points to the exact
+	immutable request/response; ``claude_attempts`` bounds repeated paid attempts.
+
 	``last_attempted_version`` is the ANALYZER_VERSION of the last claim on the
 	photo (NULL = queued, never claimed); ``next_retry`` only means anything
 	under that version: a future time = a lease or a backoff, ``infinity`` =
@@ -234,6 +256,10 @@ class PhotoAnalysisQueue(Base):
 
 	photo_id: Mapped[str] = mapped_column(String, ForeignKey("photos.id", ondelete="CASCADE"), primary_key=True)
 	last_attempted_version: Mapped[Optional[int]] = mapped_column(Integer)
+	provider: Mapped[Optional[str]] = mapped_column(String)
+	batch_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("analyzer_batches.id"), index=True)
+	request_id: Mapped[Optional[str]] = mapped_column(String)
+	claude_attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 	next_retry: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("'epoch'"))
 
 

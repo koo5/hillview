@@ -206,7 +206,7 @@ def _fake_run_analysis(fail_features: bool):
 	"""Stand-in for the OpenRouter call: answers each pass from the prompt text, no network."""
 	calls = []
 
-	def run(model, image_url, final_image_url, image_hash, prompt_text, verbose):
+	def run(model, image_url, final_image_url, image_hash, prompt_text, verbose, response_format=None):
 		calls.append(prompt_text)
 		is_distances = "farthest_object" in prompt_text
 		if not is_distances and fail_features:
@@ -217,6 +217,8 @@ def _fake_run_analysis(fail_features: bool):
 					{"time_of_day": "day", "location_type": "outdoors", "features": {"hill": True, "street": False},
 					 "scenic_score": 4, "visibility_distance": "far", "tallest_building": "low_rise"})
 		s = _session(model=model, prompt=prompt_text)
+		if response_format is not None:
+			s["request"]["response_format"] = response_format
 		s["analysis"] = analysis
 		return s
 

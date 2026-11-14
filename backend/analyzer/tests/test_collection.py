@@ -14,6 +14,26 @@ from test_retry import _fake_run_analysis, _photo, MODEL
 CANDIDATE = "google/gemma-4-26b-a4b-it:free"
 
 
+def test_model_coverage_skips_old_prompts_but_not_other_models_or_partial_answers(tmp_path, monkeypatch):
+    def example(schema):
+        if 'enum' in schema:return schema['enum'][0]
+        kind=schema['type']
+        if kind=='object':return {k:example(v) for k,v in schema['properties'].items()}
+        if kind=='array':return []
+        if kind=='boolean':return False
+        if kind in ('number','integer'):return 1
+        return 'visible subject'
+    history=[{'metadata':{'model':MODEL},'result':{'parse_error':False},'analysis':example(analyzer.build_schema(distances=d,features=not d))}
+             for d in (False,True)]
+    distill.save_sessions(tmp_path / 'md5x.json', history)
+    assert analyzer.model_has_complete_answer(history, MODEL)
+    assert not analyzer.model_has_complete_answer(history, CANDIDATE)
+    assert not analyzer.model_has_complete_answer(history[:1], MODEL)
+    monkeypatch.setattr(analyzer, "run_analysis", lambda **kwargs: pytest.fail("Already-covered model was queried"))
+    outcome = asyncio.run(analyzer.process_photo(_photo(), tmp_path, MODEL, False, skip_model_covered=True))
+    assert outcome.kind == 'cached' and not outcome.queried
+
+
 def test_candidate_is_recorded_and_cached_without_distillation(tmp_path, monkeypatch):
     monkeypatch.setattr(analyzer, "check_image", lambda url: True)
     fake = _fake_run_analysis(fail_features=False)
@@ -81,9 +101,36 @@ def test_update_collection_uses_db_selection_without_publication(tmp_path, monke
     monkeypatch.setattr(analyzer, "check_image", lambda url: True)
     monkeypatch.setattr(analyzer, "run_analysis", _fake_run_analysis(fail_features=False))
     monkeypatch.setattr(analyzer.asyncio, "sleep", AsyncMock())
-    asyncio.run(analyzer.main_loop(tmp_path, CANDIDATE, False, True, 30, prefer="update"))
+    asyncio.run(analyzer.main_loop(tmp_path, CANDIDATE, False, True, 30, prefer="update", collect_only=True))
     assert select_photo.await_count == 2
     assert select_photo.call_args_list[0].args[2] == "update"
     publish.assert_not_awaited()
     sync.assert_not_awaited()
     assert photo.analysis == {"closest_object_distance": 30}
+
+
+def test_primary_backfills_before_counting_gaps(tmp_path, monkeypatch, capsys):
+    from unittest.mock import AsyncMock, MagicMock
+    import redistill
+    events = []
+    async def backfill(args):
+        assert args.missing_only and not args.dry_run
+        events.append('backfill')
+        return 0
+    async def execute(stmt):
+        events.append('count')
+        result = MagicMock()
+        result.one.return_value = (100, 20, 19) if len(events) == 1 else (100, 12, 11)
+        return result
+    db = MagicMock()
+    db.execute = AsyncMock(side_effect=execute)
+    context = MagicMock()
+    context.__aenter__ = AsyncMock(return_value=db)
+    context.__aexit__ = AsyncMock(return_value=False)
+    monkeypatch.setattr(redistill, 'run', backfill)
+    monkeypatch.setattr(analyzer, 'SessionLocal', lambda: context)
+    assert asyncio.run(analyzer.startup_backfill(tmp_path)) == (100, 12)
+    assert events == ['count', 'backfill', 'count']
+    output = capsys.readouterr().out
+    assert 'missing analyses: 20; rows to check against disk: 19; missing upload hash: 1' in output
+    assert 'missing analyses: 12' in output
