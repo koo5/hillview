@@ -141,10 +141,11 @@ class OverlapRunTest {
 
     private fun cz.hillview.settings.MapSettings.overlapSpacingForTest() = overlapSpacing()
 
-    @Test
-    fun theRunIsOffUnlessAskedFor() {
-        assertTrue(!cz.hillview.settings.MapSettings().sfmRunEnabled)
-    }
+    // The whole-run switch is gone (2026-11-09): the SfM rung is always on the ladder.
+    //@Test
+    //fun theRunIsOffUnlessAskedFor() {
+    //    assertTrue(!cz.hillview.settings.MapSettings().sfmRunEnabled)
+    //}
 
     /** A walk at 1.2 m/s, simulated end to end: about one shot per 1.5 m. */
     @Test

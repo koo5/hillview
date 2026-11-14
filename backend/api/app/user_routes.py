@@ -1842,15 +1842,17 @@ async def authorize_upload(
 		)
 
 
-	except HTTPException:
-		raise
-	except Exception as e:
-		await db.rollback()
-		log.error(f"Error creating upload authorization: {e}")
-		raise HTTPException(
-			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-			detail="Failed to create upload authorization"
-		)
+	# An exact second copy of the handlers above, unreachable after them
+	# (pyright, 2026-11-06: reportUnusedExcept). Commented out, not deleted.
+#	except HTTPException:
+#		raise
+#	except Exception as e:
+#		await db.rollback()
+#		log.error(f"Error creating upload authorization: {e}")
+#		raise HTTPException(
+#			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#			detail="Failed to create upload authorization"
+#		)
 
 # Cleanup endpoint for orphaned authorized photos
 @router.delete("/photos/cleanup-orphaned")

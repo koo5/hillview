@@ -197,4 +197,19 @@ tasks.named<Test>("jvmTest") {
     inputs.dir(layout.projectDirectory.dir("../androidApp/src"))
         .withPathSensitivity(PathSensitivity.RELATIVE)
         .withPropertyName("appTreeForArchitectureTest")
+
+    // The integration tests reach the dev stack's worker through Caddy
+    // (`tls internal`, e.g. https://hv.dev4.local/worker), signed by Caddy's
+    // local root. The OS trusts that root once it is installed under
+    // /usr/local/share/ca-certificates, and ca-certificates-java mirrors it
+    // into /etc/ssl/certs/java/cacerts — but the Android Studio JBR this build
+    // runs on reads only its own bundled cacerts, so the handshake failed with
+    // PKIX "unable to find valid certification path". Use the system store
+    // when there is one; it holds the public CAs too, so nothing else loses
+    // trust. Trust is never switched off.
+    val systemJavaTrustStore = file("/etc/ssl/certs/java/cacerts")
+    if (systemJavaTrustStore.isFile) {
+        systemProperty("javax.net.ssl.trustStore", systemJavaTrustStore.absolutePath)
+        systemProperty("javax.net.ssl.trustStoreType", "JKS")
+    }
 }

@@ -104,8 +104,11 @@ class MapBehaviourTest {
 
     /**
      * The tri-state cycle plus the exploration pill: OFF -> click ->
-     * ACTIVE; a manual pan demotes to BACKGROUND and offers the pill;
-     * its GPS side promotes back to ACTIVE.
+     * ACTIVE; a manual pan parks the map and offers the pill while the
+     * button stays ACTIVE (exploring is not a demotion — only an accepted
+     * "Capture here" claim reads BACKGROUND); its GPS side withdraws it.
+     * (Was: "a manual pan demotes to BACKGROUND and offers the pill; its
+     * GPS side promotes back to ACTIVE.")
      */
     @Test
     fun panDemotesAndThePillRevertsToFollowing() {
@@ -128,7 +131,12 @@ class MapBehaviourTest {
             compose.onAllNodesWithTag("map-position-prompt")
                 .fetchSemanticsNodes().isNotEmpty()
         }
-        locationState("background")
+        // locationState("background")
+        // Exploring is not a demotion: the map is parked but the fix is
+        // still what a photo records, so the button stays fully lit until
+        // the pill's "Capture here" claim is accepted (fixRole in MapState,
+        // user-caught 2026-09-11). Only the claim lights it half.
+        locationState("active")
 
         compose.onNodeWithTag("revert-to-gps").performClick()
         locationState("active")

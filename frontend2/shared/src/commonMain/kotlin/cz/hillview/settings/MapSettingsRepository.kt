@@ -125,7 +125,9 @@ data class MapSettings(
      * trigger has its own switch and value; [cz.hillview.capture.OverlapSpacing]
      * documents what the defaults are for. Field by field, like the lock's.
      */
-    val sfmRunEnabled: Boolean = false,
+    // The whole-run switch went on 2026-11-09: the rung is always on the
+    // ladder. The stored "sfm_run_enabled" pref is simply no longer read.
+    //val sfmRunEnabled: Boolean = false,
     val sfmDistanceOn: Boolean = true,
     val sfmMetres: Float = 1.5f,
     val sfmTurnOn: Boolean = true,

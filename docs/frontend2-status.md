@@ -83,7 +83,16 @@ upload trigger) still publishes only after the final bytes exist.
   overlay, calibration sheet, eco mode, tap-to-focus, shutter-priority
   ladder (MANUAL_SENSOR-gated), real-resolution menu, location gate with
   the map-position lift, auto-upload consent chain (null licence default),
-  bilingual shutter tone.
+  bilingual shutter tone. 2026-11-07: the tones are synthesized and
+  played on a user-chosen stream (Settings → Capture → Capture sound: Click / Beep /
+  Off, the degraded-position warning as its own switch, Media /
+  Notification / Alarm volume, loudness, test buttons) —
+  `CaptureSound.kt`, `CaptureSoundPlayer`. The platform players they
+  replaced each picked their own stream (MediaActionSound the "enforced"
+  one: ring volume on one phone, no slider on another; the warning
+  ToneGenerator the notification one), so what silenced them varied by
+  device. Where `CameraInfo.mustPlayShutterSound()` says the law requires
+  a shutter sound, the system click still plays on every photo.
 - The exploration pill + manual-position claim: pan is exploration,
   "Capture here" is the only way the map position becomes the capture
   position; claim survives entering capture; withdrawal everywhere.
@@ -508,6 +517,76 @@ writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
 
+## 2026-11-09 — worker status in one place, and the machine pin
+
+User: "i keep going back between the uploads screen and the settings->worker
+url screen, both have some status readouts with intransparent update logic, it
+says "Reachable HTTP 200" and SSLException on one screen at the same time".
+The "HTTP 200" was the Uploads screen's server ping (the API, `/api/debug`),
+unlabelled, beside the worker's SSL failure; the worker dialog had a Test line
+that never refreshed and a "last contact" line shared by every worker URL.
+
+- **One status line per worker URL** (shared-kt `WorkerOverride.kt`,
+  `PREF_WORKER_CONTACTS`), written by uploads and by Test alike, so a URL's
+  line is always its newest news, with its step ("ready:", "upload:",
+  "test:", "pin:") and age.
+- **The worker controls moved to the Uploads screen** (`WorkerPanel`, was
+  `WorkerUrlDialog`): "as the server says" shows which worker that is (the
+  URL authorize-upload last named) and its status; each saved URL its own.
+  Settings → Servers → Worker now only says which one is in use and opens
+  Uploads.
+- **One refresh tick** for the whole Uploads screen (2 s), so every age on it
+  comes from the same reading; Test and pin re-read at once.
+- **"Test server" is "Test API server"**, and its answer says "API server:".
+  The diagnostics' "Server" row is "API server"; the "Worker" and "Last worker
+  contact" rows are gone (the panel has them). A failing active worker is the
+  headline when nothing else blocks.
+- **Settings → Servers is three groups**, each with its own way of taking
+  effect: *API server* (the URL in use now, the field, and the restart prompt
+  directly under it — it used to sit at the bottom, below unrelated fields),
+  *Web app* (at once), *Uploads* (the worker row, a link to the Uploads
+  screen). The Servers entry on the Settings list names a hand-picked worker.
+- **A 503 is "busy", not an error** (user: "the screens still show 503 as an
+  error"): the worker is up and full. Its line reads "⏳ ready: queue full
+  (HTTP 503), come back in 500 s", not in red; the headline says "Worker full"
+  rather than "failing"; it stays out of the event log. Test says the same.
+- **Pinning is a button** ("Pin certificate", then "Re-pin" / "Unpin"), not a
+  switch: it fetches and trusts a certificate, an action (user: "should not be
+  a toggle if its an action").
+
+The worker switches also exposed a pinning bug: an off-Fly worker's `/ready`
+says `"fly_machine_id": null`, which Android's `org.json` `optString` returns
+as the STRING "null", so the phone pinned machine "null" — and the pin was a
+bare id, so it followed the phone to the next worker. Now the pin remembers
+the URL it came from (`WorkerMachinePin.kt`), an answer without a machine id
+clears it, and so does any `/ready` other than 200/404. `WorkerMachinePinTest`
+is a device test on purpose: the JVM's org.json doesn't have the quirk.
+
+## 2026-11-07 — Settings is a list of sub-pages
+
+The single Settings page (about 20 controls) is now a list of five pages,
+each its own back-stack entry (`SettingsSectionKey(SettingsSection)`), so
+system Back leaves a page for the list and a page survives process death:
+
+| Page | Holds |
+|---|---|
+| Uploads & licence | Auto-upload, Wi-Fi only, sign-in prompt, licence choice, Panoramax link |
+| Capture | Exact capture time, capture sound, SfM run (→ its own page) |
+| Photo files | Storage target, hide from gallery, EXIF writing, photo index |
+| Location & compass | Tracking CSV export and folder, GPS interval (hidden), geo debug readout, landscape compass workaround |
+| Servers | API URL, worker URL, web app URL, the restart banner |
+
+Each row on the list carries a one-line summary of its page
+(`settingsSectionSummary`), for example "No licence picked — photos stay on
+this phone · not signed in" or "hv.dev4.local — restart the app to apply".
+The build stamp stays on the list. The auto-upload prompt's "Configure" opens
+Uploads directly, with the list underneath it on the back stack.
+
+The controls moved without rewrites: each contiguous block of the old page is
+now its own function in `SettingsScreen.kt`, and its test tags are unchanged.
+Device tests reach a page through `openSettingsSection(key)` and return
+through `backToMain`. `SettingsIndexTest` covers the list and the summaries.
+
 ## 2026-11-05 — a worker URL of your own, http or self-signed
 
 User: "like we have the settings field to override api server url, i want to
@@ -570,9 +649,15 @@ the UI".
     turned `turnDeg` (15°, ~70 % of a portrait frame kept) since the last
     shot — never sooner than 200 ms, never later than 5 s (`OverlapSpacing`,
     `OverlapRun.kt`). Defaults, untuned; they want a field run.
-  - **Opt-in and configurable**: menu → "SfM run" (`SfmSettingsScreen`). Off
-    by default, and off the ladder has no SfM rung (`intervalLadder(overlap)`;
-    the capture screen indexes into whichever ladder is in force). On, each
+  - **Always on the ladder, configurable**: Settings → Capture → "SfM run" (`SfmSettingsScreen`,
+    a sub-page; it was a main-menu entry until 2026-11-07). Until 2026-11-09
+    it was opt-in, a rung just under VIDEO only when switched on; since then
+    there is no switch for the whole run and it is the BOTTOM rung of
+    `INTERVAL_LADDER` (user: "theres no need to toggle the appearance of an
+    extra capture interval ladder item. And we can make it the lowest item in
+    the ladder"). So a finger slid below the ladder now picks SfM, not 0.2 s;
+    the pick still starts on 0.2 s (`DEFAULT_LADDER_INDEX`). The old
+    `sfm_run_enabled` pref is no longer read. Each
     trigger — distance, turn, heartbeat — has its own switch and value, plus
     the floor; a switched-off trigger is `null` in `OverlapSpacing`. With all
     three off the page warns that a run takes one photo and waits. Stored
@@ -599,7 +684,8 @@ the UI".
     turn switch's explanation says it needs compass tracking on.
   - Not done: no sharpness gate (a shot is not held for a steady instant; the
     Sports rule is the blur defence), no visual parallax from the analysis
-    stream (the stronger signal where GPS speed is absent), and the trigger
+    stream (the stronger signal where GPS speed is absent; measured and
+    parked in `todo/sfm-visual-scene-change.md`), and the trigger
     reason is not stamped on the photo.
   - Tests: `OverlapRunTest` (odometer, turn, trigger, switched-off triggers,
     the settings → spacing mapping, a simulated minute's walk at 1.2 m/s →

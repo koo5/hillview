@@ -98,8 +98,48 @@ fun decodeWorkerEndpoints(json: String?): List<WorkerEndpoint> =
  */
 expect suspend fun fetchWorkerCertificate(url: String): CertificatePin
 
-/** The upload's own preflight against [endpoint], as one line for the dialog. */
+/**
+ * The upload's own preflight against [endpoint], run by hand. Its result is
+ * recorded as that URL's latest contact ([workerStatuses]) — the same line the
+ * uploads write — and also returned.
+ */
 expect suspend fun testWorker(endpoint: WorkerEndpoint): String
 
-/** The last contact with any worker, as one line, or null if there was none. */
-expect fun lastWorkerContact(): String?
+///** The last contact with any worker, as one line, or null if there was none. */
+//expect fun lastWorkerContact(): String?
+
+/**
+ * What the phone last heard from one worker URL, and when — from an upload or
+ * from Test, whichever was newer (shared-kt WorkerOverride.kt,
+ * PREF_WORKER_CONTACTS). [outcome] starts with the step: "ready: …",
+ * "upload: …", "uploaded …", "test: …", "pin: …".
+ */
+//data class WorkerStatus(val url: String, val atMs: Long, val outcome: String, val failed: Boolean)
+// [busy]: a 503, the worker's queue full — it is up and asking to be left
+// alone a while, which is not an error (2026-11-09).
+data class WorkerStatus(
+    val url: String, val atMs: Long, val outcome: String, val failed: Boolean, val busy: Boolean = false,
+)
+
+/** Every worker URL's latest contact, keyed by URL. */
+expect fun workerStatuses(): Map<String, WorkerStatus>
+
+/** The worker the server named for the last upload, or null before the first. */
+expect fun serverNamedWorkerUrl(): String?
+
+/** "✗ upload: SSLHandshakeException … · 4 s ago" — one line, the same everywhere. ⏳ = busy. */
+fun WorkerStatus.describe(nowMs: Long): String =
+    //"${if (failed) "✗" else "✓"} $outcome · ${ago(nowMs - atMs)}"
+    "${if (failed) "✗" else if (busy) "⏳" else "✓"} $outcome · ${ago(nowMs - atMs)}"
+
+/** An age for a status line: "just now", "12 s ago", "4 min ago", "3 h ago", "2 d ago". */
+fun ago(ms: Long): String {
+    val s = ms / 1000
+    return when {
+        s < 2 -> "just now"
+        s < 120 -> "$s s ago"
+        s < 2 * 3600 -> "${s / 60} min ago"
+        s < 2 * 86400 -> "${s / 3600} h ago"
+        else -> "${s / 86400} d ago"
+    }
+}

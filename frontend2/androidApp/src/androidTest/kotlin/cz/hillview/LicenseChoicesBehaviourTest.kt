@@ -41,8 +41,10 @@ class LicenseChoicesBehaviourTest {
 
     @Test
     fun eachHelpLinkOpensItsOwnGrantAndLeavesConsentUnchanged() {
-        compose.openMenu()
-        compose.onNodeWithTag("settings-menu-link").performClick()
+        // compose.openMenu()
+        // compose.onNodeWithTag("settings-menu-link").performClick()
+        // Settings → Uploads & licence since the 2026-11-07 split.
+        compose.openSettingsSection("uploads")
         // Check reading both unaccepted and accepted options.
         for (accepted in listOf<String?>(null, "panoramax_in")) {
             settings.update { it.copy(license = accepted) }

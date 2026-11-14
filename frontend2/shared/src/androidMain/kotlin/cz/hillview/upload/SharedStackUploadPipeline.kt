@@ -27,6 +27,19 @@ import cz.hillview.plugin.hvTag
  */
 private val TAG = hvTag("SharedStackUpload")
 
+/**
+ * How often the capture screen's stats poll asks the server about photos in
+ * processing. It was 10 s, which meant a request with every processing photo's
+ * id every ~10 s for as long as the capture screen was open — that is, all
+ * through a session in the field (user, 2026-11-07: "not desirable … while
+ * out in the field"). The counts it refreshes are a convenience; the
+ * post-drain sync (PhotoUploadManager.schedulePostUploadStatusSync) still
+ * reconciles in the background. The planned changes feed
+ * (docs/todo/worker-lost-photo-detection.md) makes each poll cheap; until
+ * then, ask rarely.
+ */
+internal const val STATS_STATUS_SYNC_INTERVAL_MS = 5 * 60_000L
+
 class SharedStackUploadPipeline(
     private val context: Context,
     /**
@@ -428,7 +441,8 @@ class SharedStackUploadPipeline(
             // background convergence still rides the post-drain sync worker.
             if (dao.getProcessingCount() > 0) {
                 val now = System.currentTimeMillis()
-                if (now - lastStatusSyncMs > 10_000) {
+                //if (now - lastStatusSyncMs > 10_000) {
+                if (now - lastStatusSyncMs > STATS_STATUS_SYNC_INTERVAL_MS) {
                     lastStatusSyncMs = now
                     try {
                         uploadLogic.syncProcessingPhotosStatus()

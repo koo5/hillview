@@ -2,7 +2,8 @@
   "include": [
     "api/app",
     "worker",
-    "common"
+    "common",
+    "panoramax"
   ],
   "exclude": [
     "**/venv",
@@ -13,11 +14,36 @@
     "**/alembic/versions_backup",
     "**/tests"
   ],
-  "venvPath": "api/app",
-  "venv": "venv",
-  "extraPaths": [
-    "common",
-    "api/app"
+  "venvPath": ".",
+  "venv": ".venv",
+  "executionEnvironments": [
+    {
+      "root": "api/app",
+      "extraPaths": [
+        ".",
+        "api/app"
+      ]
+    },
+    {
+      "root": "worker",
+      "extraPaths": [
+        ".",
+        "worker"
+      ]
+    },
+    {
+      "root": "panoramax",
+      "extraPaths": [
+        ".",
+        "panoramax"
+      ]
+    },
+    {
+      "root": "common",
+      "extraPaths": [
+        "."
+      ]
+    }
   ],
   "typeCheckingMode": "basic",
   "pythonVersion": "3.12",

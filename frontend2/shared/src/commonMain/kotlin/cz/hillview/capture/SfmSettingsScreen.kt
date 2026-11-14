@@ -30,8 +30,9 @@ import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 /**
- * The SfM run's page: whether the ladder offers it at all, and what paces it
- * (user, 2026-11-05: "lets make it all opt-in and configurable"). Every
+ * The SfM run's page: what paces it (user, 2026-11-05: "lets make it all
+ * opt-in and configurable"; since 2026-11-09 the run itself is always on the
+ * ladder, so there is no switch for the whole of it). Every
  * number here is a guess until a field run says otherwise, which is why each
  * one says what it is for.
  */
@@ -63,15 +64,19 @@ fun SfmSettingsScreen(
             style = MaterialTheme.typography.bodySmall,
         )
 
-        SwitchRow(
-            title = "Offer the SfM run",
-            explanation = "Adds an SfM rung to the shutter's ladder, just under VIDEO. " +
-                "Off, the ladder is as it was.",
-            checked = settings.sfmRunEnabled,
-            tag = "sfm-enabled",
-            onChange = { on -> repository.update { it.copy(sfmRunEnabled = on) } },
+        //SwitchRow(
+        //    title = "Offer the SfM run",
+        //    explanation = "Adds an SfM rung to the shutter's ladder, just under VIDEO. " +
+        //        "Off, the ladder is as it was.",
+        //    checked = settings.sfmRunEnabled,
+        //    tag = "sfm-enabled",
+        //    onChange = { on -> repository.update { it.copy(sfmRunEnabled = on) } },
+        //)
+        //if (!settings.sfmRunEnabled) return@Column
+        Text(
+            "It is the bottom rung of the shutter's ladder.",
+            style = MaterialTheme.typography.bodySmall,
         )
-        if (!settings.sfmRunEnabled) return@Column
 
         SwitchRow(
             title = "Shoot on distance",
