@@ -199,6 +199,10 @@ def get_image_url(photo: Photo) -> str | None:
 	return None
 
 
+class ImageAccessError(RuntimeError):
+	"""Expected image preflight failure, reported without an internal HTTP traceback."""
+
+
 def check_image(image_url: str) -> bool:
 	# Verify URL is accessible with HEAD request
 	try:
@@ -208,7 +212,23 @@ def check_image(image_url: str) -> bool:
 		if e.response.status_code == 404:
 			print(f"    ✗ Image not found (404)")
 			return None
-		raise
+		raise ImageAccessError(
+			f"Image URL preflight failed: HEAD {image_url} returned HTTP {e.response.status_code}. "
+			"No model request was sent. Existing analysis is preserved; the photo will be retried."
+		) from e
+	except httpx.RequestError as e:
+		if isinstance(e, httpx.ConnectTimeout):
+			reason = "connection timed out after 30s"
+		elif isinstance(e, httpx.TimeoutException):
+			reason = f"request timed out after 30s ({type(e).__name__})"
+		else:
+			reason = f"{type(e).__name__}: {e}"
+		raise ImageAccessError(
+			f"Image URL preflight failed: HEAD {image_url}: {reason}. "
+			"No model request was sent. Check photo-host access from inside the analyzer container "
+			"(DNS, routing, proxy/firewall); a successful host-shell download does not verify container access. "
+			"Existing analysis is preserved; the photo will be retried."
+		) from e
 	return True
 
 
@@ -798,6 +818,9 @@ async def main_loop(
 				else:
 					document = None
 				outcome = Outcome('ok', analysis=document) if document is not None else await process_photo(photo, datadir, model, verbose, skip_model_covered=skip_model_covered)
+			except ImageAccessError as e:
+				print(f"    Photo {photo.id}: {e}", flush=True)
+				outcome = Outcome('error')
 			except Exception as e:
 				print(f"    Error: {e}")
 				traceback.print_exc()

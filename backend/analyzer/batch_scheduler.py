@@ -65,7 +65,7 @@ class ClaudeAPI:
         self.system,self.schema=contract(prompt_root)
         self.system=self.system.replace('the single photo','each requested photo')
         self.system+='\nSeveral photos may be supplied. Label each independently; do not transfer features between photos.'
-        self.response_format=response_format or os.environ.get('ANALYZER_CLAUDE_RESPONSE_FORMAT','prompt-json-v1')
+        self.response_format=response_format or os.environ.get('ANALYZER_CLAUDE_RESPONSE_FORMAT','compiled-flat-v1')
         if self.response_format not in ('prompt-json-v1','compiled-flat-v1'):raise ValueError('Unsupported Claude response contract')
         self.compiled_schema=None
         if self.response_format=='compiled-flat-v1':
