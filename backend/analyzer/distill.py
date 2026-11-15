@@ -405,6 +405,9 @@ def parse_distance_details(estimate: str) -> DistanceEstimate | None:
 	if not isinstance(estimate, str):
 		return None
 	text = word_to_number(estimate.lower().strip())
+	# Natural-language quantities from older responses, before unit normalization.
+	text = re.sub(r"\ba couple of\s+(?=(?:kilo)?met(?:er|re)s?\b)", "2 ", text)
+	text = re.sub(r"\b(?:a|an)\s+(?=(?:kilo)?met(?:er|re)s?\b)", "1 ", text)
 	text = re.sub(r"[–—−]", "-", text)
 	text = re.sub(r"(?<=\d),(?=\d{3}(?:\D|$))", "", text)
 	text = re.sub(r"\bkilomet(?:er|re)s?\b", "km", text)
@@ -423,6 +426,9 @@ def parse_distance_details(estimate: str) -> DistanceEstimate | None:
 			first = float(range_match["first"]) * (1000 if u1 == "km" else 1)
 			second = float(range_match["second"]) * (1000 if u2 == "km" else 1)
 			lower, upper = sorted((first, second))
+			if re.search(r"(?:less than|under|<|≤)\s*$", text[:range_match.start()]):
+				# The first endpoint is open-ended: don't claim it is a lower bound.
+				return DistanceEstimate((lower + upper) / 2, None, upper, "range")
 			return DistanceEstimate((lower + upper) / 2, lower, upper, "range")
 	if re.search(r"(?:^|\s)-\s*\d", text):
 		return None

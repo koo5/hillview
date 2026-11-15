@@ -23,22 +23,12 @@ py-modules = [
     "distill",
     "aaa_source",
     "aaa_provenance",
-    "claude_pilot",
-    "claude_acquire",
-    "claude_backfill",
-    "claude_acquire_report",
-    "claude_pilot_report",
     "redistill",
     "batch_scheduler",
     "response_store",
-    "sonnet_trial",
-    "coverage_worker",
     "compiled_schema",
     "claude_query",
     "claude_pricing",
-    "data_inventory",
-    "compiled_format_trial",
-    "schema_trial",
 ]
 
 [tool.uv]
