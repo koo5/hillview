@@ -50,6 +50,24 @@ def test_image_preflight_timeout_names_container_and_phase(monkeypatch):
 	assert 'No model request was sent' in message
 
 
+def test_url_acquisition_needs_no_local_image_network_access(tmp_path, monkeypatch):
+	import asyncio
+	monkeypatch.setattr(analyzer, 'FETCH_IMAGES', False)
+	monkeypatch.setattr(analyzer, 'CHECK_IMAGES', False)
+	def forbidden(*args, **kwargs):
+		pytest.fail('URL-only acquisition fetched or checked the image locally')
+	monkeypatch.setattr(analyzer.httpx, 'head', forbidden)
+	monkeypatch.setattr(analyzer.httpx, 'get', forbidden)
+	fake = _fake_run_analysis(fail_features=False)
+	def run(**kwargs):
+		assert kwargs['image_hash'] is None
+		assert kwargs['image_url'] == kwargs['final_image_url']
+		return fake(**kwargs)
+	monkeypatch.setattr(analyzer, 'run_analysis', run)
+	outcome = asyncio.run(analyzer.process_photo(_photo(), tmp_path, MODEL, False))
+	assert outcome.kind == 'ok' and len(fake.calls) == 2
+
+
 @pytest.mark.parametrize('status', [404, 503])
 def test_image_preflight_distinguishes_missing_image_and_http_error(monkeypatch, status):
 	import httpx

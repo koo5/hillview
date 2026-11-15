@@ -94,6 +94,7 @@ from distill import (
 
 # Environment variable to control image fetching
 FETCH_IMAGES = os.environ.get("ANALYZER_FETCH_IMAGES", "false").lower() == "true"
+CHECK_IMAGES = os.environ.get("ANALYZER_CHECK_IMAGES", "false").lower() == "true"
 
 # Two numbers go into every document the database gets.
 #
@@ -350,7 +351,7 @@ async def process_photo(
 	if features_dup:
 		print(f"    Features: cached")
 	else:
-		if not FETCH_IMAGES and not image_checked and not check_image(image_url):
+		if CHECK_IMAGES and not FETCH_IMAGES and not image_checked and not check_image(image_url):
 			return Outcome('image_404')
 		image_checked = True
 
@@ -395,7 +396,7 @@ async def process_photo(
 	if distances_dup:
 		print(f"    Distances: cached")
 	else:
-		if not FETCH_IMAGES and not image_checked and not check_image(image_url):
+		if CHECK_IMAGES and not FETCH_IMAGES and not image_checked and not check_image(image_url):
 			return Outcome('image_404')
 		image_checked = True
 
@@ -711,6 +712,7 @@ async def main_loop(
 	print(f"  Datadir: {datadir}")
 	print(f"  Dry run: {dry_run}")
 	print(f"  Fetch images: {FETCH_IMAGES}")
+	print(f"  Check image URLs locally: {CHECK_IMAGES}")
 	print(f"  Claim lease: {CLAIM_LEASE}")
 	print(f"  API key file: {os.environ.get('OPENROUTER_API_KEY_FILE', 'NOT SET')}")
 	print()
