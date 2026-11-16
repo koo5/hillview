@@ -223,7 +223,7 @@ def _run_photo_processing(file_path, filename, user_id, photo_id, client_signatu
                           ctx_photo_id=None, ctx_task_id=None, anonymization_override=None,
                           metadata=None, quality=None, fast=False, output_base=None,
                           keep_pics_in_worker=False, local_pyramid_path=None,
-                          local_source=False):
+                          local_source=False, artifact_version=None):
 	"""Run async photo processing to completion in a dedicated event loop.
 
 	``output_base`` is this job's work dir: every size variant + DZI tile lands
@@ -262,6 +262,7 @@ def _run_photo_processing(file_path, filename, user_id, photo_id, client_signatu
 							keep_pics_in_worker=keep_pics_in_worker,
 							local_pyramid_path=local_pyramid_path,
 							local_source=local_source,
+							artifact_version=artifact_version,
 						)
 					)
 				finally:

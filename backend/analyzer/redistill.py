@@ -12,6 +12,7 @@ from sqlalchemy.orm import load_only
 from analyze_photo import build_schema, validate_analysis
 from aaa_source import AaaSource, EXTRA_DB_KEYS, backfill_image_hash
 from response_store import load_photo_sessions, has_responses
+from common.artifact_identity import selected_image, session_matches_image
 from distill import acquire_file_lock, release_file_lock, lock_path_for, load_sessions, save_sessions, distill_sessions
 
 
@@ -29,6 +30,7 @@ def external_document(record, db_document):
         'checkout_commit': record.get('provenance', {}).get('checkout_commit'),
         'review_status': record.get('provenance', {}).get('supervision', {}).get('photo_review_status'),
         'warnings': record.get('warnings', []),
+        'image_content_sha256': record.get('image_content_sha256'),
     }
     return doc
 
@@ -56,7 +58,9 @@ def disk_document(photo, datadir, source=None, *, persist=True, verify_images=Fa
     from aaa_source import normalize
     from distill import session_fingerprint
     pid=str(photo.id)
-    record=source.resolve(pid,file_md5=photo.file_md5,image_url=get_image_url(photo)) if source else None
+    record=source.resolve(pid,file_md5=photo.file_md5,image_url=get_image_url(photo),
+                          image_sha256=selected_image(photo).get('sha256'),
+                          artifact_version=selected_image(photo).get('artifact_version')) if source else None
     if record is not None:
         cache=source.output_dir/'records'/f'{pid}.json'
         history=load_sessions(cache)
@@ -70,13 +74,14 @@ def disk_document(photo, datadir, source=None, *, persist=True, verify_images=Fa
                 history.append(record);save_sessions(cache,history,durable=bool(record.get('image_hash')))
             elif not cache.exists():save_sessions(cache,history,durable=bool(record.get('image_hash')))
         return external_document(record,db_document),record.get('source','aaa'),record
-    sessions=load_photo_sessions(datadir,photo)
+    sessions=[s for s in load_photo_sessions(datadir,photo) if session_matches_image(s,photo)]
     for session in sorted(sessions,key=lambda s:s.get('metadata',{}).get('timestamp',''),reverse=True):
         if session.get('haiku_label') and session.get('metadata',{}).get('model') in TRUSTED_MODELS and not session.get('result',{}).get('parse_error',True):
-            if session.get('metadata',{}).get('image_url') != get_image_url(photo):continue
+            if not selected_image(photo).get('sha256') and session.get('metadata',{}).get('image_url') != get_image_url(photo):continue
             row=session['haiku_label']
             if 'skip' in row:continue
             record={'source':'haiku_native','adapter_version':2,'raw':row,
+                'image_content_sha256':selected_image(photo).get('sha256'),
                 'analysis':normalize(row,closest_policy='subject'),'source_fingerprint':session_fingerprint(session),
                 'closest_policy':'subject','provenance':{'supervision':{'photo_review_status':'trusted_model'}},
                 'warnings':session.get('result',{}).get('warnings',[])}

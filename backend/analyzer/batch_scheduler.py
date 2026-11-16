@@ -13,6 +13,7 @@ import os
 import re
 import time
 import uuid
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from sqlalchemy.dialects.postgresql import insert, JSONB
 from common.models import Photo, PhotoAnalysisQueue as Queue, AnalyzerBatch as Batch, SiteState
 from claude_query import MODEL, contract, stored_label
 from claude_pricing import batch_price
+from common.artifact_identity import selected_image
 from distill import acquire_file_lock, release_file_lock, lock_path_for, session_fingerprint, TRUSTED_MODELS
 from response_store import immutable_json
 
@@ -51,6 +53,26 @@ async def save_quota_reset(session_factory, reset):
 
 class BatchTooLarge(ValueError):
     pass
+
+
+def provider_error_message(response):
+    """Expose the provider's explanation instead of HTTPX's generic help link."""
+    try:
+        payload=response.json()
+        error=payload.get('error',{})
+        message=error.get('message') if isinstance(error,dict) else str(error)
+        kind=error.get('type','error') if isinstance(error,dict) else 'error'
+    except (ValueError,AttributeError):
+        message=None;kind='error'
+    message=' '.join(str(message or response.reason_phrase).split())[:600]
+    request_id=response.headers.get('request-id')
+    return f'Claude HTTP {response.status_code} ({kind}): {message}' + (f' [request-id: {request_id}]' if request_id else '')
+
+
+def is_credit_exhaustion(error):
+    if not isinstance(error,httpx.HTTPStatusError) or error.response.status_code not in (400,402,403):return False
+    message=provider_error_message(error.response).lower()
+    return ('credit balance' in message and any(word in message for word in ('low','insufficient','exhausted'))) or 'insufficient credits' in message
 
 
 class ClaudeAPI:
@@ -84,7 +106,8 @@ class ClaudeAPI:
 
     def api(self,method,path,body=None):
         result=self.client.request(method,API+path,json=body)
-        result.raise_for_status()
+        if result.is_error:
+            raise httpx.HTTPStatusError(provider_error_message(result),request=result.request,response=result)
         return result.json()
 
     def prepare(self,batch_id,photos):
@@ -104,6 +127,8 @@ class ClaudeAPI:
                 if mime not in ('image/webp','image/jpeg','image/png','image/gif') or not fetched.content:
                     raise ValueError('Photo URL did not return a supported image')
                 data=fetched.content;sha=hashlib.sha256(data).hexdigest()
+                expected=selected_image(photo).get('sha256')
+                if expected and sha!=expected:raise ValueError('Fetched image differs from database content hash')
                 image_path=self.datadir/'meta/claude-batches/images'/sha
                 image_path.parent.mkdir(parents=True,exist_ok=True)
                 if not image_path.exists():
@@ -162,6 +187,26 @@ def model_batch_price(usage, model):
         return (2*usage.get('input_tokens',0)+4*usage.get('cache_creation_input_tokens',0)
             +.1*usage.get('cache_read_input_tokens',0)+10*usage.get('output_tokens',0))/2e6
     raise ValueError(f'No reviewed price schedule for {model}')
+
+
+def batch_completion_message(batch_id,answers,rows,cost,publication):
+    outcomes=Counter('failed' if 'error' in answer else 'skipped' if 'skip' in answer.get('label',{}) else 'valid'
+                     for answer in answers.values())
+    usage=Counter()
+    for row in rows:
+        result=row.get('result',{})
+        if result.get('type')=='succeeded':
+            reported=result.get('message',{}).get('usage',{})
+            for key in ('input_tokens','cache_creation_input_tokens','cache_read_input_tokens','output_tokens'):
+                usage[key]+=reported.get(key,0)
+    count=len(answers)
+    db=', '.join(f'{value} {key}' for key,value in sorted(publication.items())) or 'no writes'
+    return (f'Claude batch {batch_id}: {count} photo outcomes — {outcomes["valid"]} valid, '
+            f'{outcomes["skipped"]} skipped, {outcomes["failed"]} failed; DB this pass: {db}; '
+            f'tokens: input={usage["input_tokens"]:,}, cache_write={usage["cache_creation_input_tokens"]:,}, '
+            f'cache_read={usage["cache_read_input_tokens"]:,}, output={usage["output_tokens"]:,} (includes thinking); '
+            f'estimated cost for entire batch: ${cost:.6f}'
+            + (f' (${cost/count:.6f}/photo)' if count else ''))
 
 
 def decode_results(rows,manifest):
@@ -321,6 +366,9 @@ class Scheduler:
                 return
         except Exception as error:
             await self.release(batch_id,'failed',actual=0,error=str(error),unsubmitted=True)
+            if is_credit_exhaustion(error):
+                self.pause_for_credits(error)
+                return
             if isinstance(error,BatchTooLarge) and self.max_photos>5:
                 self.max_photos=max(5,len(photos)//2)
                 print(f'Batch payload too large; retrying with at most {self.max_photos} photos (nothing submitted)',flush=True)
@@ -342,13 +390,19 @@ class Scheduler:
             immutable_json(self.datadir/'meta/claude-batches'/batch_id/'receipt.json',receipt)
         except httpx.HTTPStatusError as error:
             if error.response.status_code in (400,401,402,403,404,413,422,429):
-                await self.release(batch_id,'failed',actual=0,error=f'Claude rejected submission: HTTP {error.response.status_code}')
+                await self.release(batch_id,'failed',actual=0,error=provider_error_message(error.response))
+                if is_credit_exhaustion(error):self.pause_for_credits(error)
             else:
                 await self.uncertain(batch_id,str(error))
             return
         except Exception as error:
             await self.uncertain(batch_id,str(error));return
         await self.attach(batch_id,receipt['id'],check_results=False)
+
+    def pause_for_credits(self,error):
+        self.budget_exhausted=True
+        print(f'{provider_error_message(error.response)}. New Claude acquisition paused; replenish credits and restart the analyzer to resume. '
+              'Dots and collection of already-submitted batches continue.',flush=True)
 
     async def uncertain(self,batch_id,error):
         async with self.sessions() as db:
@@ -385,7 +439,7 @@ class Scheduler:
         async with self.sessions() as db:
             await db.execute(update(Batch).where(Batch.id==batch.id).values(actual_usd=cost))
             await db.commit()
-        remaining=False
+        remaining=False;publication=Counter()
         for pid,answer in answers.items():
             snapshot=batch.manifest['photos'][pid]
             async with self.sessions() as db:
@@ -396,6 +450,8 @@ class Scheduler:
                 session={'kind':'llm_session','metadata':{'photo_id':pid,'file_md5':snapshot['file_md5'],
                     'model':MODEL,'provider':'anthropic','batch_id':batch.id,'request_id':snapshot['request_id'],
                     'timestamp':now().isoformat(),'image_url':snapshot['image_url'],'image_hash':snapshot['image_hash'],
+                    'image_content_sha256':selected_image(snapshot).get('sha256'),
+                    'artifact_version':selected_image(snapshot).get('artifact_version'),
                     'image_source':batch.manifest.get('image_source','base64'),
                     'image_hash_scope':batch.manifest.get('image_hash_scope','submitted_bytes'),
                     'image_bytes':snapshot['image_bytes']},
@@ -403,19 +459,25 @@ class Scheduler:
                     'raw_response_path':str((root/'results.json').relative_to(self.datadir))}
                 if 'label' in answer:session['haiku_label']=answer['label']
                 immutable_json(path,session)
-            if photo is None:continue
+            if photo is None:
+                publication['photo no longer exists']+=1
+                continue
             lock=acquire_file_lock(lock_path_for(json_path_for(self.datadir,photo)),blocking=False)
             if lock is None:
+                publication['awaiting photo lock']+=1
                 remaining=True;continue
             try:
                 label=session.get('haiku_label');document=None
                 if label and 'skip' not in label and MODEL in TRUSTED_MODELS:
                     record={'source':'haiku_native','adapter_version':2,'raw':label,'analysis':normalize(label,closest_policy='subject'),
+                        'image_content_sha256':selected_image(snapshot).get('sha256'),
                         'source_fingerprint':session_fingerprint(session),'closest_policy':'subject','warnings':warnings_for(label)}
                     document=external_document(record,db_document)
                 async with self.sessions() as db:
                     queued=await db.get(Queue,pid)
-                    if queued is None or queued.batch_id!=batch.id:continue
+                    if queued is None or queued.batch_id!=batch.id:
+                        publication['already published' if document is not None and photo.analysis==document else 'no longer owned by batch']+=1
+                        continue
                     # A reupload or a newer annotation must never be overwritten.
                     same=(or_(Photo.analysis.is_(None),func.jsonb_typeof(Photo.analysis)=='null') if snapshot['analysis_before'] is None
                           else Photo.analysis==snapshot['analysis_before'])
@@ -424,14 +486,18 @@ class Scheduler:
                             Photo.sizes.cast(JSONB)==snapshot['sizes'],same,
                             Photo.deleted==False,Photo.processing_status=='completed').values(analysis=document))
                         if result.rowcount==1:
+                            publication['published']+=1
                             await db.delete(queued)
                         else:
                             current=await db.get(Photo,pid,populate_existing=True)
                             if current is not None and current.analysis is not None and current.file_md5==snapshot['file_md5']:
+                                publication['existing analysis preserved']+=1
                                 await db.delete(queued)
                             else:
+                                publication['changed photo requeued']+=1
                                 queued.batch_id=None;queued.provider=None;queued.request_id=None;queued.next_retry=now()
                     else:
+                        publication['retry deferred']+=1
                         queued.batch_id=None;queued.provider=None;queued.request_id=None
                         queued.next_retry=now()+timedelta(days=7) if label and 'skip' in label else now()+timedelta(hours=1)
                     await db.commit()
@@ -440,7 +506,8 @@ class Scheduler:
             async with self.sessions() as db:
                 await db.execute(update(Batch).where(Batch.id==batch.id).values(status=self.status('ended'),error=None))
                 await db.commit()
-            print(f'Claude batch {batch.id}: {len(answers)} photos settled, ${cost:.6f}',flush=True)
+        print(batch_completion_message(batch.id,answers,rows,cost,publication)
+              + ('; publication pending, no new provider submission' if remaining else ''),flush=True)
 
     async def tick(self,*,allow_submit=False):
         if self.transport is None:return

@@ -312,7 +312,7 @@ PHOTO_WEBP_VARIANTS = frozenset({
 _DZI_TILE_FILENAME = re.compile(r"^[A-Za-z0-9_-]+\.webp$")
 
 
-def is_photo_artifact_relative_path(relative_path: str, owner_id: str, photo_id: str) -> bool:
+def is_photo_artifact_relative_path(relative_path: str, owner_id: str, photo_id: str, version: int = None) -> bool:
 	"""Return whether *relative_path* belongs to the referenced photo.
 
 	Path containment protects the write pool from traversal, but it does not
@@ -330,12 +330,15 @@ def is_photo_artifact_relative_path(relative_path: str, owner_id: str, photo_id:
 	if parts[0] != "opt" or len(parts) < 4 or parts[2] != owner_id:
 		return False
 
-	photo_webp = f"{photo_id}.webp"
+	from common.artifact_identity import split_artifact_stem
+	def matches(stem):
+		identity, tag_version, digest = split_artifact_stem(stem)
+		return identity == photo_id and (tag_version is None or version is None or tag_version == version)
 	if len(parts) == 4:
 		variant, _, filename = parts[1:]
-		if variant in PHOTO_WEBP_VARIANTS and filename == photo_webp:
+		if variant in PHOTO_WEBP_VARIANTS and filename.endswith('.webp') and matches(filename[:-5]):
 			return True
-		if variant == "dzi" and filename == f"{photo_id}.dzi":
+		if variant == "dzi" and filename.endswith('.dzi') and matches(filename[:-4]):
 			return True
 		if variant == "imu" and filename == f"{photo_id}.json.gz":
 			return True
@@ -345,7 +348,7 @@ def is_photo_artifact_relative_path(relative_path: str, owner_id: str, photo_id:
 	return (
 		len(parts) == 6
 		and parts[1] == "dzi"
-		and parts[3] == f"{photo_id}_files"
+		and parts[3].endswith('_files') and matches(parts[3][:-6])
 		and parts[4].isdigit()
 		and bool(_DZI_TILE_FILENAME.fullmatch(parts[5]))
 	)

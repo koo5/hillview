@@ -573,7 +573,20 @@ def run_analysis(
 					session["result"]["quota_reset_at"] = datetime.fromtimestamp(float(reset) / 1000, timezone.utc).isoformat()
 				except (TypeError, ValueError, OverflowError):
 					pass
-		print(f"OpenRouter request failed: {session['result']}")
+		session['result']['failure_kind'] = 'provider_rejection' if isinstance(error, httpx.HTTPStatusError) else 'transport_error'
+		provider_error = session['result'].get('provider_error', {})
+		api_error = provider_error.get('error', {}) if isinstance(provider_error, dict) else {}
+		meta = api_error.get('metadata', {}) if isinstance(api_error, dict) else {}
+		meta = meta if isinstance(meta, dict) else {}
+		raw = meta.get('raw')
+		try:raw = json.loads(raw) if isinstance(raw, str) else raw
+		except ValueError:pass
+		detail = (raw.get('msg') or raw.get('message')) if isinstance(raw, dict) else None
+		detail = detail or (api_error.get('message') if isinstance(api_error, dict) else None) or str(error)
+		session['result']['provider_name'] = meta.get('provider_name')
+		print(f"OpenRouter request failed; no model answer: HTTP {session['result'].get('http_status', 'n/a')}; "
+		      f"provider={meta.get('provider_name') or 'OpenRouter/unknown'}; "
+		      f"{' '.join(str(detail).split())[:500]}. Full error saved in session history.")
 		return session
 	end_time = datetime.now(timezone.utc)
 

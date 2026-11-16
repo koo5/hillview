@@ -14,6 +14,58 @@ from test_retry import _fake_run_analysis, _photo, MODEL
 CANDIDATE = "google/gemma-4-26b-a4b-it:free"
 
 
+def test_invalid_answer_limit_is_enforced_before_another_request(tmp_path, monkeypatch):
+    fake = _fake_run_analysis(fail_features=True)
+    monkeypatch.setattr(analyzer, 'run_analysis', fake)
+    for _ in range(analyzer.MAX_JUNK_ATTEMPTS):
+        asyncio.run(analyzer.process_photo(_photo(), tmp_path, MODEL, False))
+    attempts = len(fake.calls)
+    result = asyncio.run(analyzer.process_photo(_photo(), tmp_path, MODEL, False))
+    assert result.kind == 'junk' and result.junk_attempts == analyzer.MAX_JUNK_ATTEMPTS
+    assert not result.queried and len(fake.calls) == attempts
+
+
+def test_photo_log_identifies_timestamps_owner_and_session_paths(tmp_path, monkeypatch, capsys):
+    from datetime import datetime, timezone
+    photo = _photo()
+    photo.owner_id = 'owner-uuid'
+    photo.record_created_ts = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    photo.captured_at = datetime(2026, 1, 1)
+    photo.uploaded_at = datetime(2026, 1, 3, tzinfo=timezone.utc)
+    monkeypatch.setattr(analyzer, 'run_analysis', _fake_run_analysis(fail_features=False))
+    asyncio.run(analyzer.process_photo(photo, tmp_path, MODEL, False))
+    output = capsys.readouterr().out
+    assert '2026-01-02' in output and '2026-01-01' in output and '2026-01-03' in output
+    assert 'MD5: md5x; user: owner-uuid' in output
+    assert str(tmp_path/'md5x.json') in output
+    assert str(tmp_path/'responses/md5x') in output
+
+
+def test_explicit_image_fetch_cannot_attest_to_different_render(tmp_path, monkeypatch):
+    photo = _photo()
+    photo.sizes['640_llm']['sha256'] = 'a'*64
+    monkeypatch.setattr(analyzer, 'prepare_image_url', lambda *args: ('data:image/webp;base64,bytes', 'b'*64))
+    monkeypatch.setattr(analyzer, 'run_analysis', lambda **kwargs: pytest.fail('Mismatched bytes reached model'))
+    with pytest.raises(analyzer.ImageAccessError, match='differs from its database checksum'):
+        asyncio.run(analyzer.process_photo(photo, tmp_path, MODEL, False))
+
+
+def test_changed_render_requeries_both_passes_and_preserves_old_history(tmp_path, monkeypatch):
+    fake = _fake_run_analysis(fail_features=False)
+    monkeypatch.setattr(analyzer, 'run_analysis', fake)
+    photo = _photo()
+    photo.sizes['640_llm']['sha256'] = 'a'*64
+    asyncio.run(analyzer.process_photo(photo, tmp_path, MODEL, False))
+    assert len(fake.calls) == 2
+    asyncio.run(analyzer.process_photo(photo, tmp_path, MODEL, False))
+    assert len(fake.calls) == 2
+    photo.sizes['640_llm']['sha256'] = 'b'*64  # same MD5, UUID and URL
+    asyncio.run(analyzer.process_photo(photo, tmp_path, MODEL, False))
+    history = distill.load_sessions(tmp_path/'md5x.json')
+    assert len(fake.calls) == 4 and len(history) == 4
+    assert [s['metadata']['image_content_sha256'] for s in history] == ['a'*64]*2 + ['b'*64]*2
+
+
 def test_model_coverage_skips_old_prompts_but_not_other_models_or_partial_answers(tmp_path, monkeypatch):
     def example(schema):
         if 'enum' in schema:return schema['enum'][0]
