@@ -788,7 +788,12 @@ class BrowserMetadata(BaseModel):
 	# said so. Any future provenance key needs a line here too.
 	location_age_ms: Optional[int] = None  # age of the stamped fix at the shutter
 	refined: Optional[bool] = None  # the stamp was interpolated after the fact
-	pitch: Optional[float] = None  # camera elevation, degrees, positive up
+	# The tilt that rode along with the bearing, degrees, positive DOWN as
+	# frontend2 sends it (BearingState.pitch).
+	# Kept in exif_data's gps block. photos.pitch is derived from the stamp's
+	# attitude / inertial objects, and reads this only as a last resort for
+	# unstamped portrait photos (common/capture_pose.py).
+	pitch: Optional[float] = None
 	# What the DEVICE measured at the shutter, as opposed to what the photo is
 	# stamped as FACING (bearing/pitch above, which a hand-set arrow or a car
 	# course may own and which measure no tilt at all). Roll lives here and

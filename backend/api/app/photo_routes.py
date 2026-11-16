@@ -62,6 +62,8 @@ from common.models import Photo, User, PhotoRating, UserPublicKey, PhotoAnnotati
 from common.config import get_write_pool
 from common.utc import format_utc
 from common.detections import blurred_only, normalize_detections
+from common.user_comment import user_comment
+from common.capture_pose import capture_pose
 from auth import get_current_active_user, get_current_user_optional_with_query, get_current_user_optional_ssr
 from hidden_content_filters import apply_hidden_content_filters
 from hillview_routes import ALLOWED_LICENSES, legal_rights_to_license, outflow_license
@@ -287,11 +289,14 @@ async def save_processed_photo(
 		photo.geometry = None
 	if processed_data.compass_angle is not None:
 		photo.compass_angle = processed_data.compass_angle
-	if processed_data.pitch is not None:
-		photo.pitch = processed_data.pitch
 	if processed_data.altitude is not None:
 		photo.altitude = processed_data.altitude
 	photo.exif_data = processed_data.exif_data
+	# Measured from the capture stamp, in GPano conventions (pitch positive up).
+	# processed_data.pitch, the positive-down tilt that rode along with the
+	# bearing, is not assigned: capture_pose reads its copy in exif_data's gps
+	# block only as a last resort, negated, for unstamped portrait photos.
+	photo.pitch, photo.roll = capture_pose(processed_data.exif_data, processed_data.width, processed_data.height)
 	photo.sizes = processed_data.sizes
 	photo.detected_objects = processed_data.detected_objects
 	# The gzipped raw IMU window, if the worker stored one. Assigned
@@ -1750,27 +1755,8 @@ def _exif_stacks(data: dict) -> list:
 	return stacks
 
 
-def _user_comment(exif_data: Optional[dict]) -> dict:
-	"""The capture app's provenance JSON (UserComment), or ``{}``.
-
-	Written into ``exif_data['data']['UserComment']`` by two routes that agree on
-	the shape: the Android EXIF writer embeds it in the file, and for everything
-	that cannot write EXIF — browser uploads, the fast-write path — the worker
-	synthesizes the same object from the upload metadata. Anything else that ends
-	up in that tag is some other camera's free text, so a value that is not a JSON
-	object is treated as absent rather than parsed hopefully.
-	"""
-	if not isinstance(exif_data, dict):
-		return {}
-	data = exif_data.get('data')
-	uc = data.get('UserComment') if isinstance(data, dict) else None
-	if not isinstance(uc, str) or not uc.startswith('{'):
-		return {}
-	try:
-		parsed = json.loads(uc)
-	except (json.JSONDecodeError, ValueError):
-		return {}
-	return parsed if isinstance(parsed, dict) else {}
+# The capture app's provenance JSON; see common/user_comment.py.
+_user_comment = user_comment
 
 
 def _location_accuracy_m(exif_data: Optional[dict]) -> Optional[float]:

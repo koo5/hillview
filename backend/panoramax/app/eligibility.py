@@ -43,6 +43,18 @@ camera work wider than 8000 px is deliberately left unmeasured, and uploads
 wait for the worker. Verdict changes are batch writes that do not bump the
 sequence, so they reach the catalog on the sequencer's cadence as well.
 
+A photo needs a bearing, and must have been measured level: pitch within
+MAX_PITCH_DEG of the horizon and roll within MAX_ROLL_DEG (photos.pitch and
+photos.roll, GPano conventions, derived from the capture stamp by
+common/capture_pose.py). Unlike the blur verdict and the location radius, an
+unmeasured photo FAILS: Panoramax should only get photos known to be level,
+and the Tauri app, the web app and frontend2 before 2026-09-22 stamp no
+attitude. Car mode (photos.bearing_source = 'gps-kalman', migration 045) is
+exempt from both: holding a phone level in a moving car is a fight against
+inertia, and the car-mode photos in the 2026-11 data are mostly level anyway.
+Neither column bumps the sequence, so changes reach the catalog on the
+sequencer's cadence. See docs/todo/photo-pose-and-level-gates.md.
+
 An LLM analysis (photos.analysis, written by backend/analyzer) is required,
 and its `features` list (the feature names the analyzer found true,
 distill.py) must not name signage: a photographed information board is the
@@ -56,6 +68,8 @@ sequence, so analyses too reach the catalog on the sequencer's cadence.
 """
 
 MAX_LOCATION_ACCURACY_M = 5
+MAX_PITCH_DEG = 20
+MAX_ROLL_DEG = 10
 
 # Each gate by name, so a pass can record which ones a photo failed
 # (panoramax.photo_status) from the same conditions that decide it. The names
@@ -89,6 +103,10 @@ GATES: list[tuple[str, str]] = [
 	('renditions', "p.sizes IS NOT NULL"),
 	('location_accuracy', f"COALESCE(p.location_accuracy_m, 0) <= {MAX_LOCATION_ACCURACY_M}"),
 	('blurry', "p.blurry IS NOT TRUE"),
+	# NaN would pass IS NOT NULL, and the selection buckets photos by bearing.
+	('bearing', "p.compass_angle IS NOT NULL AND p.compass_angle NOT IN ('NaN', 'Infinity', '-Infinity')"),
+	('pitch', f"p.bearing_source = 'gps-kalman' OR abs(p.pitch) <= {MAX_PITCH_DEG}"),
+	('roll', f"p.bearing_source = 'gps-kalman' OR abs(p.roll) <= {MAX_ROLL_DEG}"),
 	('analysis', "jsonb_typeof(p.analysis->'features') = 'array'"),
 	('signage', "(jsonb_typeof(p.analysis->'features') = 'array' AND p.analysis->'features' ? 'signage') IS NOT TRUE"),
 	('owner_inactive', "u.is_active = true"),

@@ -39,7 +39,7 @@ def photo(id, geom, **patch):
     row = dict(id=id, owner_id='owner', legal_rights='full1',
         panoramax_owner_share=True, panoramax_moderator_approved=True,
         detected_objects={'objects': []}, analysis={'features': []}, deleted=False, is_public=True,
-        processing_status='completed', geometry=geom, compass_angle=0,
+        processing_status='completed', geometry=geom, compass_angle=0, pitch=0, roll=0,
         captured_at='2024-06-21T19:00:00', effective_at='2024-06-21T19:00:00', sizes={})
     row.update(patch)
     return row
@@ -76,7 +76,9 @@ def test_five_metre_cells_and_sectors_are_independent():
     assert by_id['same'].grid_x == by_id['a'].grid_x
     assert by_id['next-x'].grid_x == by_id['a'].grid_x + 1
     assert by_id['next-y'].grid_y == by_id['a'].grid_y + 1
-    assert {p.id for p in select_photos(result, 8)} == {'a', 'next-x', 'next-y', 'east', 'unknown'}
+    # A photo without a bearing fails the bearing gate, so it is no candidate at all.
+    assert 'unknown' not in by_id
+    assert {p.id for p in select_photos(result, 8)} == {'a', 'next-x', 'next-y', 'east'}
 
 
 @pytest.mark.parametrize('longitude,latitude,srid', [
@@ -138,7 +140,8 @@ def test_collector_replaces_winners_and_api_serves_only_selected_eligible_photos
         timeout=30).json()['id']
     own_photo = str(uuid.uuid4())
     owners = [str(uuid.uuid4()), str(uuid.uuid4())]
-    names = ['old-day', 'new-day', 'night', 'east', 'next-cell', 'unknown', 'unshared', 'doodled', 'signage']
+    names = ['old-day', 'new-day', 'night', 'east', 'next-cell', 'unknown', 'unshared', 'doodled', 'signage',
+             'tilted', 'car']
     ids = {name: str(uuid.uuid4()) for name in names}
     owner_sql = ','.join(literal(id) for id in owners)
     id_sql = ','.join(literal(id) for id in ids.values())
@@ -171,16 +174,25 @@ def test_collector_replaces_winners_and_api_serves_only_selected_eligible_photos
             ('unshared', owners[0], '2027-06-21 19:00', '0', 500002),
             ('doodled', owners[0], '2028-06-21 19:00', '0', 500002),
             ('signage', owners[0], '2030-06-21 19:00', '0', 500002),
+            ('tilted', owners[0], '2024-06-21 19:00', '0', 500012),
+            ('car', owners[1], '2024-06-21 19:00', '0', 500017),
         ]:
             detections = {'objects': [{'blurred': True}]} if name == 'doodled' else {'objects': []}
             analysis = {'features': ['street', 'signage']} if name == 'signage' else {'features': []}
+            # Level, except 'tilted'. 'car' is car mode, which the database reads out
+            # of the UserComment (photos.bearing_source): exempt, so no measurement.
+            pitch, roll = {'tilted': ('30', '0'), 'car': ('NULL', 'NULL')}.get(name, ('0', '0'))
+            exif = literal(json.dumps({'data': {'UserComment': json.dumps({'bearing_source': 'gps-kalman'})}})) + '::json' \
+                if name == 'car' else 'NULL'
             pg(f"""INSERT INTO photos (id,owner_id,filename,original_filename,geometry,compass_angle,captured_at,
                     uploaded_at,record_created_ts,width,height,is_public,processing_status,sizes,detected_objects,analysis,
-                    legal_rights,featured,deleted,version,panoramax_owner_share,panoramax_moderator_approved)
+                    legal_rights,featured,deleted,version,panoramax_owner_share,panoramax_moderator_approved,
+                    pitch,roll,exif_data)
                 VALUES ({literal(ids[name])},{literal(owner)},'selection.jpg','selection.jpg',
                     ST_Transform(ST_SetSRID(ST_MakePoint({x},5500002),32610),4326),{bearing},{literal(at)},
                     now(),now(),160,120,true,'completed',{literal(sizes)}::json,{literal(json.dumps(detections))}::json,{literal(json.dumps(analysis))}::jsonb,
-                    'full1',false,false,1,{'false' if name == 'unshared' else 'true'},true);""")
+                    'full1',false,false,1,{'false' if name == 'unshared' else 'true'},true,
+                    {pitch},{roll},{exif});""")
         # The test user's own photo, far from the others: owner_share is off.
         pg(f"""INSERT INTO photos (id,owner_id,filename,original_filename,geometry,compass_angle,captured_at,
                 uploaded_at,record_created_ts,width,height,is_public,processing_status,sizes,detected_objects,analysis,
@@ -191,13 +203,13 @@ def test_collector_replaces_winners_and_api_serves_only_selected_eligible_photos
                 'panoramax_in',false,false,1,false,true);""")
         run_collector()
         initial = membership()
-        expected = {ids[n] for n in ('new-day', 'east', 'next-cell', 'unknown')}
+        expected = {ids[n] for n in ('new-day', 'east', 'next-cell', 'car')}
         assert set(initial) == served(initial) == expected
 
         # What the pass recorded, as the photo page reads it: a moderator sees
         # every outcome, the owner their own photo, anyone else nothing.
         status = {name: panoramax_status(ids[name], admin_token).json() for name in names}
-        for name in ('new-day', 'east', 'next-cell', 'unknown'):
+        for name in ('new-day', 'east', 'next-cell', 'car'):
             assert status[name]['outcome'] == 'member'
             assert status[name]['sequence_id'] == initial[ids[name]] and status[name]['rank'] >= 1
         for name in ('old-day', 'night'):
@@ -206,6 +218,8 @@ def test_collector_replaces_winners_and_api_serves_only_selected_eligible_photos
         assert status['unshared']['outcome'] == 'ineligible' and status['unshared']['failed_gates'] == ['owner_share']
         assert status['doodled']['outcome'] == 'ineligible' and status['doodled']['failed_gates'] == ['doodles']
         assert status['signage']['outcome'] == 'ineligible' and status['signage']['failed_gates'] == ['signage']
+        assert status['unknown']['outcome'] == 'ineligible' and status['unknown']['failed_gates'] == ['bearing']
+        assert status['tilted']['outcome'] == 'ineligible' and status['tilted']['failed_gates'] == ['pitch']
         assert all(st['last_pass_at'] and st['decided_at'] for st in status.values())
         own = panoramax_status(own_photo, test_token)
         assert own.status_code == 200 and own.json()['outcome'] == 'ineligible'
@@ -235,7 +249,7 @@ def test_collector_replaces_winners_and_api_serves_only_selected_eligible_photos
         assert {ids['night'], ids['new-day']} <= set(membership())
         pg(f"UPDATE users SET panoramax_contributor=false WHERE id={literal(owners[0])};")
         run_collector()
-        assert set(membership()) == served(membership()) == {ids['new-day'], ids['unknown']}
+        assert set(membership()) == served(membership()) == {ids['new-day'], ids['car']}
     finally:
         pg(f"BEGIN; DELETE FROM photos WHERE id IN ({id_sql}, {literal(own_photo)}); "
            f"DELETE FROM panoramax.sequences WHERE owner_id IN ({owner_sql}); "

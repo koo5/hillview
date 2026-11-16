@@ -21,9 +21,12 @@ Shape (all knobs are flags; RNG is seeded so a run is reproducible):
   sequences is exact, not statistical.
 - ~10% of photos are ineligible in every way the eligibility filter knows
   (ARR licence, private, soft-deleted, failed processing, thumbs-down rated,
-  unresolved flag, no LLM analysis, signage in the analysis), plus one
-  inactive user whose photos are all ineligible. Every other photo carries the
-  signage-free analysis the gates require.
+  unresolved flag, no LLM analysis, signage in the analysis, no bearing, tilted
+  past the level gates, no measured pitch and roll), plus one inactive user
+  whose photos are all ineligible. Every other photo carries the signage-free
+  analysis and the level pitch and roll the gates require, except car-mode
+  photos (about 30%), which are exempt from the level gates and carry no
+  measurement, as most real ones don't.
   One user is a test user, federated like anyone else. The expectation
   written to --summary accounts for all of it.
 
@@ -100,6 +103,8 @@ class Photo:
 	original_filename: str
 	# ineligibility reason, or None when servable
 	excluded: str | None = None
+	# car mode: bearing_source 'gps-kalman', exempt from the pitch/roll gates
+	car: bool = False
 
 
 # --- random helpers --------------------------------------------------------
@@ -260,6 +265,14 @@ def generate(rng: random.Random, users: list[User], total_photos: int, years: fl
 			p.excluded = 'unanalyzed'
 		elif r < 0.20:
 			p.excluded = 'signage'
+		elif r < 0.21:
+			p.excluded = 'tilted'
+		elif r < 0.22:
+			p.excluded = 'unmeasured'
+		elif r < 0.52:
+			p.car = True
+		if p.bearing is None:
+			p.excluded = p.excluded or 'no_bearing'
 		if not p.owner.panoramax_contributor:
 			p.excluded = p.excluded or 'non_contributor'
 		if not p.owner.is_active:
@@ -378,13 +391,24 @@ def insert(db: Db, rng: random.Random, users: list[User], photos: list[Photo], p
 		'width', 'height', 'captured_at', 'effective_at', 'uploaded_at', 'record_created_ts',
 		'processed_at', 'title', 'description', 'is_public', 'processing_status', 'sizes',
 		'legal_rights', 'featured', 'deleted', 'version', 'owner_id',
-		'panoramax_owner_share', 'panoramax_moderator_approved', 'detected_objects', 'analysis']
+		'panoramax_owner_share', 'panoramax_moderator_approved', 'detected_objects', 'analysis',
+		'pitch', 'roll', 'exif_data']
 	rows = []
 	ratings = []
 	flags = []
 	for p in photos:
 		uploaded = min(now, p.at.replace(tzinfo=timezone.utc) + timedelta(hours=rng.uniform(1, 24 * 30)))
 		failed = p.excluded == 'failed'
+		# GPano conventions, as common/capture_pose.py writes them. bearing_source
+		# is generated from the UserComment, so car mode is written there.
+		if p.car or p.excluded == 'unmeasured':
+			pitch = roll = None
+		else:
+			pitch = round(rng.uniform(-18, 18), 2)
+			roll = round(rng.uniform(-9, 9), 2)
+			if p.excluded == 'tilted':
+				pitch = round(rng.choice((-1, 1)) * rng.uniform(25, 60), 2)
+		exif_data = json.dumps({'data': {'UserComment': json.dumps({'bearing_source': 'gps-kalman'})}}) if p.car else None
 		rows.append([
 			p.id,
 			f"{p.owner.id}_{int(p.at.timestamp() * 1000)}_{rng.getrandbits(32):08x}.jpg",
@@ -418,6 +442,7 @@ def insert(db: Db, rng: random.Random, users: list[User], photos: list[Photo], p
 				'features': ['street', 'signage'] if p.excluded == 'signage' else ['landscape'],
 				'schema_version': 1, 'analyzer_version': 1,
 			}),
+			pitch, roll, exif_data,
 		])
 		if p.excluded == 'thumbs_down':
 			ratings.append([str(uuid.uuid4()), rater.id, 'hillview', p.id, 'THUMBS_DOWN', now])

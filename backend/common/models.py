@@ -84,9 +84,19 @@ class Photo(Base):
 	# Elevation the shot was taken at, degrees: positive up. Bearing says
 	# which way the camera faced, this says how far it was tilted, and the
 	# viewer needs both to offer "the photo above this one" — see
-	# docs/tauri-viewer-ui-contract.md. Null on everything uploaded before
-	# clients began sending it, which is every photo so far.
+	# docs/tauri-viewer-ui-contract.md. Null when the capture stamp measured
+	# none. Derived with roll by common/capture_pose.py, in GPano conventions
+	# (migration 045); written on processing and by scripts/pose_backfill.py.
 	pitch: Mapped[Optional[float]] = mapped_column(Float)
+	# How far the horizon leans in the image, degrees from the nearest quarter
+	# turn, in (-45, 45]: GPano PoseRollDegrees, positive when the horizon is
+	# turned counterclockwise. Null when unmeasured, or within ~15° of flat.
+	roll: Mapped[Optional[float]] = mapped_column(Float)
+	# The capture stamp's bearing_source, read out of exif_data's UserComment by
+	# the database so SQL can test it: 'gps-kalman' is car mode, which the
+	# Panoramax level gates exempt. Migration 045.
+	bearing_source: Mapped[Optional[str]] = mapped_column(
+		Text, Computed('photo_bearing_source(exif_data)', persisted=True))
 
 	# Image dimensions
 	width: Mapped[Optional[int]] = mapped_column(Integer)

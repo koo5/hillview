@@ -88,6 +88,10 @@ def test_only_served_fields_bump_the_sequence():
         before = stamp()
         pg(f"UPDATE photos SET title = 'Retitled', description = 'Described' WHERE id = '{photo}';")
         assert stamp() == before
+        # Pitch and roll (backend/scripts/pose_backfill.py rewrites them in bulk)
+        # reach the catalog on the sequencer's cadence, not by a bump.
+        pg(f"UPDATE photos SET pitch = 5, roll = -2 WHERE id = '{photo}';")
+        assert stamp() == before
         pg(f"UPDATE photos SET compass_angle = 90 WHERE id = '{photo}';")
         assert stamp() > before
     finally:

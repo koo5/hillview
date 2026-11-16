@@ -60,6 +60,32 @@ from panoramax.app.eligibility import ELIGIBLE_PHOTO_WHERE
     ({'blurry': True}, {}, False),
     ({'blurry': False}, {}, True),
     ({'blurry': None}, {}, True),
+    # A bearing is required; NaN would pass IS NOT NULL.
+    ({'compass_angle': None}, {}, False),
+    ({'compass_angle': 'NaN'}, {}, False),
+    ({'compass_angle': 'Infinity'}, {}, False),
+    ({'compass_angle': 0.0}, {}, True),
+    # Measured level, GPano conventions: |pitch| <= 20, |roll| <= 10.
+    # Unmeasured fails, unlike the blur verdict and the location radius.
+    ({'pitch': 20.0}, {}, True),
+    ({'pitch': -20.0}, {}, True),
+    ({'pitch': 20.1}, {}, False),
+    ({'pitch': -20.1}, {}, False),
+    ({'pitch': None}, {}, False),
+    ({'pitch': 'NaN'}, {}, False),
+    ({'roll': 10.0}, {}, True),
+    ({'roll': -10.0}, {}, True),
+    ({'roll': 10.1}, {}, False),
+    ({'roll': -10.1}, {}, False),
+    ({'roll': None}, {}, False),
+    # Car mode is exempt from both, measured or not, but still needs a bearing.
+    ({'bearing_source': 'gps-kalman', 'pitch': None, 'roll': None}, {}, True),
+    ({'bearing_source': 'gps-kalman', 'pitch': -45.0, 'roll': 30.0}, {}, True),
+    ({'bearing_source': 'gps-kalman', 'compass_angle': None}, {}, False),
+    ({'bearing_source': 'map', 'pitch': None}, {}, False),
+    # Without a source, a measured level photo passes and an unmeasured one fails.
+    ({'bearing_source': None}, {}, True),
+    ({'bearing_source': None, 'pitch': None}, {}, False),
     # An analysis listing no signage is required: "no signage" is only a
     # finding once the analyzer has looked, so unanalyzed stays out. A
     # document the gates cannot read fails them instead of raising.
@@ -84,7 +110,8 @@ def test_federation_eligibility(patch, user_patch, expected):
                  deleted=False, is_public=True, processing_status='completed',
                  geometry='SRID=4326;POINT(14 50)', captured_at='2026-10-28T12:00:00',
                  effective_at='2026-10-28T12:00:00Z', sizes={},
-                 analysis={'features': ['landscape', 'hill']})
+                 analysis={'features': ['landscape', 'hill']},
+                 compass_angle=90.0, pitch=-4.0, roll=1.5, bearing_source='android-compass-true')
     user = dict(id='owner', is_active=True, is_test=False, panoramax_contributor=True)
     json_null = patch.get('__json_null__', False)
     analysis_json_null = patch.get('__analysis_json_null__', False)
@@ -133,6 +160,28 @@ def test_location_accuracy_column(user_comment, expected):
     exif = {'data': {'UserComment': user_comment}} if user_comment is not None else {'data': {}}
     literal = "'" + json.dumps(exif).replace("'", "''") + "'::json"
     assert psql(f'SELECT photo_location_accuracy_m({literal});') == expected
+
+
+@pytest.mark.parametrize('user_comment,expected', [
+    ('{"bearing_source": "gps-kalman"}', 'gps-kalman'),
+    ('{"bearing_source": "android-compass-true", "location_accuracy_m": 3.2}', 'android-compass-true'),
+    # Capped: the longest real label is 73 characters.
+    ('{"bearing_source": "' + 'x' * 200 + '"}', 'x' * 128),
+    ('{"bearing_source": 5}', ''),
+    ('{"bearing_source": null}', ''),
+    ('{"bearing_source": {"kind": "gps-kalman"}}', ''),
+    ('{"bearing_source": "a\\u0000b"}', ''),
+    ('{}', ''),
+    ('"gps-kalman"', ''),
+    ('Canon EOS 5DS R', ''),
+    ('{not json', ''),
+    ('Canon\u0000\u0000', ''),
+    (None, ''),
+])
+def test_bearing_source_column(user_comment, expected):
+    exif = {'data': {'UserComment': user_comment}} if user_comment is not None else {'data': {}}
+    literal = "'" + json.dumps(exif).replace("'", "''") + "'::json"
+    assert psql(f'SELECT photo_bearing_source({literal});') == expected
 
 
 def psql(query):

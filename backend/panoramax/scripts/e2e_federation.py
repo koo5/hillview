@@ -325,6 +325,10 @@ async def run(args):
 			# signage-free analysis the gates require (eligibility.py).
 			local_sql("""UPDATE photos SET analysis = '{"features": []}'::jsonb WHERE owner_id = :'owner';""", owner=owner)
 			print('Wrote a signage-free analysis for every fixture', flush=True)
+			# Synthetic JPEGs carry no capture stamp, so capture_pose measured
+			# nothing: give every fixture the level pose the gates require.
+			local_sql("UPDATE photos SET pitch = 0, roll = 0 WHERE owner_id = :'owner';", owner=owner)
+			print('Wrote a level pitch and roll for every fixture', flush=True)
 			if heavy:
 				heavy.prepare()
 			print('All fixtures processed; sequencer:', sequence(), flush=True)

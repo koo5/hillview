@@ -15,6 +15,14 @@ describe('ineligibleReasons', () => {
 		]);
 	});
 
+	it('words the level gates', () => {
+		expect(ineligibleReasons(['bearing', 'pitch', 'roll'])).toEqual([
+			'it has no bearing',
+			'its up/down tilt was not measured or is over 20°',
+			'its horizon tilt was not measured or is over 10°',
+		]);
+	});
+
 	it('falls back to the gate name for one it does not know', () => {
 		expect(ineligibleReasons(['some_new_gate'])).toEqual(['some_new_gate']);
 	});

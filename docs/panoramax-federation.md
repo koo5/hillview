@@ -157,6 +157,17 @@ A photo is **eligible for selection** iff (one definition in
 - It was not judged blurry (`photos.blurry`, migration 043, derived from
   `image_metrics` by `common/image_quality.py`). An unjudged photo passes: the
   curated work wider than 8000 px is deliberately unmeasured.
+- It has a bearing (`compass_angle` not NULL, NaN or infinite).
+- It was measured level: `photos.pitch` within 20° of the horizon
+  (`MAX_PITCH_DEG`) and `photos.roll` within 10° (`MAX_ROLL_DEG`). Both are in
+  GPano conventions, derived from the capture app's stamp by
+  `common/capture_pose.py` (migration 045, `backend/scripts/pose_backfill.py`).
+  Unlike the blur verdict, an unmeasured photo stays out: the Tauri app, the
+  web app and frontend2 before 2026-09-22 stamp no attitude. Car mode
+  (`photos.bearing_source = 'gps-kalman'`, generated from the UserComment) is
+  exempt from both. Neither column bumps the sequence's `updated_at`, so
+  changes reach the catalog on the sequencer's cadence. The numbers and the
+  reasoning are in `docs/todo/photo-pose-and-level-gates.md`.
 - The LLM analyzer (`backend/analyzer`) has analyzed it, and the analysis lists
   no `signage` among its `features`. The Licence Ouverte catch above is the
   reason: a photographed information board is the derived-data case Hillview
