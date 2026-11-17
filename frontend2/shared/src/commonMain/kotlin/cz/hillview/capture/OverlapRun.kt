@@ -97,7 +97,14 @@ class Odometer(private val maxCoastMs: Long = 2_000) {
     }
 }
 
-/** Where the lens points: true heading, and tilt (positive looking down). */
+/**
+ * Where the lens points: true heading, and tilt POSITIVE UP, as everything at and
+ * above the one state holds it.
+ *
+ * The angle between two views is the same under either sign, so nothing here
+ * behaved differently before — but the doc and the formula below have to move
+ * together or the next reader inherits a lie that happens not to matter yet.
+ */
 data class ViewDirection(val headingDeg: Double, val pitchDeg: Double)
 
 /** The angle between two lens directions, degrees, 0..180. Roll does not move the view. */
@@ -105,7 +112,9 @@ fun turnBetween(a: ViewDirection, b: ViewDirection): Double {
     fun unit(v: ViewDirection): Triple<Double, Double, Double> {
         val h = v.headingDeg * PI / 180
         val p = v.pitchDeg * PI / 180
-        return Triple(cos(p) * sin(h), cos(p) * cos(h), -sin(p))
+        // +sin(p), not −: p is positive UP now, so the vertical component rises
+        // with it. Paired with the doc on ViewDirection above.
+        return Triple(cos(p) * sin(h), cos(p) * cos(h), sin(p))
     }
     val (ax, ay, az) = unit(a)
     val (bx, by, bz) = unit(b)

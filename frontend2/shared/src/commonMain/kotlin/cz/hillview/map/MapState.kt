@@ -51,7 +51,10 @@ data class BearingState(
     val accuracyLevel: Int? = null,
     /** Uncorrected compass heading, when the elected source has one. */
     val magneticDeg: Double? = null,
-    /** Tilt, when the elected source has one — null is "not recorded". */
+    /**
+     * Tilt, when the elected source has one — null is "not recorded".
+     * POSITIVE UP, like [DeviceAttitude.pitch] and for the same reason.
+     */
     val pitch: Double? = null,
     val ts: Long? = null,
 )
@@ -189,12 +192,17 @@ data class DeviceAttitude(
     /** Uncorrected compass heading — the raw half of the same reading. */
     val magneticDeg: Double,
     /**
-     * The OPTICAL AXIS's tilt, degrees, POSITIVE LOOKING DOWN.
+     * The OPTICAL AXIS's tilt, degrees, POSITIVE UP — the lens above the horizon.
      *
-     * The sign was documented as "positive up" and was not: a level portrait capture
-     * reads −4.5 with the lens 4.6° ABOVE the horizon. Corrected 2026-10-08 against
-     * `inertial.gravity`, which it now equals by construction —
-     * `asin(gravity.z / |gravity|)`.
+     * GPano's convention, and the server's `photos.pitch`. The SENSOR measures the
+     * opposite sign (`asin(gravity.z / |gravity|)`, negative with the lens up), and
+     * so does the capture stamp's `attitude.pitch_deg`; the crossing happens once,
+     * at `statePitchFromSensor`, on the way into this record.
+     *
+     * History worth keeping: this was documented as "positive up" when it was not —
+     * a level portrait capture read −4.5 with the lens 4.6° ABOVE the horizon. That
+     * was corrected to say positive DOWN on 2026-10-08, and the value is what moved
+     * on 2026-11-17, not the documentation.
      */
     val pitch: Double,
     /**
@@ -488,7 +496,11 @@ class MapStateHolder(
             val attitude = _deviceAttitude.value.freshAt(now)
             sink.writeBearingRow(
                 normalizeBearing(bearing), table.source, table.detail, accuracyLevel,
-                pitch = attitude?.pitch,
+                // Back to the sensor's convention: the engine's own rows in
+                // this table are the raw samples, positive DOWN, and a table
+                // that mixed the two signs under one column would be
+                // unreadable after the fact. See sensorPitchFromState.
+                pitch = attitude?.pitch?.let(::sensorPitchFromState),
                 roll = attitude?.roll,
                 now = now,
             )

@@ -1036,7 +1036,11 @@ private class MapSensorController(private val context: Context) {
                                 it.trueHeading,
                                 it.accuracyLevel,
                                 it.magneticHeading.toDouble(),
-                                it.pitch.toDouble(),
+                                // The SECOND way a raw pitch reaches the one
+                                // state: this one does not pass through
+                                // toDeviceAttitude, so it converts here. See
+                                // statePitchFromSensor.
+                                statePitchFromSensor(it.pitch.toDouble()),
                             )
                         }
                     }

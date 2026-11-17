@@ -36,7 +36,19 @@ class TrackingFunnelTest {
 
     // --- what a hand-set bearing row says about the DEVICE ---
 
-    private fun attitude(ts: Long, pitch: Double = 4.75, roll: Double = -1.5) =
+    /** The one state's pitch for these rows: the lens 4.75° ABOVE the horizon. */
+    private val lensAboveHorizonDeg = 4.75
+
+    /**
+     * ...and what the bearings TABLE must say about the same pose. The table sits
+     * below the one state's boundary: the engine writes its own sensor rows there
+     * in the sensor's convention, positive DOWN, and a column carrying both signs
+     * could not be read back. Written out rather than negated from the line above,
+     * so dropping sensorPitchFromState fails here instead of agreeing with itself.
+     */
+    private val tablePitchDeg = -4.75
+
+    private fun attitude(ts: Long, pitch: Double = lensAboveHorizonDeg, roll: Double = -1.5) =
         DeviceAttitude(
             trueDeg = 68.5, magneticDeg = 64.25, pitch = pitch, roll = roll, ts = ts,
         )
@@ -57,7 +69,7 @@ class TrackingFunnelTest {
         state.updateBearing(bearing = 200.0, source = "arrow_drag", now = now)
 
         assertEquals(1, sink.bearingRows.size)
-        assertEquals(4.75 to -1.5, sink.bearingAttitudes.single())
+        assertEquals(tablePitchDeg to -1.5, sink.bearingAttitudes.single())
     }
 
     /**

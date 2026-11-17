@@ -5,6 +5,19 @@ the follow-ups in [photo-pose-and-level-gates.md](photo-pose-and-level-gates.md)
 doc's *Conventions* section and its level-indicator rules before starting. The web half is
 [web-capture-level-stamp.md](web-capture-level-stamp.md), run separately.
 
+## Progress
+
+- **The sign flip landed 2026-11-17.** The first of the three changes below is done:
+  `PitchConvention.kt` is the one boundary, both entry points convert, the stamp and
+  the bearings table convert back, `MIGRATION_32_33` negates the stored column and the
+  dump header is `pitch_up_deg`. `PhotoUploadLogic` no longer sends the top-level
+  `pitch`. Still to do: the "Write EXIF" stamps, the level indicator, and
+  `DevicePhotoLoader` passing the pitch to the viewer.
+- **Not device-verified.** `PhotoDatabaseMigrationTest.version33TurnsTheStoredPitchPositiveUp`
+  is written but has never run: this machine's `kvm` group is empty, so no emulator
+  starts. Its SQL was checked against sqlite directly instead. Run it before trusting
+  the migration.
+
 ## The goal
 
 Three changes, in this order:

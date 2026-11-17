@@ -1020,11 +1020,14 @@ class PhotoUploadLogic(internal val context: Context) {
 		photo.locationSource?.let { put("location_source", it) }
 		photo.bearingSource?.let { put("bearing_source", it) }
 		photo.locationAgeMs?.let { put("location_age_ms", it) }
-		// Metadata is pitch's ONLY route to the server: unlike bearing it has
-		// no EXIF home to fall back on, and the fast-write path writes no EXIF
-		// anyway. Null stays absent rather than becoming 0 — see
-		// PhotoEntity.pitch.
-		photo.pitch?.let { put("pitch", it) }
+		// The top-level `pitch` is NOT sent, from 2026-11-17. It was pitch's only
+		// route to the server when the stamp had no attitude; every capture has
+		// carried `attitude` and `inertial` for a while now, and `capture_pose`
+		// reads this key only when the stamp has neither (`_from_upload_pitch`).
+		// Since the app turned positive up, a value here would be NEGATED into the
+		// wrong sign by a server that still assumes positive down — so sending it
+		// is not merely redundant, it is wrong. The line is kept as history:
+		//     photo.pitch?.let { put("pitch", it) }
 		// What the DEVICE measured, as opposed to what the photo is stamped
 		// as facing: roll (which had no route off the phone at all before
 		// this), the raw and corrected headings, the fusion behind them, the

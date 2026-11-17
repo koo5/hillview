@@ -1261,7 +1261,12 @@ fun attitudeProvenanceJson(s: SensorSnapshot): String? {
         a?.let {
             add("\"heading_true_deg\":${it.trueDeg}")
             add("\"heading_magnetic_deg\":${it.magneticDeg}")
-            add("\"pitch_deg\":${it.pitch}")
+            // Back to the sensor's convention. The one state holds pitch
+            // positive UP; the stamp is positive DOWN and stays that way,
+            // because `capture_pose` negates `pitch_deg` for every
+            // metadata_version from 1 up and has no v4 branch — a flipped
+            // stamp would be stored inverted. See sensorPitchFromState.
+            add("\"pitch_deg\":${cz.hillview.map.sensorPitchFromState(it.pitch)}")
             add("\"roll_deg\":${it.roll}")
             it.magnetometerCalibration?.let { add("\"magnetometer_calibration\":$it") }
             it.fusedSensorAccuracy?.let { add("\"fused_sensor_accuracy\":$it") }

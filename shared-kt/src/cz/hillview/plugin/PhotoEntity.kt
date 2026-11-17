@@ -170,6 +170,11 @@ data class PhotoEntity(
      * says which way the camera faced; this says how far it was tilted, and
      * the viewer pane needs both to offer "the photo above this one".
      *
+     * It said "positive up" from v19 and did not hold it: the value came from the
+     * sensor's convention, which is positive DOWN. The app's one state moved to
+     * positive up on 2026-11-17 and MIGRATION_32_33 negated the rows already
+     * stored, so the sentence above is true from v33 rather than aspirational.
+     *
      * Nullable on purpose, unlike `bearing` which uses 0.0 for unset: the
      * viewer's rule is strictly-higher / strictly-lower, so "level" and
      * "not recorded" must not collapse into each other.

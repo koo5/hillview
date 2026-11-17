@@ -218,7 +218,8 @@ private fun LocationRows(
     }
     // The other two axes of the attitude, beside the bearing rather than in it: at phone
     // width the bearing row already carries the position. ↕ is the optical axis's tilt,
-    // POSITIVE LOOKING DOWN; ⟳ is the image's rotation about that axis, 0 upright and
+    // POSITIVE UP — the lens above the horizon; ⟳ is the image's rotation about that
+    // axis, 0 upright and
     // ±90 in landscape. Both only when the compass has answered at all.
     if (state.pitchDeg != null || state.imageRollDeg != null) {
         MonoText(
@@ -341,7 +342,7 @@ internal fun pad(text: String, width: Int): String =
 /**
  * One decimal with the sign ALWAYS shown, so the field is a constant width and "+" reads
  * as the direction rather than as the absence of "-". Used for the two axes where the
- * sign is the information: pitch (down positive) and the image roll.
+ * sign is the information: pitch (UP positive, since 2026-11-17) and the image roll.
  */
 internal fun signedOneDp(v: Double): String {
     val body = fmtDecimals(if (v < 0) -v else v, 1)

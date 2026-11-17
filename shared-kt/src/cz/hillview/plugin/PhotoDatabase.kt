@@ -633,6 +633,28 @@ abstract class PhotoDatabase : RoomDatabase() {
 			}
 		}
 
+		/**
+		 * `photos.pitch` becomes POSITIVE UP (v33), which is what its own
+		 * documentation has claimed since v19 and what the column never held.
+		 *
+		 * The app above the one state moved to positive up on 2026-11-17, to agree
+		 * with GPano, with the server's `photos.pitch` and with the viewer's up/down
+		 * navigation, which already read server photos that way. New rows arrive in
+		 * the new sign from that build on; these are the old ones.
+		 *
+		 * A negation, not an absolute value: a photo shot looking UP is already
+		 * negative here and must come out positive. Nulls stay null — "not recorded"
+		 * is not a number and must not become 0.
+		 *
+		 * Harmless in the Tauri build, which compiles this file too: its own writer
+		 * never set a pitch, so every row it made has null here.
+		 */
+		private val MIGRATION_32_33 = object : Migration(32, 33) {
+			override fun migrate(db: SupportSQLiteDatabase) {
+				db.execSQL("UPDATE photos SET pitch = -pitch WHERE pitch IS NOT NULL")
+			}
+		}
+
 		private val MIGRATION_29_30 = object : Migration(29, 30) {
 			override fun migrate(db: SupportSQLiteDatabase) {
 				PhotoExportChangeTracking.create(db, seedExistingPhotos = true)
@@ -687,7 +709,7 @@ abstract class PhotoDatabase : RoomDatabase() {
 			MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25,
 			MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28,
 			MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31,
-			MIGRATION_31_32,
+			MIGRATION_31_32, MIGRATION_32_33,
 		)
 
         fun getDatabase(context: Context): PhotoDatabase {
@@ -715,6 +737,6 @@ abstract class PhotoDatabase : RoomDatabase() {
  * the inertial rename) were never once validated against the entities. A hardcoded
  * target in a test whose job is to catch drift is the one place drift hides.
  */
-const val PHOTO_DB_VERSION = 32
+const val PHOTO_DB_VERSION = 33
 
 

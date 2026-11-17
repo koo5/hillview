@@ -199,6 +199,45 @@ class PhotoDatabaseMigrationTest {
         }
     }
 
+    /**
+     * v33 turns the stored pitch positive UP.
+     *
+     * Three rows on purpose. The NEGATIVE one is the case that distinguishes a
+     * negation from an absolute value, and it is the common one: a photo shot
+     * looking up was already negative under the old convention. The null one is
+     * the case that distinguishes a negation from arithmetic on "not recorded".
+     */
+    @Test
+    fun version33TurnsTheStoredPitchPositiveUp() {
+        helper.createDatabase(DB, 32).use { db ->
+            fun photo(id: String, pitch: String) = db.execSQL("""
+                INSERT INTO photos (
+                    id, filename, path, bearing, capturedAt, accuracy, width, height, fileSize,
+                    createdAt, uploadStatus, uploadedAt, retryCount, lastUploadAttempt,
+                    uploadError, fileHash, deleted, version, uploadHoldUntil, uploadHoldReasons,
+                    pitch
+                ) VALUES (?, 'photo.jpg', '/tmp/photo.jpg', 0, 1, 0, 4, 4, 16, 1,
+                          'pending', 0, 0, 0, '', '', 0, 1, 0, 0, $pitch)
+            """.trimIndent(), arrayOf(id))
+            // Looking DOWN under the old convention, so positive there.
+            photo("looked-down", "6.5")
+            // Looking UP, so already negative — an abs() would leave this at 4.25.
+            photo("looked-up", "-4.25")
+            photo("never-measured", "NULL")
+        }
+        val db = helper.runMigrationsAndValidate(DB, PHOTO_DB_VERSION, true, *PhotoDatabase.MIGRATIONS)
+        val after = db.query("SELECT id, pitch FROM photos").use { c ->
+            buildMap<String, Double?> {
+                while (c.moveToNext()) {
+                    put(c.getString(0), if (c.isNull(1)) null else c.getDouble(1))
+                }
+            }
+        }
+        assertEquals(-6.5, after["looked-down"])
+        assertEquals(4.25, after["looked-up"])
+        assertNull(after["never-measured"])
+    }
+
     /** Every step from the oldest schema Room still has, in one go. */
     @Test
     fun theWholeChainRunsAndMatchesTheEntities() {
