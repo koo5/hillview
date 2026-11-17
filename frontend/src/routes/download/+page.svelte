@@ -99,10 +99,10 @@
             </p>
 
             <p class="brave-testing-link">
-                Feeling brave and want to try development builds, or taste the brand-new, faster, better, native android app? Grab them on the
+                Feeling brave and want to try the brand-new, faster, better, nativ-er android app?
                 <MyExternalLink href="https://hillview.cz/downloads/">
-                    development downloads
-                </MyExternalLink> page.
+                    development builds
+                </MyExternalLink>
             </p>
         </div>
     </div>
