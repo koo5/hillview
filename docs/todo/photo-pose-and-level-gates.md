@@ -301,37 +301,118 @@ The `pitch` column after the backfill:
 
 ## Follow-ups (not in this change)
 
-- **frontend2's sign.**
+- **frontend2's sign.** Researched 2026-11-16, agreed 2026-11-17, together with the level
+  indicator below. The work is handed off in
+  [frontend2-pitch-sign-and-level.md](frontend2-pitch-sign-and-level.md), which also corrects
+  the research: raw sensor pitch reaches `BearingState.pitch` by a second path, the compass
+  callback in `MapSensorController.startBearing`, bypassing `toDeviceAttitude`.
   - `DeviceAttitude.pitch`, `BearingState.pitch` and `PhotoEntity.pitch` are positive down.
-    The viewer's local photos and the map state should move to positive up, matching the
-    server.
-  - The stamped `attitude` provenance can either stay positive down (documented as it is) or
-    flip together with a `metadata_version` 4. `capture_pose` branches on the version, so
-    either is safe. Pick one when the app changes.
-  - Roll's sign is the same question.
-- **The web app.** `CameraCapture.svelte` already starts an `AbsoluteOrientationSensor` and
-  ignores its readings.
-  - What a browser can offer:
-    - Chromium on Android has the Generic Sensor API (`GravitySensor`, `Accelerometer`,
-      `AbsoluteOrientationSensor`). Verify the current support matrix first.
-    - Every browser has `DeviceOrientationEvent` beta/gamma (Euler angles, with the same
-      landscape trouble as our old rows) and `DeviceMotionEvent.accelerationIncludingGravity`
-      (a raw accelerometer, not combined with the gyro).
-    - iOS needs `DeviceOrientationEvent.requestPermission()`.
-  - The aim is to stamp `inertial.gravity`, and `attitude` where available, in the
-    UserComment shape the phone uses, so `capture_pose` needs no change and web photos
-    become eligible.
+    Local photos do not navigate inverted: `DevicePhotoLoader` never passes a pitch to the
+    viewer, so they count as level. An uploaded photo shows its server copy instead
+    (`collapseTwins`).
+  - **One conversion point**, in `toDeviceAttitude`, makes the app positive up internally.
+    Two places convert back: `attitudeProvenanceJson`, so the stamp keeps its sign at
+    `metadata_version` 3, and the bearings-table writer, so its rows don't mix signs.
+    `EnhancedSensorService`, `CameraPose` and `OrientationSensorData` live in `shared-kt` and
+    feed the Tauri app, so they must not flip.
+  - **A Room migration flips the stored `PhotoEntity.pitch`.** The photo dump's `pitch`
+    column is renamed in the same release, so no CSV mixes signs under one header. After
+    that, `DevicePhotoLoader` can pass the pitch to the viewer.
+  - **Stop sending the top-level upload `pitch`.** Every current capture carries `attitude`,
+    so `capture_pose`'s last resort never reads it, and a positive-up value there would be
+    negated wrongly.
+  - **Keep the stamp positive down.** `capture_pose` does NOT branch on a version above 1:
+    every version from 1 up negates `pitch_deg`, so a flipped stamp at version 4 would be
+    read inverted unless the server learned v4 first. Gravity is read before attitude
+    anyway.
+  - **Roll** has no reader in the app with a horizon assumption; it stays as it is.
+- **"Write EXIF" stamps lack `capture_timing` and `inertial`.** With that setting on, the
+  worker keeps the file's own UserComment, and the one `PhotoExifWriter` writes carries
+  `attitude` only. `capture_pose` then reads it as a pre-versioning row: portrait is fine,
+  landscape and upside-down get no pitch or roll and fail the gates. No photo in the
+  2026-11-15 data is affected (all 25,281 with `attitude` since 2026-10-10 carry both
+  objects), and the setting is off by default. Fix: have `PhotoExifWriter` write the same
+  objects the fast-write path sends. Part of the frontend2 handoff.
+- **The web app.** Worth doing (the user, 2026-11-16). Researched the same day, agreed
+  2026-11-17 together with the level indicator below, and handed off in
+  [web-capture-level-stamp.md](web-capture-level-stamp.md). No backend change is needed: `BrowserMetadata.inertial`
+  and `PROVENANCE_KEYS` already carry the object, and canvas JPEGs have no UserComment of their
+  own, so the worker synthesizes one.
+  - **Today:** `CameraCapture.svelte` starts an `AbsoluteOrientationSensor` (100 Hz,
+    `referenceFrame: 'screen'`) whose readings are only logged. The web compass
+    (`startWebCompass`) feeds `updateBearing` with no pitch.
+  - **Sources:**
+    - **Chromium on Android:** `GravitySensor({referenceFrame: 'device'})`. Chromium maps it to
+      Android's `TYPE_GRAVITY`, the sensor frontend2 stamps, so the vector is used as-is.
+    - **iOS Safari and Firefox:** `deviceorientation` beta/gamma, converted per event to the
+      up vector `9.80665·[−cosβ·sinγ, sinβ, cosβ·cosγ]` (the spec's rotation matrix, the same
+      row WebKit derives beta/gamma from). The angles jump near upright portrait while the
+      vector doesn't, so average vectors, never angles. iOS needs
+      `DeviceOrientationEvent.requestPermission()` in the click.
+    - **Never `accelerationIncludingGravity`:** it is the raw accelerometer, and reportedly
+      sign-inverted on iOS. An inverted vector flips pitch's sign but leaves the reduced roll
+      unchanged, and the gates use absolute values, so it would pass silently wrong.
+    - **Desktop** has none: unmeasured, as now.
+  - **Sampling:** a ~1 s ring buffer. Take the samples in the 300 ms before the shutter
+    (read at the top of `handleCapture`) and average the unit vectors. No fresh sample means
+    no `inertial` object at all. Omit gravity for a front (`'user'`) camera, since
+    `capture_pose` assumes the lens looks along −z.
+  - **The stamp:** `inertial: {gravity, age_ms, gravity_source: 'gravity-sensor' |
+    'deviceorientation', sample_count, window_ms, gravity_spread_deg}`. Send no `attitude`,
+    `capture_timing.metadata_version` or top-level `pitch`; those carry frontend2's versioned
+    meanings.
+  - **One state:** the pose gets its own home (beside `deviceOrientationExif.ts`), written only
+    while the camera is shown and read by the shutter stamp (later a level indicator). It is
+    never part of `bearingState`.
+  - **Plumbing:** the metadata passes five hops with explicit key lists, and the two uploaders
+    (`foregroundUploader` in `browser/photoSync.ts`, `swSecureUploader` in
+    `sw/serviceWorkerSecureUpload.ts`) have already drifted: the service-worker one drops
+    `alt_location` (confirmed). One shared builder fixes both.
+  - **Tests:** a vitest module for the conversion and averaging; the same vectors as a "web
+    stamp" block in `test_capture_pose.py`; Playwright (Chromium) with CDP
+    `Emulation.setSensorOverrideReadings` for gravity and
+    `DeviceOrientation.setDeviceOrientationOverride` for the fallback. Then a real-device
+    series on iOS Safari, Firefox Android and Chrome Android: portrait rolled both ways, both
+    landscapes, pitched up and down. A debug readout of `accelerationIncludingGravity.y` in
+    upright portrait (≈ +9.8 Android, ≈ −9.8 iOS) settles the inversion.
+  - **Watch:** the W3C Accelerometer spec is now maintenance-only, and Chrome plans to make
+    sensor permission Ask-by-default, so call `requestPermission()` in the camera click
+    everywhere it exists.
 - **The Tauri app** has the same gap: it measures pitch and roll for its compass but stamps
-  neither. The stamp code is already in `shared-kt`. Only worth doing if the Tauri build stays
-  the shipped Android app for long.
+  neither. Not planned: the Tauri app will likely not have another release (the user,
+  2026-11-17). Its released build must still keep working against the prod API.
 - **Bringing back the app-sent pitch.** Once an app lets the user override pitch (as
   `arrow_drag` does for bearing), the upload's `pitch` means "the user says so" and should win
   over the measurement.
   - It needs a source marker beside it, `pitch_source` in the stamp like `bearing_source`,
     so the server can tell an override from today's ride-along sensor value.
   - Decide then whether a claimed pitch satisfies the Panoramax gate, or only a measured one.
-- **Capture guidance for Panoramax:** a level indicator and instructions for users who want
-  their photos to qualify. This is what makes the unmeasured share shrink in future.
+- **Capture guidance for Panoramax: the level indicator.** Agreed 2026-11-17 for frontend2 and
+  the web app, built in each handoff. It is what makes the share of photos that fail on angle
+  shrink in future. The rules both apps follow, so the two indicators and the server agree:
+  - **It shows what the gates will decide.** "Level" means |pitch| ≤ `MAX_PITCH_DEG` and
+    |roll| ≤ `MAX_ROLL_DEG`, the constants in `eligibility.py`. Each app mirrors them as named
+    constants that cite `eligibility.py`, and a test pins each copy to the same values.
+  - **Same maths as `capture_pose`.** Pitch is positive up. Roll is `level_roll`, measured from
+    the nearest quarter turn, so a level landscape shot reads level. Within `ROLL_FLOOR` of
+    flat, roll has no meaning: the indicator says the camera points at the ground or the sky,
+    and doesn't draw a horizon.
+  - **Same reading as the stamp.** The indicator reads the pose from the one state, the
+    same reading the shutter stamps. It never opens a sensor of its own.
+  - **On screen.** A positive stamp `roll_deg` (phone turned counterclockwise as its user sees it)
+    puts the true horizon turned CLOCKWISE on a screen upright to the phone. The 2026-11-15
+    series showed this for the image, which is what the back-camera preview shows. When the
+    UI itself rotates, take the screen's rotation off first.
+  - **It informs and never refuses.** The shutter stays live whatever the indicator shows
+    (`docs/one-state.md`).
+  - **Not colour alone.** The state is also said in words or a glyph, such as "level" or "tilted
+    down 25°".
+  - **Hidden in car mode**, which is exempt from the gates, and absent when nothing is
+    measured. When the Panoramax toggle is on and nothing is measured, a short note says that
+    such photos are not published.
+  - **Open, for the user to judge on screenshots:** whether the indicator shows always or
+    only while the Panoramax toggle is on. Both handoffs default to always, because a level
+    photo is better for every reader.
 - **Better values from enrich.** `capture_pose` runs on every processed-photo write, so a
   reprocess would overwrite a value enrich wrote. Give the columns a provenance marker before
   anything else writes them.
