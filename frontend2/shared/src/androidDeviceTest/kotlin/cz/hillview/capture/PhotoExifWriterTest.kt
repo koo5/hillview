@@ -106,6 +106,65 @@ class PhotoExifWriterTest {
         file.delete()
     }
 
+    /**
+     * The gravity vector and the version, not just the angles.
+     *
+     * With "Write EXIF" on, the worker keeps the file's own UserComment and the
+     * upload metadata never speaks. A stamp carrying `attitude` alone reads to
+     * `capture_pose` as PRE-VERSIONING, which trusts the angles only when
+     * `device_rotation_deg` is 0 — so a landscape or upside-down shot arrived with
+     * no pitch and no roll and failed the Panoramax level gates. `capture_timing`
+     * carries the `metadata_version` that lifts that, and `inertial` carries the
+     * gravity the server prefers over the angles anyway.
+     */
+    @Test
+    fun theExifStampCarriesGravityAndTheMetadataVersion() {
+        val file = jpeg()
+        PhotoExifWriter.write(
+            file,
+            snapshot.copy(
+                motion = cz.hillview.map.DeviceMotionSample(
+                    gravity = listOf(3.802262f, 9.020489f, -0.640069f),
+                    atMs = snapshot.capturedAtMs,
+                ),
+                captureTiming = CaptureTiming(
+                    capturedAtSource = "press",
+                    metadataVersion = 3,
+                ),
+            ),
+        )
+
+        val comment = ExifInterface(file.absolutePath)
+            .getAttribute(ExifInterface.TAG_USER_COMMENT)
+        assertNotNull(comment)
+        assertTrue(comment.contains("\"inertial\""), "no inertial object: $comment")
+        assertTrue(comment.contains("\"gravity\":[3.802262,9.020489,-0.640069]"), comment)
+        assertTrue(comment.contains("\"capture_timing\""), "no capture_timing: $comment")
+        assertTrue(
+            comment.contains("\"metadata_version\":3"),
+            "without this the server reads the stamp as pre-versioning: $comment",
+        )
+        file.delete()
+    }
+
+    /**
+     * ...and a shot with neither still stamps what it does have, rather than
+     * nothing. The two objects are additive: the guard that decides whether to
+     * write a UserComment at all must not start depending on them.
+     */
+    @Test
+    fun aShotWithNoGravityStillCarriesItsOtherProvenance() {
+        val file = jpeg()
+        PhotoExifWriter.write(file, snapshot)
+
+        val comment = ExifInterface(file.absolutePath)
+            .getAttribute(ExifInterface.TAG_USER_COMMENT)
+        assertNotNull(comment)
+        assertTrue(comment.contains("bearing_source"), comment)
+        assertTrue(!comment.contains("\"inertial\""), "nothing measured it: $comment")
+        file.delete()
+    }
+
     @Test
     fun recordsTheExposureRuleStoryWhenOneWasInForce() {
         // The rule/plan/metering triple is the half the file cannot

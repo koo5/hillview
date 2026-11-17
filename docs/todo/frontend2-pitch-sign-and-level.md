@@ -11,8 +11,12 @@ doc's *Conventions* section and its level-indicator rules before starting. The w
   `PitchConvention.kt` is the one boundary, both entry points convert, the stamp and
   the bearings table convert back, `MIGRATION_32_33` negates the stored column and the
   dump header is `pitch_up_deg`. `PhotoUploadLogic` no longer sends the top-level
-  `pitch`. Still to do: the "Write EXIF" stamps, the level indicator, and
-  `DevicePhotoLoader` passing the pitch to the viewer.
+  `pitch`.
+- **The "Write EXIF" stamps landed 2026-11-17**, the second change.
+  `PhotoExifWriter` now adds `inertial` and `capture_timing` beside `attitude`,
+  built by the same functions the fast-write path uses. Pinned by two new cases in
+  `PhotoExifWriterTest` (11 on an API 36 emulator). Still to do: the level
+  indicator, and `DevicePhotoLoader` passing the pitch to the viewer.
 - **Device-verified 2026-11-17.** `PhotoDatabaseMigrationTest` runs nine tests on an
   API 36 emulator, including `version33TurnsTheStoredPitchPositiveUp` (a positive, a
   negative and a null row) and the whole-chain validation against the v33 schema.
