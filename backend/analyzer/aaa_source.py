@@ -6,6 +6,8 @@ import os
 import tempfile
 from pathlib import Path
 from uuid import UUID
+from urllib.parse import urlsplit
+from common.artifact_identity import split_artifact_stem
 
 from analyze_photo import build_schema, validate_analysis
 from distill import session_fingerprint, file_lock, TRUSTED_MODELS
@@ -166,7 +168,8 @@ class AaaSource:
             try:
                 item['answer'] = normalize(item['row'], closest_policy=closest_policy)
                 url = item.get('image_metadata', {}).get('url') or (self.root / 'photos' / pid).read_text().strip()
-                if not url.startswith('https://') or not url.endswith(f'/{pid}.webp'):
+                filename = Path(urlsplit(url).path).name
+                if not url.startswith('https://') or not filename.endswith('.webp') or split_artifact_stem(filename[:-5])[0] != pid:
                     raise ValueError('Unexpected source image URL')
                 item['image_url'] = url
                 item['fingerprint'] = session_fingerprint(item['row'])
@@ -241,19 +244,24 @@ class AaaSource:
                 {'photo_id': pid, 'error': self.errors.get(pid), 'warnings': item.get('warnings', [])}
                 for pid, item in self.rows.items() if pid in self.errors or item.get('warnings')))
 
-    def resolve(self, pid, *, file_md5, image_url):
+    def resolve(self, pid, *, file_md5, image_url, image_sha256=None, artifact_version=None):
         item = self.rows.get(str(pid))
         if item is None or 'skip' in item['row']:
             return None
         if str(pid) in self.errors:
             raise ValueError(self.errors[str(pid)])
-        if item['image_url'] != image_url:
+        if image_sha256 and item.get('image_metadata',{}).get('sha256') != image_sha256:
+            return None  # Preserve the old answer, but don't apply it to a new render.
+        if artifact_version is not None and item.get('image_metadata',{}).get('artifact_version') != artifact_version:
+            return None
+        if not image_sha256 and item['image_url'] != image_url:
             raise ValueError(f'{pid}: source and DB LLM image URLs differ')
         if not isinstance(file_md5, str) or len(file_md5) != 32 or any(c not in '0123456789abcdef' for c in file_md5):
             raise ValueError(f'{pid}: invalid database file_md5')
         return {
             'kind': 'external_analysis', 'source': item.get('source','aaa'), 'adapter_version': ADAPTER_VERSION,
             'photo_id': str(pid), 'file_md5': file_md5, 'image_url': image_url,
+            'image_content_sha256': image_sha256,
             'source_fingerprint': item['fingerprint'], 'source_path': item['path'],
             'source_line': item['line'], 'closest_policy': self.closest_policy,
             'raw': item['row'], 'analysis': item['answer'],

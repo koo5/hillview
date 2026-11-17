@@ -206,11 +206,14 @@ def find_duplicate(
 	Returns:
 		Matching session dict, or None if no duplicate found
 	"""
+	if verbose:
+		failed = [s for s in sessions if s.get('result', {}).get('parse_error')]
+		if failed:
+			requests = sum(bool(s.get('result', {}).get('error')) for s in failed)
+			print(f"  Saved failures ignored: {requests} request/provider errors, {len(failed) - requests} invalid answers")
 	for i, session in enumerate(sessions):
 		# Skip sessions with parse errors - allow rerun
 		if session.get("result", {}).get("parse_error"):
-			if verbose:
-				print(f"  Session {i}: skipping (parse_error)")
 			continue
 
 		if _session_matches(session, model, prompt_text, temperature, max_tokens, verbose=verbose, label=str(i), response_format=response_format):
@@ -240,6 +243,12 @@ def count_failed_attempts(
 		and not session.get("result", {}).get("error")
 		and _session_matches(session, model, prompt_text, temperature, max_tokens, response_format=response_format)
 	)
+
+
+def matching_request_rejections(sessions, model, prompt, temperature, max_tokens, response_format):
+	return [s for s in sessions if s.get('result', {}).get('http_status') == 400
+	        and s.get('result', {}).get('error')
+	        and _session_matches(s, model, prompt, temperature, max_tokens, response_format=response_format)]
 
 CATEGORY_DEFAULTS = {
 	"kilometers": 100000,

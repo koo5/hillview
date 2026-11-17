@@ -463,7 +463,7 @@ async def upload_processed_file(
 		# photo's artifact. Bind the destination to the DB photo and owner before
 		# creating directories or opening the file.
 		if not is_photo_artifact_relative_path(
-			relative_path, str(photo.owner_id), str(photo.id)
+			relative_path, str(photo.owner_id), str(photo.id), photo.version
 		):
 			raise HTTPException(
 				status_code=status.HTTP_400_BAD_REQUEST,

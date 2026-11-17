@@ -66,6 +66,7 @@ from sqlalchemy import select, func, or_, update, delete, Integer
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from common.database import SessionLocal
 from common.models import Photo, PhotoAnalysisQueue
+from common.artifact_identity import selected_image, session_matches_image
 
 from analyze_photo import (
 	run_analysis,
@@ -86,6 +87,7 @@ from distill import (
 	save_sessions,
 	find_duplicate,
 	count_failed_attempts,
+	matching_request_rejections,
 	distill_sessions,
 	lock_path_for,
 	acquire_file_lock,
@@ -126,6 +128,8 @@ RETRY_ERROR = timedelta(hours=1)          # an exception anywhere in the run (ne
 RETRY_MISSING_IMAGE = timedelta(days=1)   # no image URL, or the image 404s
 RETRY_JUNK_STEP = timedelta(days=1)       # × failed attempts, when the model returns unparseable output
 MAX_JUNK_ATTEMPTS = 3                     # failed attempts (same model+prompt) before giving up: GIVEN_UP
+MAX_PROVIDER_REJECTIONS = 3               # HTTP 400s trigger a photo-specific cooldown, never a provider-wide ban
+PROVIDER_REJECTION_COOLDOWN = timedelta(days=1)
 ERROR_SLEEP = 60                          # pause after an exception, so a dead provider does not burn through the backlog
 
 
@@ -137,6 +141,7 @@ class Outcome:
 	junk_attempts: int = 0         # kind == 'junk': failed attempts for the failing pass, counted from the JSON file
 	queried: bool = False
 	quota_reset_at: datetime | None = None
+	retry_at: datetime | None = None
 
 
 # The keys readers get. Everything else distill produces (description, objects,
@@ -175,6 +180,8 @@ def next_retry_for(outcome: Outcome, now: datetime) -> datetime | None:
 		return now + RETRY_JUNK_STEP * max(outcome.junk_attempts, 1)
 	if outcome.kind in ('no_image', 'image_404'):
 		return now + RETRY_MISSING_IMAGE
+	if outcome.kind == 'provider_rejected':
+		return outcome.retry_at
 	if outcome.kind == 'error':
 		if outcome.quota_reset_at is not None:
 			return outcome.quota_reset_at
@@ -285,6 +292,24 @@ def model_has_complete_answer(sessions, model):
 	return not validate_analysis(merged, build_schema(distances=True, features=True))
 
 
+def rejection_backoff(sessions, model, prompt, response_format, *, queried=False):
+	failed = matching_request_rejections(sessions, model, prompt, TEMPERATURE, MAX_TOKENS, response_format)
+	if len(failed) < MAX_PROVIDER_REJECTIONS:return None
+	timestamps = []
+	for session in failed:
+		try:
+			stamp = datetime.fromisoformat(session['metadata']['timestamp'])
+			if stamp.tzinfo is None:stamp = stamp.replace(tzinfo=timezone.utc)
+			timestamps.append(stamp)
+		except (ValueError, KeyError, TypeError):pass
+	if not timestamps:return None
+	deadline = max(timestamps) + PROVIDER_REJECTION_COOLDOWN
+	if deadline <= datetime.now(timezone.utc):return None
+	print(f"    Provider rejected this image/model/prompt with HTTP 400 {len(failed)} times; "
+	      f"photo-specific cooldown until {deadline.isoformat()}. Other photos continue.")
+	return Outcome('provider_rejected', queried=queried, retry_at=deadline)
+
+
 async def process_photo(
 	photo: Photo,
 	datadir: Path,
@@ -299,6 +324,11 @@ async def process_photo(
 	sessions cache is read and written with lock=False here.
 	"""
 	print(f"  Photo: {photo.id} ({photo.original_filename})")
+	print(f"    https://hillview.cz/photo/hillview-{photo.id}")
+	print(f"    Created at: {getattr(photo, 'record_created_ts', None) or 'unknown'}; "
+	      f"captured at: {getattr(photo, 'captured_at', None) or 'unknown'}; "
+	      f"uploaded at: {getattr(photo, 'uploaded_at', None) or 'unknown'}")
+	print(f"    MD5: {photo.file_md5}; user: {getattr(photo, 'owner_id', None) or 'unknown'}")
 
 	# Get image URL
 	image_url = get_image_url(photo)
@@ -312,6 +342,8 @@ async def process_photo(
 	# Prepare image (fetch if needed)
 	try:
 		final_image_url, image_hash = prepare_image_url(image_url, FETCH_IMAGES)
+		if image_hash and selected_image(photo).get('sha256') and image_hash != selected_image(photo)['sha256']:
+			raise ImageAccessError("Downloaded image differs from its database checksum; no model request was sent. The photo will be retried.")
 	except httpx.HTTPStatusError as e:
 		if e.response.status_code == 404:
 			print(f"    ✗ Image not found (404)")
@@ -325,8 +357,12 @@ async def process_photo(
 
 	# Load existing sessions for this photo
 	json_path = json_path_for(datadir, photo)
+	print(f"    Legacy sessions: {json_path} ({'exists' if json_path.is_file() else 'not found'})")
+	response_directory = datadir / 'responses' / photo.file_md5
+	print(f"    Immutable responses: {response_directory}/*.json ({sum(1 for _ in response_directory.glob('*.json'))} files)")
 	sessions = load_sessions(json_path, lock=False)
-	if skip_model_covered and model_has_complete_answer(sessions, model):
+	current_sessions = [s for s in sessions if session_matches_image(s, photo)]
+	if skip_model_covered and model_has_complete_answer(current_sessions, model):
 		print(f"    Already has complete {model} answers; skipping")
 		return Outcome('cached')
 
@@ -341,7 +377,7 @@ async def process_photo(
 	features_format = response_format_for(model, distances=False, features=True)
 
 	features_dup = find_duplicate(
-		sessions, model, features_prompt, TEMPERATURE, MAX_TOKENS, verbose=verbose,
+		current_sessions, model, features_prompt, TEMPERATURE, MAX_TOKENS, verbose=verbose,
 		response_format=features_format,
 	)
 
@@ -351,6 +387,12 @@ async def process_photo(
 	if features_dup:
 		print(f"    Features: cached")
 	else:
+		backoff = rejection_backoff(current_sessions, model, features_prompt, features_format)
+		if backoff:return backoff
+		failures = count_failed_attempts(current_sessions, model, features_prompt, TEMPERATURE, MAX_TOKENS, response_format=features_format)
+		if failures >= MAX_JUNK_ATTEMPTS:
+			print(f"    Features: stopped after {failures} invalid answers for this image/model/prompt; no new request")
+			return Outcome('junk', junk_attempts=failures)
 		if CHECK_IMAGES and not FETCH_IMAGES and not image_checked and not check_image(image_url):
 			return Outcome('image_404')
 		image_checked = True
@@ -367,9 +409,12 @@ async def process_photo(
 		)
 		sessions.append(features_session)
 		features_session["metadata"]["photo_id"] = str(photo.id)
+		features_session["metadata"]["image_content_sha256"] = selected_image(photo).get('sha256')
+		features_session["metadata"]["artifact_version"] = selected_image(photo).get('artifact_version')
+		current_sessions.append(features_session)
 		save_sessions(json_path, sessions, lock=False)
 		if features_session.get("result", {}).get("error"):
-			return request_error_outcome(features_session)
+			return rejection_backoff(current_sessions, model, features_prompt, features_format, queried=True) or request_error_outcome(features_session)
 
 		if features_session.get("result", {}).get("parse_error"):
 			print(f"    Features: ✗ parse error")
@@ -387,7 +432,7 @@ async def process_photo(
 	distances_format = response_format_for(model, distances=True, features=False)
 
 	distances_dup = find_duplicate(
-		sessions, model, distances_prompt, TEMPERATURE, MAX_TOKENS, verbose=verbose,
+		current_sessions, model, distances_prompt, TEMPERATURE, MAX_TOKENS, verbose=verbose,
 		response_format=distances_format,
 	)
 
@@ -396,6 +441,12 @@ async def process_photo(
 	if distances_dup:
 		print(f"    Distances: cached")
 	else:
+		backoff = rejection_backoff(current_sessions, model, distances_prompt, distances_format, queried=not features_dup)
+		if backoff:return backoff
+		failures = count_failed_attempts(current_sessions, model, distances_prompt, TEMPERATURE, MAX_TOKENS, response_format=distances_format)
+		if failures >= MAX_JUNK_ATTEMPTS:
+			print(f"    Distances: stopped after {failures} invalid answers for this image/model/prompt; no new request")
+			return Outcome('junk', junk_attempts=failures, queried=not features_dup)
 		if CHECK_IMAGES and not FETCH_IMAGES and not image_checked and not check_image(image_url):
 			return Outcome('image_404')
 		image_checked = True
@@ -412,6 +463,9 @@ async def process_photo(
 		)
 		sessions.append(distances_session)
 		distances_session["metadata"]["photo_id"] = str(photo.id)
+		distances_session["metadata"]["image_content_sha256"] = selected_image(photo).get('sha256')
+		distances_session["metadata"]["artifact_version"] = selected_image(photo).get('artifact_version')
+		current_sessions.append(distances_session)
 
 		if distances_session.get("result", {}).get("parse_error"):
 			print(f"    Distances: ✗ parse error")
@@ -422,14 +476,14 @@ async def process_photo(
 	# Save sessions
 	save_sessions(json_path, sessions, lock=False)
 	if not distances_dup and distances_session.get("result", {}).get("error"):
-		return request_error_outcome(distances_session)
+		return rejection_backoff(current_sessions, model, distances_prompt, distances_format, queried=True) or request_error_outcome(distances_session)
 
 	if not (features_ok and distances_ok):
 		# A pass came back unparseable this run. Nothing reaches the database —
 		# readers get complete assessments only. The sessions file holds every
 		# such attempt for this model+prompt; that count drives the backoff.
 		junk_attempts = max(
-			count_failed_attempts(sessions, model, prompt, TEMPERATURE, MAX_TOKENS,
+			count_failed_attempts(current_sessions, model, prompt, TEMPERATURE, MAX_TOKENS,
 				response_format=format_)
 			for ok, prompt, format_ in ((features_ok, features_prompt, features_format), (distances_ok, distances_prompt, distances_format))
 			if not ok
@@ -443,7 +497,7 @@ async def process_photo(
 		return Outcome('collected', queried=queried)
 
 	# Distill results
-	distilled = distill_sessions(sessions)
+	distilled = distill_sessions(current_sessions)
 	if not distilled:
 		# both passes have a successful session, so this cannot happen; treat it as a bug, not a backoff
 		raise RuntimeError(f"distill_sessions produced nothing for {photo.id} although both passes succeeded")
@@ -455,7 +509,10 @@ async def process_photo(
 		for k, v in distilled.items():
 			print(f"      {k}: {v}")
 
-	return Outcome('ok', analysis=db_document(distilled), queried=queried)
+	document = db_document(distilled)
+	if selected_image(photo).get('sha256'):
+		document['image_content_sha256'] = selected_image(photo)['sha256']
+	return Outcome('ok', analysis=document, queried=queried)
 
 
 # ---------------------------------------------------------------------------
@@ -581,6 +638,8 @@ async def claim_next(datadir: Path, dry_run: bool, deferred: dict[str, datetime]
 
 def request_error_outcome(session: dict) -> Outcome:
 	reset = session.get("result", {}).get("quota_reset_at")
+	if not reset and session.get('result', {}).get('http_status') == 400:
+		return Outcome('provider_rejected', queried=True, retry_at=datetime.now(timezone.utc) + RETRY_ERROR)
 	return Outcome('error', queried=True,
 		quota_reset_at=datetime.fromisoformat(reset) if reset else None)
 
@@ -628,6 +687,10 @@ async def record_outcome(photo: Photo, outcome: Outcome, dry_run: bool) -> None:
 			print(f"    Database: skipped (dry run) — would {'write the document and ' if write_analysis else ''}dequeue")
 			return
 		async with SessionLocal() as db:
+			current = await db.get(Photo, photo.id, with_for_update=True)
+			if current is None or current.file_md5 != photo.file_md5 or current.sizes != photo.sizes or current.analysis != photo.analysis:
+				print("    Database: photo changed during analysis; preserving current photo and recorded answers")
+				return
 			if write_analysis:
 				await db.execute(update(Photo).where(Photo.id == photo.id).values(analysis=outcome.analysis))
 			await db.execute(delete(PhotoAnalysisQueue).where(PhotoAnalysisQueue.photo_id == photo.id))

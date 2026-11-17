@@ -29,6 +29,7 @@ from common.security_utils import sanitize_filename, validate_file_path, check_f
 import processing_state
 from common.cdn_uploader import cdn_uploader
 from common.config import get_pics_url
+from common.artifact_identity import file_sha256, pyramid_sha256, artifact_stem
 
 
 logger = logging.getLogger(__name__)
@@ -818,6 +819,7 @@ class PhotoProcessor:
 									 output_base: Optional[str] = None,
 									 keep_pics_in_worker: bool = False,
 									 local_pyramid_path: Optional[str] = None,
+									 artifact_version: Optional[int] = None,
 									 ) -> OptimizedPhoto:
 		"""Create optimized versions with anonymization and unique IDs.
 
@@ -1051,7 +1053,7 @@ class PhotoProcessor:
 				size_info.update({
 					'width': new_width,
 					'height': new_height,
-					'url': await self._get_size_url(output_file_path, relative_path, photo_id, client_signature, keep_pics_in_worker=keep_pics_in_worker)
+					**await self._publish_webp(output_file_path, relative_path, photo_id_part, photo_id, client_signature, keep_pics_in_worker, artifact_version)
 				})
 				sizes_info[size] = size_info
 			t_sizes.done()
@@ -1088,7 +1090,7 @@ class PhotoProcessor:
 					'path': crop_relative_path,
 					'width': crop_tw,
 					'height': crop_th,
-					'url': await self._get_size_url(crop_file_path, crop_relative_path, photo_id, client_signature, keep_pics_in_worker=keep_pics_in_worker)
+					**await self._publish_webp(crop_file_path, crop_relative_path, photo_id_part, photo_id, client_signature, keep_pics_in_worker, artifact_version)
 				}
 
 		t_crops.done()
@@ -1133,12 +1135,12 @@ class PhotoProcessor:
 			copy_exif_data(source_path, llm_output_path)
 			logger.info(f"Created 640_llm variant for {unique_id}: {llm_width}x{llm_height} at {llm_output_path}")
 
-			llm_url = await self._get_size_url(llm_output_path, llm_relative_path, photo_id, client_signature, keep_pics_in_worker=keep_pics_in_worker)
+			llm_artifact = await self._publish_webp(llm_output_path, llm_relative_path, photo_id_part, photo_id, client_signature, keep_pics_in_worker, artifact_version)
 			sizes_info['640_llm'] = {
 				'path': llm_relative_path,
 				'width': llm_width,
 				'height': llm_height,
-				'url': llm_url
+				**llm_artifact
 			}
 			t_llm.done()
 
@@ -1171,10 +1173,10 @@ class PhotoProcessor:
 					pyramid = self._external_pyramid_in_place(local_pyramid_path, ext_pyramid)
 				else:
 					pyramid = await self._ship_pyramid(local_pyramid_path, local_pyramid_path[:-len('.dzi')] + '_files', ext_pyramid,
-					                                   unique_id, photo_id, client_signature, keep_pics_in_worker=False)
+					                                   unique_id, photo_id, client_signature, keep_pics_in_worker=False, artifact_version=artifact_version)
 			elif own_dzi is not None:
 				processing_state.set_phase("dzi_pyramid")
-				pyramid = await self._ship_pyramid(*own_dzi, unique_id, photo_id, client_signature, keep_pics_in_worker=keep_pics_in_worker)
+				pyramid = await self._ship_pyramid(*own_dzi, unique_id, photo_id, client_signature, keep_pics_in_worker=keep_pics_in_worker, artifact_version=artifact_version)
 			if pyramid:
 				sizes_info['full']['pyramid'] = pyramid
 
@@ -1334,7 +1336,7 @@ class PhotoProcessor:
 			logger.error(f"DZI pyramid generation failed for {unique_id}: {e}", exc_info=True)
 			raise
 
-	async def _ship_pyramid(self, dzi_file: str, tiles_dir: str, meta: Dict[str, Any], unique_id: str, photo_id: str = None, client_signature: str = None, keep_pics_in_worker: bool = False) -> Optional[Dict[str, Any]]:
+	async def _ship_pyramid(self, dzi_file: str, tiles_dir: str, meta: Dict[str, Any], unique_id: str, photo_id: str = None, client_signature: str = None, keep_pics_in_worker: bool = False, artifact_version: Optional[int] = None) -> Optional[Dict[str, Any]]:
 		"""Ship a DZI pyramid (descriptor + every tile, through _get_size_url
 		like any other artifact) and return the pyramid metadata dict for inline
 		use by OpenSeadragon — it lets the client open the deep-zoom viewer
@@ -1343,7 +1345,8 @@ class PhotoProcessor:
 		Works for a pyramid rendered here (_render_own_pyramid, in the work
 		dir) AND for an accepted external one living on a read-only archive
 		mount: destinations are derived from ``unique_id`` — always
-		``opt/dzi/{user}/{photo_id}.dzi`` + ``{photo_id}_files/…`` — not from
+		``opt/dzi/{user}/{photo_id}[-vN]-{digest}.dzi`` and the matching
+		``_files/…`` tree — not from
 		where the source files sit, and in ship mode _get_size_url only READS
 		the source (API POST / CDN put). This is the "transfer" half of the
 		prod pano path: resize from the pyramid, then transfer the pyramid.
@@ -1354,6 +1357,8 @@ class PhotoProcessor:
 			user_id_part = validate_user_id(user_id_part)
 			safe_photo_id = sanitize_filename(photo_id_part)
 			rel_dir = os.path.join('opt', 'dzi', user_id_part)
+			sha256 = pyramid_sha256(dzi_file, tiles_dir)
+			safe_photo_id = artifact_stem(safe_photo_id, sha256, artifact_version)
 			logger.info(f"Uploading DZI files for {unique_id} from {tiles_dir}")
 			t_ship = _timed(f"pyramid ship ({'promote in place' if keep_pics_in_worker else 'transfer to pool'})", unique_id)
 
@@ -1395,6 +1400,7 @@ class PhotoProcessor:
 
 			return {
 				'type': 'dzi',
+				'sha256': sha256,
 				'dzi_url': dzi_url,
 				'tiles_url': tiles_url_base,
 				'tile_size': tile_size,
@@ -1410,6 +1416,18 @@ class PhotoProcessor:
 			# than silently producing a photo without deep zoom.
 			logger.error(f"DZI pyramid generation failed for {unique_id}: {e}", exc_info=True)
 			raise
+
+	async def _publish_webp(self, file_path, relative_path, photo_name, photo_id, client_signature, keep_pics_in_worker, version):
+		# Hash final encoded bytes, including EXIF, before publishing anywhere.
+		sha256 = file_sha256(file_path)
+		name = artifact_stem(photo_name, sha256, version) + '.webp'
+		target = str(pathlib.Path(file_path).with_name(name))
+		os.replace(file_path, target)
+		relative = str(pathlib.Path(relative_path).with_name(name))
+		url = await self._get_size_url(target, relative, photo_id, client_signature, keep_pics_in_worker=keep_pics_in_worker)
+		return {'url': url, 'path': relative, 'sha256': sha256,
+		        **({'artifact_version': version} if version is not None else {})}
+
 
 	async def _upload_file_to_api(self, file_path: str, relative_path: str, photo_id: str, client_signature: str) -> str:
 		"""Upload file to API server storage as a raw stream.
@@ -1698,6 +1716,7 @@ class PhotoProcessor:
 		keep_pics_in_worker: bool = False,
 		local_pyramid_path: Optional[str] = None,
 		local_source: bool = False,
+		artifact_version: Optional[int] = None,
 	) -> Optional[Dict[str, Any]]:
 		"""Process a user-uploaded photo and return processing results.
 
@@ -1928,7 +1947,7 @@ class PhotoProcessor:
 		# .exr.encoding sidecar value); read_image falls back to the embedded
 		# header tag when this is absent.
 		encoding = metadata.get('encoding') if metadata else None
-		optimized = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override, quality=quality, fast=fast, encoding=encoding, output_base=output_base, keep_pics_in_worker=keep_pics_in_worker, local_pyramid_path=local_pyramid_path)
+		optimized = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override, quality=quality, fast=fast, encoding=encoding, output_base=output_base, keep_pics_in_worker=keep_pics_in_worker, local_pyramid_path=local_pyramid_path, artifact_version=artifact_version)
 
 		# The raw inertial window, stored as its own gzipped artifact rather than
 		# folded into exif_data. NOT in PROVENANCE_KEYS by design — see the note

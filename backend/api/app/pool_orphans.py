@@ -66,6 +66,7 @@ from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Set,
 
 from common.config import get_file_pools, resolve_pool_for_url
 from photos import _PHOTO_ARTIFACT_URL_COLUMNS, _local_path_for_url, photo_artifacts
+from common.artifact_identity import split_artifact_stem
 
 ORPHAN_REASONS = ("missing", "deleted", "owner_mismatch", "not_completed", "unreferenced")
 IN_FLIGHT = "in_flight"
@@ -93,7 +94,7 @@ def parse_artifact(rel: str) -> Optional[Artifact]:
 	if parts[0] != "opt" or any(not p for p in parts):
 		return None
 	if len(parts) == 6 and parts[1] == "dzi" and parts[3].endswith("_files") and len(parts[3]) > len("_files"):
-		return Artifact(parts[3][:-len("_files")], parts[2], "/".join(parts[:4]))
+		return Artifact(split_artifact_stem(parts[3][:-len("_files")])[0], parts[2], "/".join(parts[:4]))
 	if len(parts) == 4:
 		return Artifact(_stem(parts[3]), parts[2], None)
 	if len(parts) == 3:
@@ -102,8 +103,9 @@ def parse_artifact(rel: str) -> Optional[Artifact]:
 
 
 def _stem(filename: str) -> str:
-	# Photo ids are UUIDs, so the first dot ends the id: <id>.webp, <id>.json.gz.
-	return filename.split(".", 1)[0]
+	# Strip the extension and optional content/version suffix; legacy UUID-only
+	# WebP and IMU names remain valid.
+	return split_artifact_stem(filename.split(".", 1)[0])[0]
 
 
 # --- what the database says -----------------------------------------------
