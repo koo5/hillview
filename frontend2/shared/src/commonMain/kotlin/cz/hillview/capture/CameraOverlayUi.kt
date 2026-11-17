@@ -26,6 +26,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -65,6 +67,12 @@ fun CameraOverlayUi(
     suppressHint: Boolean = false,
     /** Show the hunting readouts — MapSettings.showDiagnostics. */
     diagnostics: Boolean = false,
+    /**
+     * Whether this photo is destined for Panoramax (UploadSettings.shareToPanoramax).
+     * It only changes what an UNMEASURED pose says: with sharing on, "no attitude"
+     * has a consequence worth stating, and without it, it is just a missing number.
+     */
+    panoramaxShare: Boolean = false,
 ) {
     // The post-open hint: 4 s from the camera coming ready, as the
     // original fires doCalibrationHint right after the stream starts.
@@ -112,7 +120,13 @@ fun CameraOverlayUi(
         Column(Modifier.padding(start = 18.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)) {
             when {
                 showHint && !suppressHint -> HintContent(bearingMode)
-                else -> LocationRows(state, overridePosition, diagnostics)
+                else -> LocationRows(
+                    state,
+                    overridePosition,
+                    diagnostics,
+                    bearingMode,
+                    panoramaxShare,
+                )
             }
             statusText?.let { MonoText(it, Modifier.testTag("capture-status")) }
             uploadsText?.let { MonoText(it, Modifier.testTag("capture-upload-stats")) }
@@ -141,6 +155,40 @@ fun CameraOverlayUi(
     }
 }
 
+/**
+ * Level, tilted, or pointing at the sky — the Panoramax gates, live.
+ *
+ * It never refuses the shutter and never nags: a tilted photo is a photo, and only
+ * its chance of being PUBLISHED is at stake. So it states a fact and leaves the
+ * decision where it belongs. See `CaptureLevel` for the arithmetic, which is the
+ * same arithmetic `capture_pose.py` and the web capture UI use, pinned to one
+ * fixture by `CaptureLevelFixtureTest`.
+ *
+ * It reads the one state through [CaptureState] and subscribes to nothing of its
+ * own (docs/one-state.md).
+ */
+@Composable
+private fun LevelIndicator(
+    pitchDeg: Double?,
+    imageRollDeg: Double?,
+    panoramaxShare: Boolean,
+) {
+    val state = captureLevel(pitchDeg, imageRollDeg)
+    val words = captureLevelWords(pitchDeg, imageRollDeg)
+    val text = when {
+        words != null -> words
+        // Nothing measured the pose. Worth saying only when it costs something.
+        panoramaxShare -> "not measured — won't be published"
+        else -> return
+    }
+    MonoText(
+        "⊾ $text",
+        modifier = Modifier
+            .testTag("level-indicator")
+            .semantics { stateDescription = state.name.lowercase() },
+    )
+}
+
 @Composable
 private fun HintContent(bearingMode: BearingMode) {
     Row(
@@ -167,6 +215,10 @@ private fun LocationRows(
     state: CaptureState,
     overridePosition: ManualLocation?,
     diagnostics: Boolean,
+    /** Only to hide the level indicator on a mount — see [LevelIndicator]. */
+    bearingMode: BearingMode,
+    /** Only to decide whether an unmeasured pose is worth mentioning. */
+    panoramaxShare: Boolean,
 ) {
     // The effective capture position — the honesty note in the contract:
     // Tauri shows its pairing position (map state); here that is the
@@ -255,6 +307,17 @@ private fun LocationRows(
                 }?.let { "m ${pad(signedOneDp(it.toDouble()), W_ROLL)}°" },
             ).joinToString("  "),
             Modifier.testTag("attitude-readout"),
+        )
+    }
+
+    // Whether this shot will pass the Panoramax level gates, said in words beside the
+    // numbers that decide it. Hidden in car mode: a phone on a mount is not being
+    // aimed, so an indicator telling its owner to straighten it is noise at best.
+    if (bearingMode != BearingMode.Car) {
+        LevelIndicator(
+            pitchDeg = state.pitchDeg?.toDouble(),
+            imageRollDeg = state.imageRollDeg?.toDouble(),
+            panoramaxShare = panoramaxShare,
         )
     }
     // THE FIELD CHECK, behind its setting: is the compass trustworthy where we are

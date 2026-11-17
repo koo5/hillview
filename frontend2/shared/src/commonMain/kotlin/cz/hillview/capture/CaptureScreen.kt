@@ -658,6 +658,9 @@ fun CaptureScreen(
                 state = state,
                 diagnostics = mapSettings.showDiagnostics,
                 bearingMode = mapSettings.bearingMode,
+                // Only changes what an UNMEASURED pose says: with sharing off, a
+                // missing attitude costs this photo nothing worth a line of screen.
+                panoramaxShare = uploadSettings.shareToPanoramax,
                 // What a capture would stamp when it is NOT the fix: the map
                 // centre, live — while claimed over a fix, and whenever there
                 // is no fix (the table in docs/one-state.md). A blank first

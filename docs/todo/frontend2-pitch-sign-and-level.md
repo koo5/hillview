@@ -15,8 +15,15 @@ doc's *Conventions* section and its level-indicator rules before starting. The w
 - **The "Write EXIF" stamps landed 2026-11-17**, the second change.
   `PhotoExifWriter` now adds `inertial` and `capture_timing` beside `attitude`,
   built by the same functions the fast-write path uses. Pinned by two new cases in
-  `PhotoExifWriterTest` (11 on an API 36 emulator). Still to do: the level
-  indicator, and `DevicePhotoLoader` passing the pitch to the viewer.
+  `PhotoExifWriterTest` (11 on an API 36 emulator).
+- **The level indicator landed 2026-11-17**, the third change. `CaptureLevel.kt`
+  (commonMain) is the third port of the arithmetic, and `CaptureLevelFixtureTest`
+  READS `backend/common/capture_pose_cases.json` rather than copying it: all 40
+  cases, plus the two gates and the roll floor crossed against
+  `GRAVITY_ROLL_FLOOR`. `LevelIndicator` sits under the `attitude-readout` pill,
+  hidden in car mode, with seven `LevelIndicatorUiTest` cases. Verified on the
+  emulator: pitch −4.7°, roll +0.0° reads "⊾ Level".
+  Still to do: `DevicePhotoLoader` passing the pitch to the viewer.
 - **Device-verified 2026-11-17.** `PhotoDatabaseMigrationTest` runs nine tests on an
   API 36 emulator, including `version33TurnsTheStoredPitchPositiveUp` (a positive, a
   negative and a null row) and the whole-chain validation against the v33 schema.
