@@ -13,10 +13,9 @@ doc's *Conventions* section and its level-indicator rules before starting. The w
   dump header is `pitch_up_deg`. `PhotoUploadLogic` no longer sends the top-level
   `pitch`. Still to do: the "Write EXIF" stamps, the level indicator, and
   `DevicePhotoLoader` passing the pitch to the viewer.
-- **Not device-verified.** `PhotoDatabaseMigrationTest.version33TurnsTheStoredPitchPositiveUp`
-  is written but has never run: this machine's `kvm` group is empty, so no emulator
-  starts. Its SQL was checked against sqlite directly instead. Run it before trusting
-  the migration.
+- **Device-verified 2026-11-17.** `PhotoDatabaseMigrationTest` runs nine tests on an
+  API 36 emulator, including `version33TurnsTheStoredPitchPositiveUp` (a positive, a
+  negative and a null row) and the whole-chain validation against the v33 schema.
 
 ## The goal
 
