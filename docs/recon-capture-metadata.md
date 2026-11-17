@@ -747,6 +747,13 @@ the confusion is built into stored data and will outlive anyone's memory of it.
 | `exif_data->'gps'->'pitch'` | the same number one layer earlier, on its way to that column | `docs/todo/pitch-backfill-from-usercomment.md`, `enrich/`'s photo mirror |
 | `attitude.pitch_deg` in the UserComment | what the SENSOR read, freshest at the shutter | anything reconstructing, via the public detail endpoint |
 
+**UPDATE 2026-11-17:** a fourth home, on the phone: `PhotoEntity.pitch` in frontend2's
+own database. It held the sensor's positive-DOWN value until `PHOTO_DB_VERSION` 33
+negated every stored row, so it now agrees with `photos.pitch` and the viewer. The sign
+changes in exactly one place, `frontend2/.../map/PitchConvention.kt`: everything above it
+is positive up, and the capture stamp and the bearings table convert back on the way down.
+See [todo/frontend2-pitch-sign-and-level.md](todo/frontend2-pitch-sign-and-level.md).
+
 **UPDATE 2026-11-15:** the first row no longer holds that value. `photos.pitch` is
 now derived from the stamp, with its sign flipped to positive up, beside a new
 `photos.roll`. See *`photos.pitch` and `photos.roll` come from the stamp* below. The

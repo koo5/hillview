@@ -296,12 +296,21 @@ The `pitch` column after the backfill:
 - **The released Tauri app (1.32.0)** reads `pitch` from the photo stream for up/down. The
   field's shape doesn't change, and its values flip to the positive-up the app already
   assumes. So its navigation gets fixed, not broken.
-- **frontend2's viewer** is fixed for server photos. Its own photos on the phone still carry
-  positive-down pitch: see *Follow-ups*.
+- **frontend2's viewer** is fixed for server photos. Its own photos on the phone carried
+  positive-down pitch until 2026-11-17; see *Follow-ups*, now done.
 
 ## Follow-ups (not in this change)
 
-- **frontend2's sign.** Researched 2026-11-16, agreed 2026-11-17, together with the level
+- **frontend2's sign. DONE 2026-11-17** — commits `84c5e71d`, `f5f8606a`, `4ac5a9ed` and
+  this one. The sign changes at exactly one boundary (`PitchConvention.kt`), both sensor
+  entry points convert in, the capture stamp and the bearings table convert back,
+  `PHOTO_DB_VERSION` 33 negated the stored column, the EXIF stamp carries `inertial` and
+  `capture_timing` so an EXIF-stamped landscape shot is no longer read as pre-versioning,
+  the level indicator is on the capture screen, and `DevicePhotoLoader` now passes the
+  pitch through, so local photos join the viewer's up/down ring. What follows is the
+  research as it stood.
+
+  Researched 2026-11-16, agreed 2026-11-17, together with the level
   indicator below. The work is handed off in
   [frontend2-pitch-sign-and-level.md](frontend2-pitch-sign-and-level.md), which also corrects
   the research: raw sensor pitch reaches `BearingState.pitch` by a second path, the compass
@@ -310,6 +319,9 @@ The `pitch` column after the backfill:
     Local photos do not navigate inverted: `DevicePhotoLoader` never passes a pitch to the
     viewer, so they count as level. An uploaded photo shows its server copy instead
     (`collapseTwins`).
+    (Since 2026-11-17: `DeviceAttitude.pitch` and `PhotoEntity.pitch` are positive UP,
+    `BearingState.pitch` stays positive down below the boundary, and the loader passes the
+    pitch through — which is only correct BECAUSE the column was migrated.)
   - **One conversion point**, in `toDeviceAttitude`, makes the app positive up internally.
     Two places convert back: `attitudeProvenanceJson`, so the stamp keeps its sign at
     `metadata_version` 3, and the bearings-table writer, so its rows don't mix signs.

@@ -118,6 +118,12 @@ class DevicePhotoLoader(private val context: Context) {
                 lng = lng
             ),
             bearing = photoEntity.bearing,
+            // A device photo joins the viewer's up/down ring like any other. This
+            // is a straight pass-through only since PHOTO_DB_VERSION 33 (2026-11-17)
+            // turned the stored column positive UP, which is [PhotoData.pitch]'s
+            // convention; before that it would have sent every local photo up where
+            // it looked down. See docs/todo/frontend2-pitch-sign-and-level.md.
+            pitch = photoEntity.pitch,
             altitude = photoEntity.altitude,
             source = source.id,
             sizes = sizes,

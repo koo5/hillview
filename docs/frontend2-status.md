@@ -517,6 +517,72 @@ writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
 
+## 2026-11-17 — pitch is positive up, and the viewfinder says whether you are level
+
+Three changes from [todo/frontend2-pitch-sign-and-level.md](todo/frontend2-pitch-sign-and-level.md),
+all device-verified on an API 36 emulator. The plan's reasoning is the valuable part;
+this is what is now true.
+
+**The sign changes in exactly one place.** `map/PitchConvention.kt` holds
+`statePitchFromSensor` and `sensorPitchFromState`, and nothing else negates a pitch.
+Above it — `DeviceAttitude.pitch`, `PhotoCaptureState.pitchDeg`, `PhotoEntity.pitch`,
+the dump's `pitch_up_deg` column, `OverlapRun`'s view directions — everything is
+POSITIVE UP, the GPano convention `photos.pitch` and the viewer already use. Below it,
+the capture stamp's `attitude.pitch_deg` and the bearings table stay positive down,
+because that is what `capture_pose.py` reads and what years of stored rows mean.
+
+Both sensor entry points convert on the way in, and there are exactly two:
+`AttitudeMapping` and the compass callback in `MapSensorController.startBearing`. The
+second one is why the original research was wrong, and why `PitchEntryPointTest`
+(jvmTest) now fails the build if a third appears — it allowlists the files that may
+mention `OrientationSensorData` at all. `matrixPitchDeg` deliberately does NOT convert:
+it is the raw diagnostic.
+
+`PHOTO_DB_VERSION` 33 negates every stored row. `PhotoDatabaseMigrationTest` covers a
+positive, a NEGATIVE (which is what tells a negation from an `abs()`) and a null row.
+The top-level `pitch` field is no longer sent in the upload metadata; the line is kept
+commented in `PhotoUploadLogic` as history.
+
+**The "Write EXIF" stamp was carrying less than the fast-write path.** With that
+setting on, the worker keeps the file's own UserComment and the upload metadata never
+speaks — and that stamp held `attitude` alone. `capture_pose` reads a stamp with no
+`capture_timing` as pre-versioning, and then trusts the angles only when
+`device_rotation_deg` is 0, so an EXIF-stamped landscape or upside-down photo reached
+the server with no pitch and no roll and failed the Panoramax gates. Portrait worked,
+which is the worst shape a bug can have. `PhotoExifWriter` now writes `inertial` and
+`capture_timing` too, built by the same functions the upload path uses rather than
+copies.
+
+**The capture screen says whether the shot will pass the gates.** `CaptureLevel.kt`
+(commonMain) is the third port of one piece of arithmetic, after `capture_pose.py` and
+the web app's `capturePoseMath.ts`. Three ports drift, so `CaptureLevelFixtureTest`
+READS `backend/common/capture_pose_cases.json` instead of copying it: all 40 cases
+agree, derived from the fixture's gravity vectors into what the one state would hold.
+The two gates are checked against the fixture's own limits and the roll floor against
+shared-kt's `GRAVITY_ROLL_FLOOR`.
+
+Two traps in that port, both of which would have been silent:
+
+- the quarter-turn reduction uses `floor(r / 90 + 0.5)`, not Kotlin's `round` — `round`
+  goes half away from zero and both existing ports go half up, which disagree at every
+  negative half;
+- `LEVEL_ROLL_FLOOR` is a `Double`, because `0.26f` widened is `0.2599999904` and equals
+  neither the fixture nor itself written out. The test crosses the two constants in
+  float space, where they are exactly equal, rather than reaching for a tolerance.
+
+The indicator reads the one state through `CaptureState` and subscribes to nothing. It
+says "Level", "Horizon tilted 23°", "Pointing at the sky" — the web app's own sentences,
+so one measurement is described one way in both apps. Hidden in car mode (a phone on a
+mount is not being aimed); an unmeasured pose stays quiet unless Panoramax sharing is
+on, where the silence would cost the photo its publication. It never refuses the shutter.
+Seven `LevelIndicatorUiTest` cases, including the level LANDSCAPE shot that must read 0
+rather than 90.
+
+**Local photos now navigate up and down.** `DevicePhotoLoader` passes `PhotoEntity.pitch`
+into `PhotoData.pitch`, which `LoaderMarkerSources` already forwarded. This is a straight
+pass-through only because the column was migrated first — before that it would have sent
+every local photo up where it looked down.
+
 ## 2026-11-09 — worker status in one place, and the machine pin
 
 User: "i keep going back between the uploads screen and the settings->worker
