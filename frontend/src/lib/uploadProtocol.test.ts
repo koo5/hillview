@@ -408,6 +408,27 @@ describe('uploadProtocol', () => {
 			expect(parsed.captured_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 		});
 
+		it('passes keys it does not list through to the metadata field', async () => {
+			// buildUploadMetadata is the only key list; a second one here is how
+			// the service worker's uploader came to drop alt_location.
+			mockFetch
+				.mockResolvedValueOnce(okResponse({ status: 'ok' }))
+				.mockResolvedValueOnce(
+					okResponse({ success: true, message: 'Uploaded', photo_id: 'p-1' })
+				);
+
+			const inertial = { gravity: [0, 9.80665, 0], age_ms: 12, gravity_source: 'gravity-sensor' };
+			const alt_location = { lat: 50.1, lng: 14.4, ts: 1, accuracy: 3, source: 'gps-background' };
+			await uploadToWorker(file, uploadJwt, signature, workerUrl, {
+				latitude: 50.08, captured_at: '2023-11-14T22:13:20.123Z', inertial, alt_location
+			});
+
+			const formData = mockFetch.mock.calls[1][1]?.body as FormData;
+			expect(JSON.parse(formData.get('metadata') as string)).toEqual({
+				latitude: 50.08, captured_at: '2023-11-14T22:13:20.123Z', inertial, alt_location
+			});
+		});
+
 		it('should return parsed response on 200 OK', async () => {
 			mockFetch
 				.mockResolvedValueOnce(okResponse({ status: 'ok' }))

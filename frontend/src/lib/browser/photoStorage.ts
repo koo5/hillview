@@ -4,6 +4,7 @@
 
 import { writable, get } from 'svelte/store';
 import type { CaptureLocation } from '../captureQueue';
+import type { InertialStamp } from '../capturePoseMath';
 
 const DB_NAME = 'HillviewPhotoDB';
 const DB_VERSION = 4;
@@ -23,6 +24,8 @@ export interface StoredPhoto {
         location: CaptureLocation;
         captured_at: number;
         orientation_code: number; // EXIF orientation (1, 3, 6, 8)
+        /** Gravity at the shutter, sent as the upload's `inertial`; null/absent = unmeasured. */
+        inertial?: InertialStamp | null;
     };
     status: 'pending' | 'uploading' | 'processing' | 'completed' | 'failed';
     deleted: boolean;
@@ -152,11 +155,7 @@ class BrowserPhotoStorage {
     async savePhotoFromImageData(
         id: string,
         imageData: ImageData,
-        metadata: {
-            location: CaptureLocation;
-            captured_at: number;
-            orientation_code: number;
-        },
+        metadata: StoredPhoto['metadata'],
         consent: { license?: string | null; panoramax_share?: boolean } = {}
     ): Promise<void> {
         if (!this.db) await this.init();
@@ -207,11 +206,7 @@ class BrowserPhotoStorage {
         blob: Blob,
         width: number,
         height: number,
-        metadata: {
-            location: CaptureLocation;
-            captured_at: number;
-            orientation_code: number;
-        },
+        metadata: StoredPhoto['metadata'],
         consent: { license?: string | null; panoramax_share?: boolean } = {}
     ): Promise<void> {
         if (!this.db) await this.init();

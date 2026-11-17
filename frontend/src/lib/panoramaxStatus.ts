@@ -14,6 +14,14 @@ export interface PanoramaxStatus {
 	last_pass_at: string | null;
 }
 
+// The level gates' limits: MAX_PITCH_DEG and MAX_ROLL_DEG in
+// backend/panoramax/app/eligibility.py. The capture screen's level indicator says
+// what the gates will decide, so it reads these too; capturePoseMath.test.ts pins
+// them to backend/common/capture_pose_cases.json, which the backend pins to
+// eligibility.py.
+export const MAX_PITCH_DEG = 20;
+export const MAX_ROLL_DEG = 10;
+
 // One phrase per gate in GATES (backend/panoramax/app/eligibility.py).
 export const PANORAMAX_GATE_TEXT: Record<string, string> = {
 	grant: 'its upload grant is not offered to Panoramax',
@@ -33,8 +41,8 @@ export const PANORAMAX_GATE_TEXT: Record<string, string> = {
 	location_accuracy: 'its location fix is too inaccurate',
 	blurry: 'it was judged blurry',
 	bearing: 'it has no bearing',
-	pitch: 'its up/down tilt was not measured or is over 20°',
-	roll: 'its horizon tilt was not measured or is over 10°',
+	pitch: `its up/down tilt was not measured or is over ${MAX_PITCH_DEG}°`,
+	roll: `its horizon tilt was not measured or is over ${MAX_ROLL_DEG}°`,
 	analysis: 'it has not been analyzed',
 	signage: 'its analysis found signage',
 	owner_inactive: 'the owner’s account is inactive',

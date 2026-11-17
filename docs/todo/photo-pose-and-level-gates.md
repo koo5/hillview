@@ -334,50 +334,66 @@ The `pitch` column after the backfill:
   objects), and the setting is off by default. Fix: have `PhotoExifWriter` write the same
   objects the fast-write path sends. Part of the frontend2 handoff.
 - **The web app.** Worth doing (the user, 2026-11-16). Researched the same day, agreed
-  2026-11-17 together with the level indicator below, and handed off in
-  [web-capture-level-stamp.md](web-capture-level-stamp.md). No backend change is needed: `BrowserMetadata.inertial`
-  and `PROVENANCE_KEYS` already carry the object, and canvas JPEGs have no UserComment of their
-  own, so the worker synthesizes one.
-  - **Today:** `CameraCapture.svelte` starts an `AbsoluteOrientationSensor` (100 Hz,
-    `referenceFrame: 'screen'`) whose readings are only logged. The web compass
-    (`startWebCompass`) feeds `updateBearing` with no pitch.
-  - **Sources:**
-    - **Chromium on Android:** `GravitySensor({referenceFrame: 'device'})`. Chromium maps it to
-      Android's `TYPE_GRAVITY`, the sensor frontend2 stamps, so the vector is used as-is.
-    - **iOS Safari and Firefox:** `deviceorientation` beta/gamma, converted per event to the
-      up vector `9.80665·[−cosβ·sinγ, sinβ, cosβ·cosγ]` (the spec's rotation matrix, the same
-      row WebKit derives beta/gamma from). The angles jump near upright portrait while the
-      vector doesn't, so average vectors, never angles. iOS needs
-      `DeviceOrientationEvent.requestPermission()` in the click.
-    - **Never `accelerationIncludingGravity`:** it is the raw accelerometer, and reportedly
-      sign-inverted on iOS. An inverted vector flips pitch's sign but leaves the reduced roll
-      unchanged, and the gates use absolute values, so it would pass silently wrong.
-    - **Desktop** has none: unmeasured, as now.
-  - **Sampling:** a ~1 s ring buffer. Take the samples in the 300 ms before the shutter
-    (read at the top of `handleCapture`) and average the unit vectors. No fresh sample means
-    no `inertial` object at all. Omit gravity for a front (`'user'`) camera, since
-    `capture_pose` assumes the lens looks along −z.
-  - **The stamp:** `inertial: {gravity, age_ms, gravity_source: 'gravity-sensor' |
-    'deviceorientation', sample_count, window_ms, gravity_spread_deg}`. Send no `attitude`,
-    `capture_timing.metadata_version` or top-level `pitch`; those carry frontend2's versioned
-    meanings.
-  - **One state:** the pose gets its own home (beside `deviceOrientationExif.ts`), written only
-    while the camera is shown and read by the shutter stamp (later a level indicator). It is
-    never part of `bearingState`.
-  - **Plumbing:** the metadata passes five hops with explicit key lists, and the two uploaders
-    (`foregroundUploader` in `browser/photoSync.ts`, `swSecureUploader` in
-    `sw/serviceWorkerSecureUpload.ts`) have already drifted: the service-worker one drops
-    `alt_location` (confirmed). One shared builder fixes both.
-  - **Tests:** a vitest module for the conversion and averaging; the same vectors as a "web
-    stamp" block in `test_capture_pose.py`; Playwright (Chromium) with CDP
-    `Emulation.setSensorOverrideReadings` for gravity and
-    `DeviceOrientation.setDeviceOrientationOverride` for the fallback. Then a real-device
-    series on iOS Safari, Firefox Android and Chrome Android: portrait rolled both ways, both
-    landscapes, pitched up and down. A debug readout of `accelerationIncludingGravity.y` in
-    upright portrait (≈ +9.8 Android, ≈ −9.8 iOS) settles the inversion.
-  - **Watch:** the W3C Accelerometer spec is now maintenance-only, and Chrome plans to make
-    sensor permission Ask-by-default, so call `requestPermission()` in the camera click
-    everywhere it exists.
+  2026-11-17 together with the level indicator below, handed off in
+  [web-capture-level-stamp.md](web-capture-level-stamp.md), and **built the same day**. No
+  backend code changed: `BrowserMetadata.inertial` and `PROVENANCE_KEYS` already carried
+  the object, and canvas JPEGs have no UserComment of their own, so the worker
+  synthesizes one. Not yet checked on a real phone.
+  - **Sources**, in `frontend/src/lib/capturePose.ts`: Chromium's
+    `GravitySensor({referenceFrame: 'device'})`, which is `TYPE_GRAVITY`; elsewhere
+    deviceorientation's beta/gamma, converted per event to the up vector
+    `9.80665·[−cosβ·sinγ, sinβ, cosβ·cosγ]` and averaged as vectors. Never
+    `accelerationIncludingGravity`. Desktop stays unmeasured. It replaces the
+    `AbsoluteOrientationSensor` in `CameraCapture.svelte`, whose readings were only
+    logged; that code is kept commented out.
+  - **The stamp:** `inertial: {gravity, age_ms, gravity_source, sample_count, window_ms,
+    gravity_spread_deg}`, the mean of the unit vectors from the 300 ms before the press,
+    read at the top of `handleCapture`. There is no object when no sample is fresh or
+    the camera faces the user. No `attitude`, `capture_timing` or top-level `pitch`.
+  - **One state:** the ring buffer in `capturePose.ts`, filled only while the camera is
+    shown. The shutter reads it through `stampInertial()`, and the indicator through
+    the `capturePose` store. Neither touches a sensor.
+  - **One builder:** `buildUploadMetadata` in `uploadProtocol.ts` is now the only key
+    list. `uploadToWorker` passes it through, and both uploaders call it, which fixes the
+    Background Sync uploader dropping `alt_location`. `uploadMetadata.test.ts` drives one
+    photo through both and compares them.
+  - **Permission:** `requestCapturePosePermission()` runs in `toggleCamera`, inside the
+    click, before anything awaits.
+  - **The indicator** (`CaptureLevelIndicator.svelte`) follows the rules below. It draws
+    the horizon against reference marks at the nearest quarter turn, says the state in
+    words, and carries `data-testid="capture-level-indicator"` and `data-level-state`.
+    The limits are `MAX_PITCH_DEG` / `MAX_ROLL_DEG` in `panoramaxStatus.ts`. When nothing
+    is measured it says "Tilt not measured.", with the Panoramax line only while the toggle
+    is on (the user's change, see the rules below). It shows always: that default is still
+    the user's to judge, from the screenshots.
+  - **Shared fixture:** `backend/common/capture_pose_cases.json`. `test_capture_pose.py`
+    pins its limits to `eligibility.py` and the TS port's test pins them to
+    `panoramaxStatus.ts`; both run every case. frontend2's tests can read it once it is committed.
+  - **Tests:** vitest (`capturePoseMath.test.ts`, `uploadMetadata.test.ts`), the web
+    stamp in `test_capture_pose.py`, the worker's `BrowserMetadata` test, an upload in
+    `test_capture_pose_upload.py`, and `capture-level-stamp.spec.ts` (Chromium, CDP
+    sensor overrides, through to the server row's `pitch` and `roll`).
+  - **Found while building:**
+    - **Chromium rounds every motion-sensor axis to 0.1 m/s²**, a fingerprinting
+      mitigation, which is up to about 0.6° per reading. Averaging a handheld phone's
+      samples smooths some of it. It matters only within a degree of a limit.
+    - **A constant reading produces no stream of events**, for GravitySensor and
+      deviceorientation alike. With a CDP override set once and left alone, the reading
+      lapses to unmeasured within the window, which is why the spec re-sends its
+      overrides with a small jitter. A real handheld sensor always changes, but a phone
+      held perfectly still (on a tripod, say) might go quiet for longer than 300 ms. Its
+      photo would then be stamped unmeasured, the conservative direction. This was
+      observed with overrides only, so check it on the device series before deciding
+      whether the window should accept an unchanged last reading.
+    - **The API's `inertial` projection serves `gravity` and `age_ms` only.**
+      `gravity_source`, `sample_count`, `window_ms` and `gravity_spread_deg` are in the
+      stored UserComment, which the owner's detail response includes in full, but not in
+      the typed projection. No server change was made, as agreed.
+  - **Left:** the real-device series on iOS Safari, Firefox Android and Chrome Android, then
+    the always-or-toggle decision. Debug mode 4 (`CapturePoseDebug.svelte`) shows the pose's
+    source, vector, pitch and roll beside the raw `accelerationIncludingGravity`, whose y held
+    upright settles the iOS inversion. The series should also check whether a landscape web
+    capture is rotated twice via `orientation_code`.
 - **The Tauri app** has the same gap: it measures pitch and roll for its compass but stamps
   neither. Not planned: the Tauri app will likely not have another release (the user,
   2026-11-17). Its released build must still keep working against the prod API.
@@ -410,6 +426,10 @@ The `pitch` column after the backfill:
   - **Hidden in car mode**, which is exempt from the gates, and absent when nothing is
     measured. When the Panoramax toggle is on and nothing is measured, a short note says that
     such photos are not published.
+    - **The web changed this, 2026-11-17 (the user):** when nothing is measured it always
+      says "Tilt not measured.", and adds that such photos cannot be published to
+      Panoramax only while the toggle is on. frontend2's handoff was written to the rule
+      above and keeps it unless the user extends the change.
   - **Open, for the user to judge on screenshots:** whether the indicator shows always or
     only while the Panoramax toggle is on. Both handoffs default to always, because a level
     photo is better for every reader.

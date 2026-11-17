@@ -7,6 +7,7 @@ import { authStorage } from '$lib/browser/authStorage';
 import { readSettings } from '$lib/browser/settingsIndexedDb';
 import { photoUploadConsent } from '$lib/licenses';
 import {
+	buildUploadMetadata,
 	calculateFileHash,
 	generateClientSignature,
 	requestUploadAuthorization,
@@ -81,18 +82,9 @@ export class ServiceWorkerSecureUploader {
 				authResponse.upload_authorized_at
 			);
 
-			// Step 4: Upload to worker with metadata
-			const metadata = {
-				latitude: photo.metadata.location.latitude,
-				longitude: photo.metadata.location.longitude,
-				altitude: photo.metadata.location.altitude,
-				bearing: photo.metadata.location.bearing,
-				captured_at: photo.metadata.captured_at,
-				orientation_code: photo.metadata.orientation_code,
-				location_source: photo.metadata.location.location_source,
-				bearing_source: photo.metadata.location.bearing_source,
-				accuracy: photo.metadata.location.accuracy
-			};
+			// Step 4: Upload to worker with metadata, from the same builder as the
+			// foreground uploader (this one's own list used to drop alt_location)
+			const metadata = buildUploadMetadata(photo);
 
 			const result = await uploadToWorker(
 				file,

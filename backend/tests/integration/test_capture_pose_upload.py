@@ -120,3 +120,22 @@ class TestCapturePoseUpload(BasePhotoTest):
 		# That era's landscape pitch carries the landscape fault, so it is not read.
 		photo_id = await self._upload(self._metadata(bearing_source="gps-kalman", pitch=10.0))
 		assert self._pose(photo_id) == (None, None, "gps-kalman")
+
+	@pytest.mark.asyncio
+	async def test_a_web_stamp_gets_gpano_pitch_and_roll(self):
+		# The web app's stamp: `inertial` alone, from deviceorientation's
+		# beta/gamma, with the keys frontend2 does not send. No attitude, no
+		# capture_timing, no upload pitch. Portrait, 5° down, rolled 4° counterclockwise
+		# (common/capture_pose_cases.json, 'portrait-down-5-ccw-4').
+		inertial = {"gravity": [0.68147, 9.745536, 0.854699], "age_ms": 40,
+					"gravity_source": "deviceorientation", "sample_count": 18,
+					"window_ms": 300, "gravity_spread_deg": 0.8}
+		photo_id = await self._upload(self._metadata(bearing_source="map", inertial=inertial),
+									  size=(480, 640))
+		pitch, roll, source = self._pose(photo_id)
+		assert pitch == pytest.approx(-5.0, abs=0.01)
+		assert roll == pytest.approx(-4.0, abs=0.01)
+		assert source == "map"
+		# The whole object reaches the stored UserComment, extra keys included.
+		comment = json.loads(psql(f"SELECT exif_data->'data'->>'UserComment' FROM photos WHERE id = '{photo_id}';"))
+		assert comment["inertial"] == inertial

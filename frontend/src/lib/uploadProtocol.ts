@@ -16,7 +16,9 @@
 import CryptoJS from 'crypto-js';
 import { clientCrypto } from './clientCrypto';
 import { backendUrl } from './config';
-import { browserPhotoStorage } from './browser/photoStorage';
+import { browserPhotoStorage, type StoredPhoto } from './browser/photoStorage';
+import type { AltLocation } from './captureQueue';
+import type { InertialStamp } from './capturePoseMath';
 
 // ── Types ──
 
@@ -55,6 +57,61 @@ export interface SecureUploadResult {
 	photo_id?: string;
 	error?: string;
 	busy?: boolean; // worker upload queue full — abort the drain pass, don't burn a retry
+}
+
+// ── Upload metadata ──
+
+/** The worker's `metadata` form field for a browser capture (BrowserMetadata in
+ * backend/worker/app.py, which drops keys it does not declare). */
+export interface UploadMetadata {
+	latitude?: number;
+	longitude?: number;
+	altitude?: number;
+	bearing?: number;
+	captured_at?: string;
+	orientation_code?: number;
+	location_source?: string;
+	bearing_source?: string;
+	accuracy?: number;
+	alt_location?: AltLocation;
+	inertial?: InertialStamp;
+}
+
+/**
+ * The upload metadata of one stored browser capture: the ONE place it is built.
+ * Both uploaders call it, the foreground one (foregroundUploader in
+ * browser/photoSync.ts) and the Background Sync one (swSecureUploader in
+ * sw/serviceWorkerSecureUpload.ts). Each used to keep its own key list, and they
+ * drifted: the service worker's never sent alt_location.
+ *
+ * A browser cannot write EXIF, so this is the only carrier of the capture's
+ * provenance; the worker folds alt_location, inertial and the sources into the
+ * UserComment it synthesizes. Absent values are left out, not sent as null.
+ */
+export function buildUploadMetadata(photo: StoredPhoto): UploadMetadata {
+	const { location, captured_at, orientation_code, inertial } = photo.metadata;
+	const metadata: Record<string, unknown> = {
+		latitude: location.latitude,
+		longitude: location.longitude,
+		altitude: location.altitude,
+		bearing: location.bearing,
+		captured_at: new Date(captured_at).toISOString(),
+		orientation_code,
+		location_source: location.location_source,
+		bearing_source: location.bearing_source,
+		accuracy: location.accuracy,
+		// Background-tracking alternative location. Android embeds this in the
+		// JPEG's EXIF UserComment; the browser has no local-EXIF step, so it rides
+		// the upload metadata instead. Null for normal captures. Backend "promote
+		// to primary" reads it from the UserComment.
+		alt_location: location.alt_location,
+		// Gravity at the shutter (capturePose.ts); absent when nothing measured it.
+		inertial
+	};
+	for (const key of Object.keys(metadata)) {
+		if (metadata[key] === undefined || metadata[key] === null) delete metadata[key];
+	}
+	return metadata as UploadMetadata;
 }
 
 // ── Errors ──
@@ -310,7 +367,7 @@ export async function uploadToWorker(
 	uploadJwt: string,
 	signature: string,
 	workerUrl: string,
-	browserMetadata?: any, // Additional metadata that can't be in EXIF
+	browserMetadata?: any, // buildUploadMetadata's output: metadata that can't be in EXIF
 	anonymizationOverride?: string | null // JSON: null/absent=auto, "[]"=none, "[{...}]"=specific
 ): Promise<SecureUploadResult> {
 	const maxRetries = 3;
@@ -371,26 +428,16 @@ export async function uploadToWorker(
 			}
 
 			// If browser metadata is provided, add it as a JSON object
-			// since browser can't write EXIF tags
+			// since browser can't write EXIF tags. Its keys are buildUploadMetadata's
+			// and are not listed again here: a second key list is how the two
+			// uploaders drifted apart.
 			if (browserMetadata) {
 				const metadataObj = {
-					latitude: browserMetadata.latitude,
-					longitude: browserMetadata.longitude,
-					altitude: browserMetadata.altitude,
-					bearing: browserMetadata.bearing,
+					...browserMetadata,
 					captured_at:
 						typeof browserMetadata.captured_at === 'number'
 							? new Date(browserMetadata.captured_at).toISOString()
-							: browserMetadata.captured_at,
-					orientation_code: browserMetadata.orientation_code,
-					location_source: browserMetadata.location_source,
-					bearing_source: browserMetadata.bearing_source,
-					accuracy: browserMetadata.accuracy,
-					// Background-tracking alternative location. Android embeds this in
-					// the JPEG's EXIF UserComment; the browser has no local-EXIF step,
-					// so it rides the upload metadata instead. Null for normal captures
-					// (stripped below). Backend "promote to primary" reads it from here.
-					alt_location: browserMetadata.alt_location
+							: browserMetadata.captured_at
 				};
 
 				// Remove undefined values

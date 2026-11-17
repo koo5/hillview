@@ -970,6 +970,16 @@ the stamp's `gps.pitch`, negated, for pitch only. That applies only when the
 UserComment has no `attitude` and no `inertial` object and the image is
 portrait-shaped. Within about 15° of flat, roll is NULL (`GRAVITY_ROLL_FLOOR`).
 
+**The web app is a gravity source too, since 2026-11-17.** A browser capture stamps
+`inertial` alone, with no `attitude`, no `capture_timing` and no `gps.pitch`. Its
+`gravity` is the 300 ms mean before the shutter, either from Chromium's
+`GravitySensor` (`gravity_source: 'gravity-sensor'`, Android's `TYPE_GRAVITY`,
+rounded by Chromium to 0.1 m/s² per axis) or from deviceorientation's beta/gamma
+(`'deviceorientation'`, iOS Safari and Firefox). Beside it are `age_ms`,
+`sample_count`, `window_ms` and `gravity_spread_deg`, which the API's `inertial`
+projection does not serve: they are in the stored UserComment only. See
+`docs/todo/web-capture-level-stamp.md`.
+
 What changed for the three homes:
 
 - **`photos.pitch` stopped being the stamp's `gps.pitch`.** That value was positive

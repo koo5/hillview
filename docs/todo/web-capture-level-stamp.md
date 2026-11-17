@@ -5,6 +5,13 @@ follow-ups in [photo-pose-and-level-gates.md](photo-pose-and-level-gates.md). Re
 *Conventions* section and its level-indicator rules before starting. The frontend2 half is
 [frontend2-pitch-sign-and-level.md](frontend2-pitch-sign-and-level.md), run separately.
 
+**Status, 2026-11-17: built, not yet checked on a real phone.** What was built, how it differs
+from this plan, and what is left are in the web follow-up of
+[photo-pose-and-level-gates.md](photo-pose-and-level-gates.md#follow-ups-not-in-this-change).
+Two corrections to the plan below. `types/photoTypes.ts` holds no capture type in use: the
+stored photo is `StoredPhoto` in `browser/photoStorage.ts`. And `uploadToWorker` kept a
+third key list, which now passes the builder's output through.
+
 ## The goal
 
 - **Web captures carry a gravity measurement**, so the server can derive `photos.pitch` and
@@ -139,6 +146,9 @@ follow-ups in [photo-pose-and-level-gates.md](photo-pose-and-level-gates.md). Re
   - absent when nothing is measured;
   - when `capturePanoramaxShare` is on and nothing is measured, a short note that such photos
     are not published to Panoramax. On desktop that note is the only part that shows.
+
+  Changed while building (the user, 2026-11-17): when nothing is measured the indicator
+  always says "Tilt not measured.", and adds the Panoramax line only while the toggle is on.
 
 ## A shared fixture for the maths
 

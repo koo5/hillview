@@ -231,3 +231,75 @@ def test_an_upload_pitch_without_any_user_comment_is_read():
 	# The stamp is absent entirely: nothing contradicts the field.
 	assert capture_pose({'gps': {'pitch': 5.0}}, 1440, 1920) == (-5.0, None)
 	assert capture_pose({'gps': 'x'}, 1440, 1920) == (None, None)
+
+
+# ── The shared fixture ──
+# common/capture_pose_cases.json holds the cases this module, the web app's level
+# indicator (capturePoseMath.ts) and frontend2 must agree on, with the gate limits.
+# Its synthetic vectors were built from the pitch and roll they expect, not computed
+# here. See docs/todo/web-capture-level-stamp.md.
+
+CASES = json.loads((Path(__file__).resolve().parents[4] / 'common' / 'capture_pose_cases.json').read_text())
+
+
+def _verdict(pitch, roll) -> str:
+	"""The indicator's word for what the Panoramax pitch and roll gates will decide."""
+	from panoramax.app.eligibility import MAX_PITCH_DEG, MAX_ROLL_DEG
+	if roll is None:
+		return 'flat'
+	return 'level' if abs(pitch) <= MAX_PITCH_DEG and abs(roll) <= MAX_ROLL_DEG else 'tilted'
+
+
+def test_the_fixture_limits_are_the_gates():
+	from common.capture_pose import ROLL_FLOOR
+	from panoramax.app.eligibility import MAX_PITCH_DEG, MAX_ROLL_DEG
+	assert (CASES['max_pitch_deg'], CASES['max_roll_deg']) == (MAX_PITCH_DEG, MAX_ROLL_DEG)
+	assert CASES['roll_floor'] == ROLL_FLOOR
+
+
+@pytest.mark.parametrize('case', CASES['cases'] + CASES['deviceorientation'], ids=lambda c: c['id'])
+def test_the_fixture_cases(case):
+	pitch, roll = capture_pose(gravity(case['gravity']))
+	assert pitch == pytest.approx(case['pitch'], abs=0.01)
+	if case['roll'] is None:
+		assert roll is None
+	else:
+		assert roll == pytest.approx(case['roll'], abs=0.01)
+	assert _verdict(pitch, roll) == case['level']
+
+
+# ── The web stamp ──
+# The web app stamps `inertial` alone: no attitude, no capture_timing, no top-level
+# pitch. Its gravity is GravitySensor's reading on Chromium (Android's TYPE_GRAVITY)
+# or the up vector converted from deviceorientation's beta/gamma elsewhere, and the
+# object carries keys frontend2's does not.
+
+def web_stamp(g, source='deviceorientation') -> dict:
+	return exif({'inertial': {'gravity': g, 'age_ms': 40, 'gravity_source': source,
+							  'sample_count': 18, 'window_ms': 300, 'gravity_spread_deg': 0.8},
+				 'location_source': 'map', 'bearing_source': 'map', 'location_accuracy_m': 1})
+
+
+@pytest.mark.parametrize('case', CASES['deviceorientation'], ids=lambda c: c['id'])
+def test_the_web_stamp_from_deviceorientation(case):
+	pitch, roll = capture_pose(web_stamp(case['gravity']))
+	assert pitch == pytest.approx(case['pitch'], abs=0.01)
+	assert roll == (None if case['roll'] is None else pytest.approx(case['roll'], abs=0.01))
+
+
+@pytest.mark.parametrize('g,pitch,roll', [p.values[:1] + p.values[4:] for p in REAL_ROWS])
+def test_the_web_stamp_from_the_gravity_sensor(g, pitch, roll):
+	"""Chromium's GravitySensor is TYPE_GRAVITY, so a frontend2 vector reads the same."""
+	assert capture_pose(web_stamp(g, 'gravity-sensor')) == pytest.approx((pitch, roll), abs=0.01)
+
+
+def test_the_web_stamps_extra_keys_change_nothing():
+	g = [3.802262, 9.020489, -0.640069]
+	assert capture_pose(web_stamp(g)) == capture_pose(gravity(g))
+
+
+def test_a_web_stamp_never_reads_the_upload_pitch():
+	# The web sends no top-level pitch, but if one rode along its inertial object
+	# is a stamp, so the last resort stays shut.
+	stamp = {'gps': {'pitch': 30.0}, **web_stamp([0.0, 9.80665, 0.0])}
+	assert capture_pose(stamp, 1440, 1920) == (0.0, 0.0)
