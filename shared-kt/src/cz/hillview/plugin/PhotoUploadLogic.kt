@@ -942,10 +942,12 @@ class PhotoUploadLogic(internal val context: Context) {
 			}
 			response.use { r ->
 				if (!r.isSuccessful) {
+					@Suppress("UNNECESSARY_SAFE_CALL") // OkHttp 4's body is nullable in the Tauri build.
 					val error = r.body?.string() ?: "Unknown error"
 					throw Exception("Upload authorization failed: ${r.code} - $error")
 				}
 
+				@Suppress("UNNECESSARY_NOT_NULL_ASSERTION") // OkHttp 4's body is nullable in the Tauri build.
 				val responseJson = JSONObject(r.body!!.string())
 
 				// Check if this is a duplicate file detection response
@@ -1155,6 +1157,7 @@ class PhotoUploadLogic(internal val context: Context) {
 				//	}
 				//}
 				if (readyResponse.code == 200) {
+					@Suppress("UNNECESSARY_SAFE_CALL") // OkHttp 4's body is nullable in the Tauri build.
 					val machineId = readyMachineId(readyResponse.body?.string())
 					val pin = machineId?.let { WorkerMachinePin(workerUrl, it) }
 					if (pin != pinnedWorker) {
@@ -1232,6 +1235,7 @@ class PhotoUploadLogic(internal val context: Context) {
 				if (response.code == 503) {
 					//pinnedWorkerMachine = null
 					pinnedWorker = null
+					@Suppress("UNNECESSARY_SAFE_CALL") // OkHttp 4's body is nullable in the Tauri build.
 					val error = response.body?.string() ?: "Unknown error"
 					Log.w(TAG, "Worker rejected upload as busy: $error")
 					//noteWorker(workerUrl, "upload: HTTP 503 (queue full)", failed = true)
@@ -1244,12 +1248,14 @@ class PhotoUploadLogic(internal val context: Context) {
 				}
 
 				if (!response.isSuccessful) {
+					@Suppress("UNNECESSARY_SAFE_CALL") // OkHttp 4's body is nullable in the Tauri build.
 					val error = response.body?.string() ?: "Unknown error"
 					Log.e(TAG, "Worker upload failed: ${response.code} - $error")
 					noteWorker(workerUrl, "upload: HTTP ${response.code} ${error.take(120)}", failed = true)
 					return false
 				}
 
+				@Suppress("UNNECESSARY_NOT_NULL_ASSERTION") // OkHttp 4's body is nullable in the Tauri build.
 				val responseJson = JSONObject(response.body!!.string())
 				val success = responseJson.optBoolean("success", false)
 
@@ -1449,6 +1455,7 @@ class PhotoUploadLogic(internal val context: Context) {
                     return null
                 }
 
+                @Suppress("UNNECESSARY_NOT_NULL_ASSERTION") // OkHttp 4's body is nullable in the Tauri build.
                 val responseJson = JSONObject(response.body!!.string())
                 val photosArray = responseJson.getJSONArray("photos")
                 val statuses = mutableListOf<ServerPhotoStatus>()

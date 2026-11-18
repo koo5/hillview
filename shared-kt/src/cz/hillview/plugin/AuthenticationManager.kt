@@ -418,6 +418,7 @@ class AuthenticationManager(
                     return Result.success()
                 } else {
                     Log.e(TAG, "Client public key registration failed with status: ${response.code}")
+                    @Suppress("UNNECESSARY_SAFE_CALL") // OkHttp 4's body is nullable in the Tauri build.
                     val responseBody = response.body?.string()
                     Log.e(TAG, "Registration error response: $responseBody")
 
@@ -490,6 +491,7 @@ class AuthenticationManager(
 
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
+                    @Suppress("UNNECESSARY_SAFE_CALL") // OkHttp 4's body is nullable in the Tauri build.
                     val responseBody = response.body?.string()
                     if (responseBody != null) {
                         // Parse JSON response (simple manual parsing)

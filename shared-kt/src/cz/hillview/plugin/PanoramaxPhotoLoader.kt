@@ -121,6 +121,7 @@ class PanoramaxPhotoLoader {
 					Log.e(TAG, "Panoramax API ${response.code} ${response.message} for ${source.id}")
 					return emptyList()
 				}
+				@Suppress("UNNECESSARY_SAFE_CALL") // OkHttp 4's body is nullable in the Tauri build.
 				val body = response.body?.string() ?: return emptyList()
 				if (shouldAbort()) return emptyList()
 
@@ -186,6 +187,7 @@ class PanoramaxPhotoLoader {
 		try {
 			client.newCall(photosReq).execute().use { resp ->
 				if (resp.isSuccessful) {
+					@Suppress("UNNECESSARY_SAFE_CALL") // OkHttp 4's body is nullable in the Tauri build.
 					val body = resp.body?.string()
 					if (body != null) {
 						val arr = json.parseToJsonElement(body).jsonArray
@@ -197,6 +199,7 @@ class PanoramaxPhotoLoader {
 			}
 			client.newCall(usersReq).execute().use { resp ->
 				if (resp.isSuccessful) {
+					@Suppress("UNNECESSARY_SAFE_CALL") // OkHttp 4's body is nullable in the Tauri build.
 					val body = resp.body?.string()
 					if (body != null) {
 						val arr = json.parseToJsonElement(body).jsonArray
