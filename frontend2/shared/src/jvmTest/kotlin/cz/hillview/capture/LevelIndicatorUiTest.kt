@@ -5,6 +5,9 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.v2.runComposeUiTest
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import cz.hillview.map.BearingMode
 import kotlin.test.Test
 
@@ -24,6 +27,7 @@ class LevelIndicatorUiTest {
         bearingDeg = 273.1f,
         pitchDeg = pitch,
         imageRollDeg = roll,
+        attitudeAtMs = cz.hillview.core.nowMs(),
         fixLatitude = 50.115044,
         fixLongitude = 14.500907,
     )
@@ -158,5 +162,68 @@ class LevelIndicatorUiTest {
         onNodeWithTag("level-indicator").assertTextContains(
             "⊾ not measured — won't be published",
         )
+    }
+
+    @Test
+    fun aPoseThatStopsUpdatingExpiresWhileTheIndicatorIsVisible() = runComposeUiTest {
+        val sampleAt = 1_700_000_000_000L
+        var now = sampleAt
+        setContent {
+            CameraOverlayUi(
+                state = state(pitch = 0f, roll = 0f).copy(attitudeAtMs = sampleAt),
+                bearingMode = BearingMode.Walking,
+                overridePosition = null,
+                opacityLevel = 3,
+                onCycleOpacity = {},
+                suppressHint = true,
+                panoramaxShare = true,
+                clock = { now },
+            )
+        }
+        onNodeWithTag("level-indicator").assertTextContains("⊾ Level")
+        runOnIdle { now += cz.hillview.map.ATTITUDE_MAX_AGE_MS + 1 }
+        mainClock.advanceTimeBy(1_100)
+        onNodeWithTag("level-indicator").assertTextContains("⊾ not measured — won't be published")
+    }
+
+    @Test
+    fun anglesWithoutASampleTimeAreNotClaimedToBeMeasured() = runComposeUiTest {
+        setContent {
+            CameraOverlayUi(
+                state = state(pitch = 0f, roll = 0f).copy(attitudeAtMs = null),
+                bearingMode = BearingMode.Walking,
+                overridePosition = null,
+                opacityLevel = 3,
+                onCycleOpacity = {},
+                suppressHint = true,
+                panoramaxShare = true,
+            )
+        }
+        onNodeWithTag("level-indicator").assertTextContains("⊾ not measured — won't be published")
+    }
+
+    @Test
+    fun aFreshPoseAfterTheLastClockTickUpdatesImmediately() = runComposeUiTest {
+        val sampleAt = 1_700_000_000_000L
+        var now = sampleAt
+        var displayed by mutableStateOf(state(0f, 0f).copy(attitudeAtMs = sampleAt))
+        setContent {
+            CameraOverlayUi(
+                state = displayed,
+                bearingMode = BearingMode.Walking,
+                overridePosition = null,
+                opacityLevel = 3,
+                onCycleOpacity = {},
+                suppressHint = true,
+                panoramaxShare = true,
+                clock = { now },
+            )
+        }
+        onNodeWithTag("level-indicator").assertTextContains("⊾ Level")
+        runOnIdle {
+            now += 100
+            displayed = displayed.copy(pitchDeg = 25f, attitudeAtMs = now)
+        }
+        onNodeWithTag("level-indicator").assertTextContains("⊾ Tilted up 25°")
     }
 }

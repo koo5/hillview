@@ -213,9 +213,9 @@ data class SensorSnapshot(
     /** Which sensor produced the heading — EXIF provenance (bearing_source). */
     val bearingSource: String? = null,
     /**
-     * Camera ELEVATION at the shutter, degrees, positive up — how far the
-     * phone was tilted, where [trueBearingDeg] says which way it faced. The
-     * viewer needs both to offer "the photo above this one".
+     * The elected bearing's elevation, positive up, when that source supplied
+     * one. It can predate the shutter when only tilt changed. Local navigation
+     * uses [measuredPitchDeg] from this snapshot's device pose instead.
      *
      * Nullable and never defaulted to 0: the viewer's up/down rule is
      * strictly-higher and strictly-lower, so "level" and "unknown" must stay
@@ -562,7 +562,7 @@ data class CaptureState(
     val bearingDeg: Float? = null,
     /**
      * The other two axes of the same reading, for the overlay — the optical axis's tilt
-     * (POSITIVE LOOKING DOWN) and the image's rotation about it.
+     * (positive UP) and the image's rotation about it.
      *
      * Mirrored out of the attitude the screen pushes in, exactly as [bearingDeg] is
      * mirrored out of the bearing: the capture never reads a sensor for these. Nothing
@@ -571,6 +571,8 @@ data class CaptureState(
      */
     val pitchDeg: Float? = null,
     val imageRollDeg: Float? = null,
+    /** Wall-clock time of the attitude sample; freshness is derived by the reader. */
+    val attitudeAtMs: Long? = null,
     /**
      * THE SAME ROLL, OUT OF GRAVITY — `atan2(g_x, g_y)`, the identity [imageRollDeg] is
      * meant to satisfy by construction.

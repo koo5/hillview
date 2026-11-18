@@ -193,16 +193,6 @@ actual fun MapScreen(
         session.setBearingPhase(TrackingPhase.Starting)
         val started = controller.startBearing(
             mode = mapSettings.bearingMode,
-            // The ATTITUDE record: every sample, past the dead-band or not,
-            // elected or not. The bearing below is throttled to 1° and can be
-            // overridden by hand; this is what the device actually measured,
-            // and it is the one state's answer for a manual row's pitch/roll
-            // and for the photo stamp's attitude provenance.
-            onAttitude = { data ->
-                // One conversion, shared with the engine's lookup ring — see
-                // toDeviceAttitude for why it is not written twice.
-                state.updateDeviceAttitude(data.toDeviceAttitude())
-            },
         ) { heading, accuracy, magnetic, pitch ->
             session.setBearingPhase(TrackingPhase.Active)
             // Both modes drive the bearing state past a 1° dead-band:
@@ -234,6 +224,12 @@ actual fun MapScreen(
             session.setBearingTrackingWanted(false)
             session.setBearingPhase(TrackingPhase.Inactive)
         }
+    }
+
+    // The device pose is a record, independent of the elected bearing. Keep
+    // publishing it when tracking is off or a hand-set arrow owns the heading.
+    LaunchedEffect(Unit) {
+        controller.observeAttitude { state.updateDeviceAttitude(it?.toDeviceAttitude()) }
     }
 
     // The inertial record: gravity and linear acceleration, for the life of
@@ -1009,18 +1005,6 @@ private class MapSensorController(private val context: Context) {
     /** @return false when the stream cannot be observed (reverts intent). */
     fun startBearing(
         mode: BearingMode,
-        /**
-         * Every compass sample, WHATEVER is elected — the attitude record.
-         * Separate from [onHeading] because the two answer different
-         * questions: that one is "which way is the user facing", this one is
-         * "how was the device being held", and in car mode, under a manual
-         * claim, or past the 1° dead-band the first has no reading to give
-         * while the second still does. See [DeviceAttitude].
-         *
-         * Declared BEFORE onHeading so the trailing lambda still reads as
-         * the heading at the call site, which is what it has always been.
-         */
-        onAttitude: (cz.hillview.plugin.OrientationSensorData) -> Unit = {},
         /** heading, accuracy, magnetic heading, pitch — one sample, not four reads. */
         onHeading: (Float, Int?, Double?, Double?) -> Unit,
     ): Boolean {
@@ -1031,7 +1015,6 @@ private class MapSensorController(private val context: Context) {
                 compassJob = scope.launch {
                     engine.orientation.collect { data ->
                         data?.let {
-                            onAttitude(it)
                             onHeading(
                                 it.trueHeading,
                                 it.accuracyLevel,
@@ -1059,15 +1042,6 @@ private class MapSensorController(private val context: Context) {
                     // neither, and null is what that means.
                     engine.carBearing.collect { onHeading(it.toFloat(), null, null, null) }
                 }
-                // The compass is not the bearing here, but it is still
-                // RUNNING (every activity's GeoConfig asks for the sensors),
-                // and what it measures is still the truth about how the
-                // phone is held. Collected so a photo taken in car mode
-                // carries its attitude too — without this, the one place
-                // that most needs a tilt record is the one with none.
-                attitudeJob = scope.launch {
-                    engine.orientation.collect { data -> data?.let(onAttitude) }
-                }
                 wantCar = true
                 syncLocation()
                 true
@@ -1080,8 +1054,6 @@ private class MapSensorController(private val context: Context) {
         compassJob = null
         carJob?.cancel()
         carJob = null
-        attitudeJob?.cancel()
-        attitudeJob = null
         carHeading = null
         if (wantCar) {
             wantCar = false
@@ -1095,14 +1067,12 @@ private class MapSensorController(private val context: Context) {
         syncLocation()
     }
 
-    /**
-     * The fix as a RECORD, for the one state — unconditional, unlike
-     * [setLocationEnabled], which is follow-me's gated interest. The engine's
-     * platform Location carries elapsedRealtimeNanos, and the record keeps it
-     * (FixState): the stamp's fix age is measured against the monotonic
-     * clock, and handing the state a lat/lng pair would silently lose that.
-     * Idempotent; ends with [release].
-     */
+    /** Device attitude for the pane's lifetime, independent of bearing tracking. */
+    fun observeAttitude(onAttitude: (cz.hillview.plugin.OrientationSensorData?) -> Unit) {
+        if (attitudeJob != null) return
+        attitudeJob = scope.launch { engine.orientation.collect(onAttitude) }
+    }
+
     /**
      * The engine's gravity / linear-acceleration stream into the one state.
      *
@@ -1116,6 +1086,14 @@ private class MapSensorController(private val context: Context) {
         motionJob = scope.launch { engine.motion.collect(onMotion) }
     }
 
+    /**
+     * The fix as a RECORD, for the one state — unconditional, unlike
+     * [setLocationEnabled], which is follow-me's gated interest. The engine's
+     * platform Location carries elapsedRealtimeNanos, and the record keeps it
+     * (FixState): the stamp's fix age is measured against the monotonic
+     * clock, and handing the state a lat/lng pair would silently lose that.
+     * Idempotent; ends with [release].
+     */
     fun observeFixes(onRecord: (cz.hillview.map.FixState) -> Unit) {
         if (recordJob != null) return
         recordJob = scope.launch {

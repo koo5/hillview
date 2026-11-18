@@ -75,6 +75,20 @@ class CaptureLevelFixtureTest {
     }
 
     @Test
+    fun localPhotoPitchAgreesWithTheBackendForEveryFixturePose() {
+        for (case in cases()) {
+            val shot = SensorSnapshot(
+                capturedAtMs = 1_700_000_000_000L,
+                motion = cz.hillview.map.DeviceMotionSample(
+                    gravity = case.gravity.map { it.toFloat() },
+                    atMs = 1_700_000_000_000L,
+                ),
+            )
+            assertEquals(case.pitch, shot.measuredPitchDeg()!!, 0.01, case.id)
+        }
+    }
+
+    @Test
     fun everyCaseAgreesWithCapturePose() {
         val rows = cases()
         assertTrue(rows.size >= 29, "the fixture should carry the real series: ${rows.size}")

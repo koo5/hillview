@@ -327,9 +327,12 @@ data class DeviceMotionSample(
  */
 const val ATTITUDE_MAX_AGE_MS = 2_000L
 
+fun isAttitudeFresh(atMs: Long?, now: Long): Boolean =
+    atMs != null && now - atMs in 0..ATTITUDE_MAX_AGE_MS
+
 /** The attitude, if it is fresh enough at [now] to describe that instant. */
 fun DeviceAttitude?.freshAt(now: Long): DeviceAttitude? =
-    this?.takeIf { now - it.ts in 0..ATTITUDE_MAX_AGE_MS }
+    this?.takeIf { isAttitudeFresh(it.ts, now) }
 
 /**
  * Holds map state and enforces the update rules the Svelte app relies on.
@@ -428,7 +431,7 @@ class MapStateHolder(
      * This is the RECORD, kept so that a bearing set by hand can still say
      * how the phone was being held when the hand set it.
      */
-    fun updateDeviceAttitude(attitude: DeviceAttitude) {
+    fun updateDeviceAttitude(attitude: DeviceAttitude?) {
         _deviceAttitude.value = attitude
     }
 

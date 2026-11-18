@@ -32,6 +32,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import cz.hillview.map.BearingMode
+import cz.hillview.map.isAttitudeFresh
+import cz.hillview.core.nowMs
 import kotlinx.coroutines.delay
 
 /**
@@ -73,6 +75,8 @@ fun CameraOverlayUi(
      * has a consequence worth stating, and without it, it is just a missing number.
      */
     panoramaxShare: Boolean = false,
+    /** The same wall clock as the sensor timestamps; injectable for expiry checks. */
+    clock: () -> Long = ::nowMs,
 ) {
     // The post-open hint: 4 s from the camera coming ready, as the
     // original fires doCalibrationHint right after the stream starts.
@@ -126,6 +130,7 @@ fun CameraOverlayUi(
                     diagnostics,
                     bearingMode,
                     panoramaxShare,
+                    clock,
                 )
             }
             statusText?.let { MonoText(it, Modifier.testTag("capture-status")) }
@@ -219,6 +224,7 @@ private fun LocationRows(
     bearingMode: BearingMode,
     /** Only to decide whether an unmeasured pose is worth mentioning. */
     panoramaxShare: Boolean,
+    clock: () -> Long,
 ) {
     // The effective capture position — the honesty note in the contract:
     // Tauri shows its pairing position (map state); here that is the
@@ -228,11 +234,11 @@ private fun LocationRows(
 
     // The stale-fix warning, in the overlay's ⚠️ slot: a capture right now
     // would stamp the photo with this aging fix (the original stamps
-    // silently, however old). Ticks once a second so the age is live.
-    var nowMs by remember { mutableStateOf(cz.hillview.core.nowMs()) }
-    LaunchedEffect(state.fixAtMs) {
+    // silently, however old). The tick also expires a stopped attitude stream.
+    var nowMs by remember { mutableStateOf(clock()) }
+    LaunchedEffect(clock) {
         while (true) {
-            nowMs = cz.hillview.core.nowMs()
+            nowMs = clock()
             delay(1_000)
         }
     }
@@ -314,9 +320,12 @@ private fun LocationRows(
     // numbers that decide it. Hidden in car mode: a phone on a mount is not being
     // aimed, so an indicator telling its owner to straighten it is noise at best.
     if (bearingMode != BearingMode.Car) {
+        // A new sample can arrive after the last clock tick. Read now on every
+        // recomposition too, so a current reading is never mistaken for a future one.
+        val fresh = isAttitudeFresh(state.attitudeAtMs, clock())
         LevelIndicator(
-            pitchDeg = state.pitchDeg?.toDouble(),
-            imageRollDeg = state.imageRollDeg?.toDouble(),
+            pitchDeg = state.pitchDeg?.toDouble()?.takeIf { fresh },
+            imageRollDeg = state.imageRollDeg?.toDouble()?.takeIf { fresh },
             panoramaxShare = panoramaxShare,
         )
     }

@@ -212,6 +212,19 @@ marker the viewer would not front no longer enlarges.
 
 ## The device pose is its own state
 
+The continuous angular record, `MapStateHolder.deviceAttitude`, is observed
+for the map pane's lifetime, alongside `deviceMotion` and `lastFix`. Turning
+bearing tracking off stops updates to the elected heading; it does not stop
+publishing how the device is held. The capture overlay mirrors the attitude's
+timestamp and derives freshness at read, using the same age limit as the
+shutter. A paused stream becomes unmeasured rather than remaining "Level".
+
+Local photo elevation is derived from the completed capture snapshot: gravity
+first, then measured attitude, as on the backend. It does not use the elected
+bearing's pitch, which can be unchanged during a vertical sweep or absent
+after a manual heading. An at-exposure pose lookup is included before this
+derivation, so the local viewer and the uploaded photo describe the same pose.
+
 "Which way am I facing" and "which way up is the phone" are different
 questions, and the original keeps them in different stores —
 `mapState.ts` for the first, `deviceOrientationExif.ts` for the second. This

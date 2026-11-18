@@ -754,6 +754,12 @@ changes in exactly one place, `frontend2/.../map/PitchConvention.kt`: everything
 is positive up, and the capture stamp and the bearings table convert back on the way down.
 See [todo/frontend2-pitch-sign-and-level.md](todo/frontend2-pitch-sign-and-level.md).
 
+**UPDATE 2026-11-18:** new local rows derive `PhotoEntity.pitch` from the completed
+capture's gravity, falling back to its measured attitude, like `capture_pose` does
+on the server. The elected bearing's pitch can stay unchanged when only elevation
+changes, so it no longer supplies local photo geometry. The bearing election and
+the provenance wire conventions are unchanged.
+
 **UPDATE 2026-11-15:** the first row no longer holds that value. `photos.pitch` is
 now derived from the stamp, with its sign flipped to positive up, beside a new
 `photos.roll`. See *`photos.pitch` and `photos.roll` come from the stamp* below. The

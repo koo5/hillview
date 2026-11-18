@@ -570,22 +570,21 @@ private class AndroidPhotoCapture(
             // the same mirroring stampBearing does, and for the same reason: the UI must
             // not reach for a sensor of its own. Pushed by the screen from the one state,
             // so this runs on the main dispatcher like the bearing's.
-            value?.let {
-                state = state.copy(
-                    pitchDeg = it.pitch.toFloat(),
-                    imageRollDeg = it.roll.toFloat(),
-                    branchCorrected = it.branchCorrected,
-                    fieldMagnitudeUt = it.fieldMagnitudeUt?.toFloat(),
-                    fieldDipDeg = it.fieldDipDeg?.toFloat(),
-                    matrixRollDeg = it.matrixRollDeg?.toFloat(),
-                    fieldLooksClean = it.fieldMagnitudeUt?.let { b ->
-                        cz.hillview.plugin.fieldLooksUndisturbed(
-                            b.toFloat(),
-                            it.fieldDipDeg?.toFloat(),
-                        )
-                    },
-                )
-            }
+            state = state.copy(
+                pitchDeg = value?.pitch?.toFloat(),
+                imageRollDeg = value?.roll?.toFloat(),
+                attitudeAtMs = value?.ts,
+                branchCorrected = value?.branchCorrected,
+                fieldMagnitudeUt = value?.fieldMagnitudeUt?.toFloat(),
+                fieldDipDeg = value?.fieldDipDeg?.toFloat(),
+                matrixRollDeg = value?.matrixRollDeg?.toFloat(),
+                fieldLooksClean = value?.fieldMagnitudeUt?.let { b ->
+                    cz.hillview.plugin.fieldLooksUndisturbed(
+                        b.toFloat(),
+                        value.fieldDipDeg?.toFloat(),
+                    )
+                },
+            )
         }
 
     @Volatile override var stampMotion: cz.hillview.map.DeviceMotionSample? = null
@@ -2152,6 +2151,21 @@ private class AndroidPhotoCapture(
                     // capture's finalize coroutine reaches CapturedPhoto below.
                     val pressToExpMs = if (exposedAt != 0L) exposedAt - captureStartMs else null
                     val expToJpegMs = if (exposedAt != 0L) shotAt - exposedAt else null
+                    // Timing is known now. Use this one snapshot for both the file's
+                    // EXIF and the row: adding it only when publishing lastPhoto left
+                    // the JPEG unversioned, so landscape attitude without gravity
+                    // was discarded by the backend even though the row had a version.
+                    val savedSnapshot = snapshot.copy(
+                        captureTiming = CaptureTiming(
+                            capturedAtSource = "press",
+                            pressToExposureMs = pressToExpMs,
+                            exposureToJpegMs = expToJpegMs,
+                            // The capture mode, not the storage target (`mode`).
+                            stillMode = stillMode.key,
+                            build = cz.hillview.BuildInfo.label(),
+                            metadataVersion = METADATA_VERSION,
+                        ),
+                    )
                     if (lastShotAtMs != 0L) {
                         CaptureStatsLog.record("cadence", shotAt - lastShotAtMs, wall)
                     }
@@ -2190,9 +2204,9 @@ private class AndroidPhotoCapture(
                             // a real sensor.
                             if (writeExif) {
                                 if (file != null) {
-                                    PhotoExifWriter.write(file, snapshot)
+                                    PhotoExifWriter.write(file, savedSnapshot)
                                 } else {
-                                    PhotoExifWriter.write(context, uri!!, snapshot)
+                                    PhotoExifWriter.write(context, uri!!, savedSnapshot)
                                 }
                             }
                             // After any EXIF rewrite, so the indexed entry
@@ -2209,25 +2223,7 @@ private class AndroidPhotoCapture(
                                 state = state.copy(
                                     lastPhoto = CapturedPhoto(
                                         locator, filename,
-                                        // The timing joins the snapshot only here: the
-                                        // press-time copy could not have known it, and
-                                        // this is the object the row is built from.
-                                        snapshot.copy(
-                                            captureTiming = CaptureTiming(
-                                                capturedAtSource = "press",
-                                                pressToExposureMs = pressToExpMs,
-                                                exposureToJpegMs = expToJpegMs,
-                                                // The CAPTURE mode, not the
-                                                // storage target: `mode` here is
-                                                // the StorageMode, and passing it
-                                                // sent "public_folder" to the
-                                                // server as a still mode until the
-                                                // uploaded data said so.
-                                                stillMode = stillMode.key,
-                                                build = cz.hillview.BuildInfo.label(),
-                                    metadataVersion = METADATA_VERSION,
-                                            ),
-                                        ),
+                                        savedSnapshot,
                                     ),
                                 )
                             }

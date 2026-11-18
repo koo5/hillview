@@ -9,6 +9,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import org.junit.Test
+import org.json.JSONObject
 
 /**
  * The EXIF contract, on a real device because it is Android's ExifInterface
@@ -145,6 +146,49 @@ class PhotoExifWriterTest {
             "without this the server reads the stamp as pre-versioning: $comment",
         )
         file.delete()
+    }
+
+    @Test
+    fun landscapeWithoutGravityKeepsTheVersionNeededToReadItsAttitude() {
+        val file = jpeg()
+        try {
+            PhotoExifWriter.write(
+                file,
+                snapshot.copy(
+                    deviceRotationDeg = 270,
+                    attitude = cz.hillview.map.DeviceAttitude(
+                        trueDeg = 68.5,
+                        magneticDeg = 64.25,
+                        pitch = 6.5, // the lens is above the horizon
+                        roll = 90.0,
+                        ts = snapshot.capturedAtMs,
+                    ),
+                    captureTiming = CaptureTiming(
+                        capturedAtSource = "press",
+                        metadataVersion = METADATA_VERSION,
+                        pressToExposureMs = 77,
+                        exposureToJpegMs = 126,
+                    ),
+                ),
+            )
+
+            val rawComment = ExifInterface(file.absolutePath)
+                .getAttribute(ExifInterface.TAG_USER_COMMENT)
+            assertNotNull(rawComment)
+            val comment = JSONObject(rawComment)
+            assertTrue(!comment.has("inertial"), "no gravity may be invented")
+            val timing = comment.getJSONObject("capture_timing")
+            assertEquals(METADATA_VERSION, timing.getInt("metadata_version"))
+            assertEquals("press", timing.getString("captured_at_source"))
+            assertEquals(77L, timing.getLong("press_to_exposure_ms"))
+            assertEquals(126L, timing.getLong("exposure_to_jpeg_ms"))
+            val attitude = comment.getJSONObject("attitude")
+            assertEquals(270, attitude.getInt("device_rotation_deg"))
+            assertEquals(-6.5, attitude.getDouble("pitch_deg"), 0.001)
+            assertEquals(90.0, attitude.getDouble("roll_deg"), 0.001)
+        } finally {
+            file.delete()
+        }
     }
 
     /**

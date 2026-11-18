@@ -428,7 +428,9 @@ fun CaptureScreen(
                 locationAgeMs = photo.snapshot.locationAgeMs,
                 accuracyM = photo.snapshot.accuracyM,
                 exposureJson = photo.snapshot.exposure?.let { exposureProvenanceJson(it) },
-                pitchDeg = photo.snapshot.pitchDeg?.toDouble(),
+                // The same pose the server reads, including any at-exposure lookup.
+                // Bearing state may not have changed during a vertical sweep.
+                pitchDeg = photo.snapshot.measuredPitchDeg(),
                 altLocationJson = photo.snapshot.altLocation?.let { altLocationJson(it) },
                 attitudeJson = attitudeProvenanceJson(photo.snapshot),
                 fixJson = fixProvenanceJson(photo.snapshot),
