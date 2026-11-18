@@ -107,6 +107,12 @@ class TestCapturePoseUpload(BasePhotoTest):
 		assert pitch == pytest.approx(3.741, abs=0.01)   # looking up: positive
 		assert roll == pytest.approx(-22.856, abs=0.01)  # scene turned clockwise: negative
 		assert source == "android-compass-true"
+		# The info overlay reads these GPano values from the public record,
+		# rather than displaying the raw stamp's opposite pitch/roll signs.
+		public = requests.get(f"{API_URL}/photos/public/hillview-{photo_id}")
+		assert public.status_code == 200, public.text
+		assert public.json()["pitch"] == pytest.approx(pitch)
+		assert public.json()["roll"] == pytest.approx(roll)
 
 	@pytest.mark.asyncio
 	async def test_an_unstamped_portrait_photo_keeps_its_upload_pitch_negated(self):
@@ -120,6 +126,10 @@ class TestCapturePoseUpload(BasePhotoTest):
 		# That era's landscape pitch carries the landscape fault, so it is not read.
 		photo_id = await self._upload(self._metadata(bearing_source="gps-kalman", pitch=10.0))
 		assert self._pose(photo_id) == (None, None, "gps-kalman")
+		public = requests.get(f"{API_URL}/photos/public/hillview-{photo_id}")
+		assert public.status_code == 200, public.text
+		assert public.json()["pitch"] is None
+		assert public.json()["roll"] is None
 
 	@pytest.mark.asyncio
 	async def test_a_web_stamp_gets_gpano_pitch_and_roll(self):

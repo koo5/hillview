@@ -2328,6 +2328,9 @@ async def get_public_photo(
 			# subject — so it sits with the position rather than in `exif`,
 			# which is documented as camera settings.
 			"location_accuracy_m": _location_accuracy_m(photo.exif_data),
+			# Camera pose in GPano conventions, distinct from the raw attitude stamp.
+			"pitch": photo.pitch,
+			"roll": photo.roll,
 			# What the DEVICE measured, as opposed to the elected `bearing`
 			# above — heading, pitch, roll and the quality of each. Beside the
 			# position rather than inside `exif`, which is documented as camera

@@ -59,6 +59,7 @@ export interface BasePhotoData {
      */
     has_bearing?: boolean;
     pitch?: number;
+    roll?: number;
     altitude: number;
     sizes?: Record<string, PhotoSize>;
     is_user_photo?: boolean;
