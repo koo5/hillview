@@ -75,6 +75,12 @@ def is_credit_exhaustion(error):
     return ('credit balance' in message and any(word in message for word in ('low','insufficient','exhausted'))) or 'insufficient credits' in message
 
 
+def is_workspace_usage_limit(error):
+    if not isinstance(error,httpx.HTTPStatusError) or error.response.status_code not in (400,402,403,429):return False
+    message=provider_error_message(error.response).lower()
+    return 'workspace api usage limit' in message and ('reached' in message or 'exceeded' in message)
+
+
 class ClaudeAPI:
     """Blocking transport; the scheduler runs these methods outside DB transactions."""
     def __init__(self,key_file,datadir,prompt_root,*,effort=None,model=MODEL,response_format=None):
@@ -259,6 +265,7 @@ class Scheduler:
             raise ValueError('Claude budget and prior spend must be finite and nonnegative')
         if not 1<=self.max_photos<=500:raise ValueError('Claude batch size must be 1–500 photos')
         self.transport=transport;self.next_poll=0;self.budget_exhausted=False
+        self.provider_resume_at=None
         key=os.environ.get('CLAUDE_ANALYZER_API_KEY_FILE')
         if self.transport is None and key and Path(key).is_file():
             root=Path(os.environ.get('ANALYZER_CLAUDE_PROMPT_DIR',self.datadir/'aaa'))
@@ -366,9 +373,7 @@ class Scheduler:
                 return
         except Exception as error:
             await self.release(batch_id,'failed',actual=0,error=str(error),unsubmitted=True)
-            if is_credit_exhaustion(error):
-                self.pause_for_credits(error)
-                return
+            if self.pause_for_provider_limit(error):return
             if isinstance(error,BatchTooLarge) and self.max_photos>5:
                 self.max_photos=max(5,len(photos)//2)
                 print(f'Batch payload too large; retrying with at most {self.max_photos} photos (nothing submitted)',flush=True)
@@ -391,7 +396,7 @@ class Scheduler:
         except httpx.HTTPStatusError as error:
             if error.response.status_code in (400,401,402,403,404,413,422,429):
                 await self.release(batch_id,'failed',actual=0,error=provider_error_message(error.response))
-                if is_credit_exhaustion(error):self.pause_for_credits(error)
+                self.pause_for_provider_limit(error)
             else:
                 await self.uncertain(batch_id,str(error))
             return
@@ -403,6 +408,31 @@ class Scheduler:
         self.budget_exhausted=True
         print(f'{provider_error_message(error.response)}. New Claude acquisition paused; replenish credits and restart the analyzer to resume. '
               'Dots and collection of already-submitted batches continue.',flush=True)
+
+    def pause_for_provider_limit(self,error):
+        if is_credit_exhaustion(error):
+            self.pause_for_credits(error)
+            return True
+        if not is_workspace_usage_limit(error):return False
+        message=provider_error_message(error.response)
+        # This account cap is also returned by count_tokens as HTTP 400.
+        # Only an explicit future UTC deadline is safe to resume automatically.
+        match=re.search(r'regain access on (\d{4}-\d{2}-\d{2}) at (\d{2}:\d{2}) UTC',message,re.IGNORECASE)
+        deadline=None
+        if match:
+            try:
+                parsed=datetime.fromisoformat(f'{match[1]}T{match[2]}:00+00:00')
+                if parsed>now():deadline=parsed
+            except ValueError:pass
+        self.provider_resume_at=deadline
+        if deadline is not None:
+            resume=f'paused until {deadline.isoformat()}; acquisition resumes automatically after the reset'
+        else:
+            self.budget_exhausted=True
+            resume='paused; restore workspace access and restart the analyzer to resume'
+        print(f'{message}. New Claude acquisition {resume}. '
+              'Dots and collection of already-submitted batches continue.',flush=True)
+        return True
 
     async def uncertain(self,batch_id,error):
         async with self.sessions() as db:
@@ -527,7 +557,8 @@ class Scheduler:
                     await db.execute(update(Batch).where(Batch.id==batch.id).values(status=self.status('needs_attention'),error=str(error)))
                     await db.commit()
                 print(f'Claude batch {batch.id}: needs attention: {error}',flush=True)
-        if allow_submit and not self.budget_exhausted and self.budget>self.prior and MODEL in TRUSTED_MODELS:
+        if (allow_submit and not self.budget_exhausted and self.budget>self.prior and MODEL in TRUSTED_MODELS
+                and (self.provider_resume_at is None or now()>=self.provider_resume_at)):
             # Recheck the durable reset deadline after potentially slow polling.
             reset=await quota_reset(self.sessions)
             if not self.quota_first or (reset is not None and reset>now()):await self.submit()

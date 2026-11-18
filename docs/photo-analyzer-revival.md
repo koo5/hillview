@@ -18,6 +18,13 @@ paragraph below saying there is nothing to migrate predates this. Design reasoni
 
 ## What it is
 
+**Update 2026-11-18.** Claude acquisition pauses on exhausted credits and workspace
+API usage limits, including HTTP 400 from token counting. A workspace response with
+a future UTC reset resumes acquisition automatically at that time. Without a usable
+reset time, restore access and restart the analyzer. These pauses are held for the
+process lifetime; a restart rechecks access. Dots scheduling and collection of
+already-submitted Claude batches continue during the pause.
+
 `scripts/analyzer/` — its own git repo, **not tracked by the hillview repo** and with the
 containerisation still uncommitted inside it. Two entry points:
 

@@ -1,10 +1,27 @@
 import asyncio
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
 
 from batch_scheduler import ClaudeAPI, Scheduler, is_credit_exhaustion
+
+WORKSPACE_LIMIT = ('You have reached your specified workspace API usage limits. '
+                   'You will regain access on 2026-12-01 at 00:00 UTC.')
+LIMIT_RESET = datetime(2026, 12, 1, tzinfo=timezone.utc)
+
+
+def scheduler_db(pending=()):
+    db = MagicMock()
+    db.__aenter__ = AsyncMock(return_value=db)
+    db.__aexit__ = AsyncMock(return_value=False)
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = list(pending)
+    db.execute = AsyncMock(return_value=result)
+    db.commit = AsyncMock()
+    return MagicMock(return_value=db)
 
 
 def test_repeated_400s_cool_down_one_exact_request_but_do_not_count_as_invalid_answers():
@@ -97,3 +114,108 @@ def test_credit_failure_during_preparation_releases_unsent_claims_and_pauses(tmp
     output = capsys.readouterr()
     assert 'credit balance' in output.out and 'paused' in output.out
     assert 'Traceback' not in output.err
+
+
+def test_workspace_limit_pauses_preparation_until_reset_but_keeps_collecting(tmp_path, monkeypatch, capsys):
+    import batch_scheduler
+    current = datetime(2026, 11, 18, tzinfo=timezone.utc)
+    monkeypatch.setattr(batch_scheduler, 'now', lambda: current)
+    monkeypatch.setattr(batch_scheduler, 'quota_reset', AsyncMock(return_value=None))
+    transport = MagicMock()
+    transport.prepare.side_effect = rejected(WORKSPACE_LIMIT)
+    transport.collect.return_value = []
+    pending = SimpleNamespace(provider_batch_id='msgbatch_existing')
+    scheduler = Scheduler(tmp_path, scheduler_db([pending]), transport, budget=100, prior_spend=0, quota_first=False)
+    scheduler.claim = AsyncMock(side_effect=[('batch', []), None])
+    scheduler.release = AsyncMock()
+    scheduler.recover = AsyncMock()
+    scheduler.finish = AsyncMock()
+
+    async def run():
+        nonlocal current
+        await scheduler.tick(allow_submit=True)
+        assert scheduler.provider_resume_at == LIMIT_RESET
+        assert not scheduler.budget_exhausted
+        scheduler.next_poll = 0
+        current = LIMIT_RESET - timedelta(seconds=1)
+        await scheduler.tick(allow_submit=True)
+        scheduler.claim.assert_awaited_once()
+        assert transport.prepare.call_count == 1
+        assert transport.collect.call_count == 2
+        assert scheduler.finish.await_count == 2
+        current = LIMIT_RESET
+        scheduler.next_poll = 0
+        await scheduler.tick(allow_submit=True)
+        assert scheduler.claim.await_count == 2
+
+    asyncio.run(run())
+    transport.submit.assert_not_called()
+    assert scheduler.release.await_args.kwargs['unsubmitted'] is True
+    assert scheduler.release.await_args.kwargs['actual'] == 0
+    output = capsys.readouterr()
+    assert 'paused until 2026-12-01T00:00:00+00:00' in output.out
+    assert 'Dots and collection of already-submitted batches continue' in output.out
+    assert 'Traceback' not in output.err
+
+
+def test_workspace_limit_at_submission_releases_reservation_and_pauses(tmp_path, monkeypatch):
+    import batch_scheduler
+    monkeypatch.setattr(batch_scheduler, 'now', lambda: datetime(2026, 11, 18, tzinfo=timezone.utc))
+    monkeypatch.setattr(batch_scheduler, 'quota_reset', AsyncMock(return_value=None))
+    transport = MagicMock()
+    transport.prepare.return_value = ({}, 1.0, [])
+    transport.submit.side_effect = rejected(WORKSPACE_LIMIT)
+    scheduler = Scheduler(tmp_path, scheduler_db(), transport, budget=100, prior_spend=0, quota_first=False)
+    scheduler.claim = AsyncMock(return_value=('batch', []))
+    scheduler.reserve = AsyncMock(return_value=True)
+    scheduler.release = AsyncMock()
+    scheduler.uncertain = AsyncMock()
+    scheduler.recover = AsyncMock()
+
+    async def run():
+        await scheduler.submit()
+        await scheduler.tick(allow_submit=True)
+
+    asyncio.run(run())
+    assert scheduler.provider_resume_at == LIMIT_RESET
+    scheduler.release.assert_awaited_once_with('batch', 'failed', actual=0,
+        error=batch_scheduler.provider_error_message(transport.submit.side_effect.response))
+    scheduler.uncertain.assert_not_awaited()
+    assert transport.submit.call_count == 1
+    scheduler.claim.assert_awaited_once()
+
+
+@pytest.mark.parametrize('message', [
+    'You have reached your specified workspace API usage limits.',
+    'You have reached your specified workspace API usage limits. You will regain access on 2026-99-01 at 00:00 UTC.',
+    'You have reached your specified workspace API usage limits. You will regain access on 2026-01-01 at 00:00 UTC.',
+])
+def test_workspace_limit_without_a_future_reset_requires_restart(tmp_path, monkeypatch, message, capsys):
+    import batch_scheduler
+    monkeypatch.setattr(batch_scheduler, 'now', lambda: datetime(2026, 11, 18, tzinfo=timezone.utc))
+    transport = MagicMock()
+    transport.prepare.side_effect = rejected(message)
+    scheduler = Scheduler(tmp_path, scheduler_db(), transport, budget=100, prior_spend=0, quota_first=False)
+    scheduler.claim = AsyncMock(return_value=('batch', []))
+    scheduler.release = AsyncMock()
+    scheduler.recover = AsyncMock()
+
+    async def run():
+        await scheduler.submit()
+        await scheduler.tick(allow_submit=True)
+
+    asyncio.run(run())
+    assert scheduler.budget_exhausted
+    scheduler.claim.assert_awaited_once()
+    assert 'restart the analyzer' in capsys.readouterr().out
+
+
+def test_other_preparation_errors_still_surface(tmp_path):
+    transport = MagicMock()
+    transport.prepare.side_effect = rejected('output_config: invalid schema')
+    scheduler = Scheduler(tmp_path, scheduler_db(), transport, budget=100, prior_spend=0)
+    scheduler.claim = AsyncMock(return_value=('batch', []))
+    scheduler.release = AsyncMock()
+    with pytest.raises(httpx.HTTPStatusError, match='invalid schema'):
+        asyncio.run(scheduler.submit())
+    assert not scheduler.budget_exhausted
