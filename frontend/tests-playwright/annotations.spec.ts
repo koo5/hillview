@@ -13,6 +13,7 @@ type Page = import('@playwright/test').Page;
 /** Fetch current annotations for a photo from the API. */
 async function apiAnnotations(photoId: string) {
   const res = await fetch(`${BACKEND_URL}/api/annotations/photos/${photoId}`);
+  expect(res.ok, `Fetching annotations for ${photoId}: ${res.status}`).toBeTruthy();
   return res.json();
 }
 
@@ -60,10 +61,8 @@ async function drawAnnotation(
   const input = page.locator('[data-testid="osd-edit-body-input"]');
   await input.fill(label);
   await page.click('[data-testid="osd-edit-body-save"]');
+  // Save closes the panel only after the API persist has completed.
   await expect(editPanel).not.toBeVisible({ timeout: T(5000) });
-
-  // Wait for server persist
-  await page.waitForTimeout(1000);
 
   return box;
 }
@@ -125,7 +124,6 @@ async function openViewer(page: Page) {
 async function closeViewer(page: Page) {
   await page.click('[data-testid="osd-viewer-close"]');
   await expect(page.locator('[data-testid="osd-viewer-overlay"]')).not.toBeVisible({ timeout: T(5000) });
-  await page.waitForTimeout(500);
 }
 
 /** Enter edit mode (idempotent — won't toggle off if already active). */
@@ -159,21 +157,18 @@ async function editPanelValue(page: Page) {
 async function clickSave(page: Page) {
   await page.click('[data-testid="osd-edit-body-save"]');
   await expect(page.locator('[data-testid="osd-edit-body-panel"]')).not.toBeVisible({ timeout: T(5000) });
-  await page.waitForTimeout(500);
 }
 
 /** Cancel the current edit via the panel button. */
 async function clickCancel(page: Page) {
   await page.click('[data-testid="osd-edit-body-cancel"]');
   await expect(page.locator('[data-testid="osd-edit-body-panel"]')).not.toBeVisible({ timeout: T(5000) });
-  await page.waitForTimeout(500);
 }
 
 /** Delete via the edit panel button. */
 async function clickDelete(page: Page) {
   await page.click('[data-testid="osd-edit-body-delete"]');
   await expect(page.locator('[data-testid="osd-edit-body-panel"]')).not.toBeVisible({ timeout: T(5000) });
-  await page.waitForTimeout(500);
 }
 
 /** Change the label text in the edit panel (clear + fill). */
@@ -242,7 +237,6 @@ test.describe('Annotation Tests', () => {
     await setLabel(page, 'updated-label');
     await clickSave(page);
 
-    await page.waitForTimeout(500);
     const annotations = await apiAnnotations(photoId);
     expect(annotations).toHaveLength(1);
     expect(annotations[0].body).toBe('updated-label');
@@ -259,7 +253,6 @@ test.describe('Annotation Tests', () => {
     await selectAnnotation(page);
     await clickDelete(page);
 
-    await page.waitForTimeout(500);
     annotations = await apiAnnotations(photoId);
     expect(annotations).toHaveLength(0);
   });
@@ -281,7 +274,6 @@ test.describe('Annotation Tests', () => {
     await clickCancel(page);
 
     // API should still have the original label
-    await page.waitForTimeout(500);
     const annotations = await apiAnnotations(photoId);
     expect(annotations).toHaveLength(1);
     expect(annotations[0].body).toBe('keep-me');
@@ -302,7 +294,6 @@ test.describe('Annotation Tests', () => {
     await clickCancel(page);
 
     // Nothing should be persisted
-    await page.waitForTimeout(500);
     const annotations = await apiAnnotations(photoId);
     expect(annotations).toHaveLength(0);
   });
@@ -351,7 +342,6 @@ test.describe('Annotation Tests', () => {
     await clickSave(page);
     await closeViewer(page);
 
-    await page.waitForTimeout(500);
     const updated = await apiAnnotations(photoId);
     expect(updated).toHaveLength(2);
     const updatedBodies = updated.map((a: any) => a.body).sort();
@@ -375,7 +365,6 @@ test.describe('Annotation Tests', () => {
     await clickSave(page);
 
     // Verify position changed on server
-    await page.waitForTimeout(500);
     annotations = await apiAnnotations(photoId);
     expect(annotations).toHaveLength(1);
     expect(annotations[0].body).toBe('moveable');
@@ -397,7 +386,6 @@ test.describe('Annotation Tests', () => {
     await clickCancel(page);
 
     // Position should be unchanged on server
-    await page.waitForTimeout(500);
     annotations = await apiAnnotations(photoId);
     expect(annotations).toHaveLength(1);
     expect(annotations[0].body).toBe('stay-put');
@@ -423,7 +411,6 @@ test.describe('Annotation Tests', () => {
     await dragAnnotation(page, region, 0.1, 0.1);
     await clickCancel(page);
 
-    await page.waitForTimeout(500);
     annotations = await apiAnnotations(photoId);
     expect(annotations[0].target).toEqual(targetAfterCreate);
 
@@ -432,7 +419,6 @@ test.describe('Annotation Tests', () => {
     await dragAnnotation(page, region, -0.05, -0.05);
     await clickSave(page);
 
-    await page.waitForTimeout(500);
     annotations = await apiAnnotations(photoId);
     expect(annotations[0].target).not.toEqual(targetAfterCreate);
     const targetAfterMove = annotations[0].target;
@@ -442,7 +428,6 @@ test.describe('Annotation Tests', () => {
     await setLabel(page, 'workflow-renamed');
     await clickSave(page);
 
-    await page.waitForTimeout(500);
     annotations = await apiAnnotations(photoId);
     expect(annotations).toHaveLength(1);
     expect(annotations[0].body).toBe('workflow-renamed');
@@ -477,7 +462,6 @@ test.describe('Annotation Tests', () => {
     await clickDelete(page);
 
     // Verify: alpha unchanged, beta updated, gamma gone
-    await page.waitForTimeout(500);
     annotations = await apiAnnotations(photoId);
     expect(annotations).toHaveLength(2);
     const bodies = annotations.map((a: any) => a.body).sort();
@@ -509,7 +493,6 @@ test.describe('Annotation Tests', () => {
     await setLabel(page, 'resilient-v2');
     await clickSave(page);
 
-    await page.waitForTimeout(500);
     annotations = await apiAnnotations(photoId);
     expect(annotations[0].body).toBe('resilient-v2');
 
@@ -523,7 +506,6 @@ test.describe('Annotation Tests', () => {
     expect(await editPanelValue(page)).toBe('resilient-v2');
     await clickDelete(page);
 
-    await page.waitForTimeout(500);
     annotations = await apiAnnotations(photoId);
     expect(annotations).toHaveLength(0);
   });
@@ -590,7 +572,6 @@ test.describe('Annotation Tests', () => {
     // Panel should close (auto-save on deselect)
     await expect(page.locator('[data-testid="osd-edit-body-panel"]')).not.toBeVisible({ timeout: T(5000) });
 
-    await page.waitForTimeout(1000);
     const annotations = await apiAnnotations(photoId);
     expect(annotations).toHaveLength(1);
     expect(annotations[0].body).toBe('auto-saved');
@@ -612,7 +593,6 @@ test.describe('Annotation Tests', () => {
     await setLabel(page, 'combo-updated');
     await clickSave(page);
 
-    await page.waitForTimeout(500);
     annotations = await apiAnnotations(photoId);
     expect(annotations).toHaveLength(1);
     expect(annotations[0].body).toBe('combo-updated');
@@ -630,7 +610,6 @@ test.describe('Annotation Tests', () => {
 
     await expect(page.locator('[data-testid="osd-edit-body-panel"]')).not.toBeVisible({ timeout: T(5000) });
 
-    await page.waitForTimeout(500);
     const annotations = await apiAnnotations(photoId);
     expect(annotations[0].body).toBe('escape-test');
   });
@@ -649,7 +628,6 @@ test.describe('Annotation Tests', () => {
 
     await expect(page.locator('[data-testid="osd-edit-body-panel"]')).not.toBeVisible({ timeout: T(5000) });
 
-    await page.waitForTimeout(500);
     const annotations = await apiAnnotations(photoId);
     expect(annotations[0].body).toBe('enter-saved');
   });
@@ -752,8 +730,8 @@ test.describe('Annotation Tests', () => {
     await dragAnnotation(page, regionLeft, 0.7, 0);
     await clickSave(page);
 
-    // Wait for label to re-render with updated position
-    await page.waitForTimeout(500);
+    // Labels redraw on rAF after saving, so wait for the changed edge.
+    await expect.poll(async () => (await getLabelCmds(page))[0]?.edge, { timeout: T(5000) }).toBe('right');
     cmds = await getLabelCmds(page);
     expect(cmds).toHaveLength(1);
     expect(cmds[0].edge).toBe('right');
