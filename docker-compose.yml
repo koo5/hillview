@@ -130,6 +130,7 @@ services:
       - ENABLE_MAPILLARY_CACHE=${ENABLE_MAPILLARY_CACHE:-true}
       - ENABLE_MAPILLARY_LIVE=${ENABLE_MAPILLARY_LIVE:-true}
       - ACTIVITY_SHOW_AUTHORIZED_PHOTOS=${ACTIVITY_SHOW_AUTHORIZED_PHOTOS:-false}
+      - NOMINATIM_URL=${NOMINATIM_URL:-}
       - USER_ACCOUNTS=${USER_ACCOUNTS:-true}
       - TEST_USERS=${TEST_USERS:-false}
       - DEBUG_ENDPOINTS=${DEBUG_ENDPOINTS:-false}
@@ -266,7 +267,7 @@ services:
     mem_limit: 512m
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@${postgres:-postgres}:5432/${POSTGRES_DB:?POSTGRES_DB is required}
-      - NOMINATIM_URL=${NOMINATIM_URL:-https://nominatim.ueueeu.eu}
+      - NOMINATIM_URL=${NOMINATIM_URL:-}
       # One pass per hour: the backlog drains at --delay, then each pass is a
       # cheap indexed query that finds only newly uploaded photos.
       - BACKFILL_PLACES_INTERVAL=${BACKFILL_PLACES_INTERVAL:-3600}

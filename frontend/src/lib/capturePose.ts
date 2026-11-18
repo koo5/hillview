@@ -5,12 +5,14 @@
  * (docs/one-state.md, "The device pose is its own state").
  *
  * ONE writer, the sensor source below, started and stopped by CameraCapture
- * while the camera is shown. TWO readers, and neither opens a sensor of its own:
+ * while the camera is shown. Three readers, none opening a sensor of its own:
  *
  * - the shutter, through stampInertial(): the samples of the last 300 ms,
  *   averaged into the `inertial` object the upload carries;
  * - the level indicator, through capturePose: a shorter display-only average of
  *   the same ring, published once per animation frame.
+ * - CameraCapture, through that same average: the device's quarter turn written
+ *   to deviceOrientationExif, shared by the capture icons and photo metadata.
  *
  * Sources, first that works:
  *

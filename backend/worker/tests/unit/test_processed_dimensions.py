@@ -44,10 +44,12 @@ def probe(case):
             Image.new('RGB', raw_size, (30, 120, 190)).save(source)
 
         metadata = {'latitude': 50.0, 'longitude': 14.0, 'bearing': 45.0}
-        if case not in ('cap', 'pyramid'):
-            # Supplied orientation can disagree with the pixels (or agree in the
-            # embedded-rotation control). This makes the preliminary probe swap.
+        if case not in ('cap', 'pyramid', 'pyramid-mismatch'):
+            # Browser metadata rotates an otherwise untagged source. Embedded
+            # EXIF wins when both are supplied, even if the flags disagree.
             metadata['orientation_code'] = 6
+        if case == 'rotation':
+            metadata['orientation_code'] = 8
         override = '[]'
         detections = {'objects': [{'class_id': 0, 'confidence': 0.3, 'blurred': False,
                                   'bbox': {'x1': 13, 'y1': 1, 'x2': 16, 'y2': 4}}]}
@@ -73,16 +75,20 @@ def probe(case):
             publications.append(path)
             return 'http://pics.test/' + relative
 
-        async def detector(path, encoding=None):
-            return photo_processor.read_image(path, encoding=encoding), detections
+        async def detector(path, encoding=None, orientation_override=None):
+            return photo_processor.read_image(path, encoding=encoding, orientation_override=orientation_override), detections
 
-        extract = {'data': {}, 'gps': {}, 'debug': {}}
+        extract = {'data': {'Orientation': 6} if case == 'rotation' else {}, 'gps': {}, 'debug': {}}
+        from contextlib import nullcontext
+        # Keep exercising the accepted-pyramid guard when the initial probe
+        # disagrees with the eventual raster, independently of orientation.
+        probe = patch.object(processor, 'get_image_dimensions', return_value=(9, 17)) if case == 'pyramid-mismatch' else nullcontext()
         with (patch.object(processor, 'extract_exif_data', return_value=extract),
               patch.object(processor, '_get_size_url', side_effect=publish),
               patch.object(processor, '_anonymize_image', side_effect=detector),
               patch.object(photo_processor, '_validate_input_path', side_effect=lambda path: path),
               patch.object(local_photos, 'EXTERNAL_DATA_DIR', str(root)),
-              patch.dict(os.environ, {'LOCAL_PHOTO_URLS': 'arch=http://pics.test/arch'})):
+              patch.dict(os.environ, {'LOCAL_PHOTO_URLS': 'arch=http://pics.test/arch'}), probe):
             if case == 'pyramid':
                 no_decode = patch.object(photo_processor, 'read_image', side_effect=AssertionError('decoded source on pyramid-only path'))
             else:
@@ -106,7 +112,7 @@ def probe(case):
                     return
                 result = asyncio.run(operation)
 
-        expected = (9, 17) if case == 'rotation' else raw_size
+        expected = (9, 17) if case in ('rotation', 'skip', 'precomputed', 'automatic') else raw_size
         actual = result['width'], result['height']
         assert actual == expected, (case, actual, expected)
         full = result['sizes']['full']

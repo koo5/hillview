@@ -247,6 +247,14 @@ the normal state for someone out shooting — the icon is the only thing that
 moves. `devicePoseUiRotation` is that subtraction, and it is checked against
 every row of the original's table.
 
+On the web, `CameraCapture` derives the same quarter-turn record from the existing
+`capturePose` gravity stream and writes `deviceOrientationExif`. It keeps the last
+quarter turn while the phone is flat. Both camera icons and the capture queue's
+`orientation_code` read `relativeOrientationExif`, including the display rotation;
+no second sensor is opened for orientation. Browser JPEG encoding leaves pixels
+unchanged and carries the orientation flag in upload metadata. The worker applies
+it while decoding when the file has no embedded EXIF orientation.
+
 `null` means nothing is sensing the pose, because the sensor runs only while
 the camera is bound. That is the original's shape too: it mounts the listener
 with the camera view and resets the store on unmount.

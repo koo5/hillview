@@ -57,7 +57,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 	import {gpsOrientationEnabled} from "$lib/gpsOrientation.svelte";
 	import {enableSourceForPhotoUid, sources, showPhotoInfoWindow, togglePhotoInfoWindow} from "$lib/data.svelte.js";
 	import { simplePhotoWorker } from '$lib/simplePhotoWorker';
-	import { turn_to_photo_to, app, parseActivityParam, sourceLoadingStatus, powerSavingActive } from "$lib/data.svelte.js";
+	import { turn_to_photo_to, app, sourceLoadingStatus, powerSavingActive } from "$lib/data.svelte.js";
 	import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation, locationTracking, lastKnownGpsLocation, backgroundLocationTracking, setBackgroundLocationTracking } from "$lib/location.svelte.js";
 	import { enterBackgroundTracking } from '$lib/userMove';
 	import { isOnMapRoute } from "$lib/compass.svelte.js";
@@ -65,6 +65,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 	import { optimizedMarkerSystem, setupMarkerClickDelegation } from '$lib/optimizedMarkers';
 	import '$lib/styles/optimizedMarkers.css';
 	import type { PhotoData } from '$lib/types/photoTypes';
+	import type { PlaceResult } from '$lib/placesApi';
 	import PhotoMarkerIcon from './PhotoMarkerIcon.svelte';
 	import { enqueueTerrainRender, selectedTerrainRender, terrainPick, terrainRenders, terrainWedge } from '$lib/terrain.svelte';
 	import { gridMetaOf, markerStateOf, wedgeArcLatLngs, type TerrainRender } from '$lib/terrainModel';
@@ -83,6 +84,20 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 	const doLog = false;
 
 	export let update_url = false;
+
+	// Search is a manual move, just like a pan: stop GPS following before
+	// writing the shared state so the next fix cannot pull the map back.
+	export function showPlace(place: PlaceResult) {
+		enterBackgroundTracking();
+		let zoom = 16;
+		if (map && place.bounds) {
+			const [south, north, west, east] = place.bounds;
+			zoom = Math.max(2, Math.min(16, map.getBoundsZoom(
+				L.latLngBounds([south, west], [north, east]), false, L.point(40, 40)
+			)));
+		}
+		updateSpatialState({ center: { lat: place.lat, lng: place.lon }, zoom }, 'map');
+	}
 
 	//let flying = false;
 	let programmaticMove = false; // Flag to prevent position sync conflicts
@@ -302,7 +317,6 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 		const zoom = urlParams.get('zoom');
 		const bearingParam = urlParams.get('bearing');
 		const photoParam = urlParams.get('photo');
-		const urlActivity = parseActivityParam(urlParams.get('activity'));
 
 		// Create a fresh object - don't mutate the store's internal state
 		const oldState = get(spatialState);
@@ -388,11 +402,6 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 			picks.set(new Set([photoUid])); // ensure culling grid keeps this photo
 			// Auto-set hunterMode once this photo arrives in range
 			setUrlRequestedPhoto(photoUid, bearingParam !== null && Number.isFinite(Number(bearingParam)) ? Number(bearingParam) : undefined);
-		}
-
-		// Explicit activity wins over the saved mode and the photo link's default.
-		if (urlActivity !== null || photoUid) {
-			app.update(a => ({...a, activity: urlActivity ?? 'view'}));
 		}
 
 		// Only stamp spatialState.ts when the user actually directed navigation (URL params).

@@ -14,7 +14,8 @@
 	import CaptureQueueIndicator from './CaptureQueueIndicator.svelte';
 	import CameraOverlay from './CameraOverlay.svelte';
 	import CaptureLevelIndicator from './CaptureLevelIndicator.svelte';
-	import {startCapturePose, stopCapturePose, stampInertial} from '$lib/capturePose';
+	import {capturePose, startCapturePose, stopCapturePose, stampInertial} from '$lib/capturePose';
+	import {exifOrientationFromGravity} from '$lib/capturePoseMath';
 	import AutoUploadPrompt from './AutoUploadPrompt.svelte';
 	import VerticalSlider from './VerticalSlider.svelte';
 	import {captureQueue} from '$lib/captureQueue';
@@ -848,6 +849,7 @@
 	async function handleCapture(event: CustomEvent<{ mode: 'slow' | 'fast' }>) {
 		// First, before anything awaits: the stamp's window ends at the press.
 		const inertial = stampInertial(activeFacing());
+		const orientationCode = get(relativeOrientationExif);
 		if ((!video && !$fakeCamera) || !cameraReady || !locationData ||
 			locationData.latitude === undefined || locationData.longitude === undefined) {
 			console.warn('🢄📍 Cannot capture: camera not ready or no location');
@@ -984,7 +986,7 @@
 				...uploadConsent,
 				mode,
 				placeholder_id: sharedId, // Use sharedId as placeholder ID too
-				orientation_code: get(relativeOrientationExif) // Current device orientation
+				orientation_code: orientationCode // The orientation shown when the shutter was pressed.
 			});
 
 			// Trigger auto-upload prompt check
@@ -1194,6 +1196,12 @@
 	$: if (mounted && !TAURI) {
 		if (show) startCapturePose();
 		else stopCapturePose();
+	}
+	// Reuse the web's one sensor stream for the quarter-turn record too. Both
+	// the capture icon and the saved photo read this same orientation store.
+	$: if (mounted && show && !TAURI && $capturePose) {
+		const orientation = exifOrientationFromGravity($capturePose.gravity);
+		if (orientation !== null) updateDeviceOrientationExif(orientation);
 	}
 
 	// Which way the active camera faces: a camera facing the user stamps no gravity.

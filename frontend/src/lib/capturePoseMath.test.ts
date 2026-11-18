@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
 	averageGravity,
 	buildInertialStamp,
+	exifOrientationFromGravity,
 	gravityFromBetaGamma,
 	horizonScreenAngle,
 	levelReferenceScreenAngle,
@@ -20,6 +21,36 @@ import {
 	type Vec3,
 } from './capturePoseMath';
 import { MAX_PITCH_DEG, MAX_ROLL_DEG, PANORAMAX_GATE_TEXT } from './panoramaxStatus';
+import { calculateWebviewRelativeOrientation, type ExifOrientation } from './deviceOrientationExif';
+
+describe('capture quarter-turn orientation', () => {
+	it.each<[Vec3, ExifOrientation, number]>([
+		[[0, G, 0], 1, 0],
+		[[-G, 0, 0], 6, 270],
+		[[0, -G, 0], 3, 180],
+		[[G, 0, 0], 8, 90],
+	])('maps gravity %j to EXIF %i independently of the display', (gravity, orientation, screenAngle) => {
+		expect(exifOrientationFromGravity(gravity)).toBe(orientation);
+		// A locked portrait display shows the actual physical quarter turn.
+		expect(calculateWebviewRelativeOrientation(orientation, 0)).toBe(orientation);
+		// Auto-rotation already turned the page, so no further rotation is needed.
+		expect(calculateWebviewRelativeOrientation(orientation, screenAngle)).toBe(1);
+	});
+
+	it('keeps the nearest quarter turn while the phone leans or tilts', () => {
+		expect(exifOrientationFromGravity([3, 9, 2])).toBe(1);
+		expect(exifOrientationFromGravity([-9, 3, -2])).toBe(6);
+		expect(exifOrientationFromGravity([-3, -9, 2])).toBe(3);
+		expect(exifOrientationFromGravity([9, -3, -2])).toBe(8);
+	});
+
+	it.each(([null, [0, 0, 0], [0.1, 0.1, G], [0, 0, -G], [NaN, G, 0]] as (Vec3 | null)[])
+		.map(gravity => ({ gravity })))(
+		'does not invent a new orientation for a flat or missing pose $gravity', ({ gravity }) => {
+			expect(exifOrientationFromGravity(gravity)).toBeNull();
+		}
+	);
+});
 
 // The cases capture_pose.py and this port must agree on, with the gate limits.
 // The backend's test pins the same file to eligibility.py.

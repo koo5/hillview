@@ -30,7 +30,7 @@ describe('activity URL parameter', () => {
 	});
 
 	it('accepts the other activities and ignores absent or unknown parameters', () => {
-		for (const activity of ['view', 'terrain', 'lines', 'capture']) {
+		for (const activity of ['view', 'terrain', 'lines', 'capture', 'search']) {
 			expect(parseActivityParam(activity)).toBe(activity);
 		}
 		for (const value of [null, '', 'unknown', '__proto__', 'world']) {

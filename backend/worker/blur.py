@@ -214,7 +214,11 @@ def normalize_to_srgb(img, source_path=None, encoding=None):
 	return img
 
 
-def read_image(source_path, encoding=None):
+def read_image(source_path, encoding=None, orientation_override=None):
+	# Browser JPEGs carry orientation beside the upload rather than in EXIF.
+	# Other callers leave this unset and retain the file's embedded orientation.
+	if orientation_override is not None and orientation_override not in (1, 3, 6, 8):
+		raise ValueError('Unsupported capture orientation')
 	# Validate file size before processing to prevent memory exhaustion
 	try:
 		file_size = os.path.getsize(source_path)
@@ -255,6 +259,11 @@ def read_image(source_path, encoding=None):
 		else:
 			# Explicit JPEG reader: no autodetection into another format.
 			img = pyvips.Image.jpegload(source_path, revalidate=True)
+		if orientation_override is not None:
+			# Copy metadata before changing it: the loader's cached image can be
+			# shared with another operation on the same source path.
+			img = img.copy()
+			img.set_type(pyvips.GValue.gint_type, 'orientation', orientation_override)
 		img = img.autorot()
 	except pyvips.Error as e:
 		_dev_only(f"pyvips load failed for {source_path} ({e}) — falling back to cv2 with no color management")

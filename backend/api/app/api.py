@@ -407,6 +407,10 @@ import featured_routes
 
 app.include_router(featured_routes.router)
 
+import places_routes
+
+app.include_router(places_routes.router)
+
 import share_routes
 
 app.include_router(share_routes.router)

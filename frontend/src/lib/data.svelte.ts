@@ -21,7 +21,7 @@ const doLog = false;
 
 // Draggable split store for gallery/map split percentage (0-100, percentage for photo panel)
 export let splitPercent = localStorageReadOnceSharedStore('splitPercent', 50);
-export type AppActivity = 'capture' | 'view' | 'lines' | 'terrain' | '3d';
+export type AppActivity = 'capture' | 'view' | 'lines' | 'terrain' | '3d' | 'search';
 
 export interface Line {
 	label: string;
@@ -223,6 +223,7 @@ export function parseActivityParam(value: string | null): AppActivity | null {
 		case 'terrain':
 		case 'lines':
 		case 'capture':
+		case 'search':
 			return availableActivity(value);
 		default:
 			return null;

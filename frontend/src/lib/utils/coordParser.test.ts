@@ -1,7 +1,31 @@
 import { describe, it, expect } from 'vitest';
-import { findCoords, firstCoords, isCoordsOnly, splitOnCoords } from './coordParser';
+import { findCoords, firstCoords, isCoordsOnly, splitOnCoords, parseCoordinateQuery } from './coordParser';
 
 // Cases mirror the Python twin's suite: enrich/api/app/tests/test_parser.py
+describe('coordinate search queries', () => {
+	it.each([
+		['50.732N, 15.008E', 50.732, 15.008],
+		[' 50,0620061, 14,8864855 ', 50.0620061, 14.8864855],
+		['-33.8568, 151.2153', -33.8568, 151.2153],
+		['40.7128N, 74.0060W', 40.7128, -74.006],
+		['50.1 14.5', 50.1, 14.5],
+		['0, 0', 0, 0],
+		['+50; +14', 50, 14],
+		['50°10\'29.869"N, 14°38\'52.907"E', 50.1749636, 14.6480297],
+		['50°10.4978′N 14°38.8818′E', 50.1749633, 14.64803],
+	])('parses %s', (query, lat, lon) => {
+		expect(parseCoordinateQuery(query as string)).toMatchObject({ lat, lon });
+	});
+
+	it.each([
+		'Prague', 'Ještěd 50.732N, 15.008E', '91.000, 14.000', '50.000, 181.000',
+		'50°60\'00"N, 14°00\'00"E', '50°00\'60"N, 14°00\'00"E',
+		'50°10.5\'30"N, 14°00\'00"E', 'NaN, 14', '',
+	])('rejects %s', query => {
+		expect(parseCoordinateQuery(query)).toBeNull();
+	});
+});
+
 describe('firstCoords', () => {
 	it('parses "lat N, lon E" with hemisphere letters', () => {
 		expect(firstCoords('50.732N, 15.008E')).toEqual({

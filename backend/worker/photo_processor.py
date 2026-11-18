@@ -820,12 +820,15 @@ class PhotoProcessor:
 									 keep_pics_in_worker: bool = False,
 									 local_pyramid_path: Optional[str] = None,
 									 artifact_version: Optional[int] = None,
+									 orientation_override: Optional[int] = None,
 									 ) -> OptimizedPhoto:
 		"""Create optimized versions with anonymization and unique IDs.
 
 		fast: Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding, reduced size set.
 		encoding: EXR pixel encoding ('srgb'/'linear') sourced from upload metadata;
 			passed to read_image so it need not read the embedded header tag.
+		orientation_override: browser capture flag, used only when the upload
+			lacked embedded EXIF orientation. Every decode uses this same frame.
 		output_base: per-job output root (see process_uploaded_photo).
 		keep_pics_in_worker: serve artifacts from this worker's own uploads
 			volume instead of shipping them (see _get_size_url).
@@ -840,6 +843,9 @@ class PhotoProcessor:
 		_assert_output_base_owned(output_base, photo_id)
 		webp_quality_sizes = quality if quality is not None else WEBP_QUALITY_SIZES
 		webp_quality_dzi = quality if quality is not None else WEBP_QUALITY_DZI
+		decode_options = {'encoding': encoding}
+		if orientation_override is not None:
+			decode_options['orientation_override'] = orientation_override
 
 		logger.info(f"Starting anonymization for {unique_id} (quality: sizes={webp_quality_sizes}, dzi={webp_quality_dzi}, fast={fast})")
 
@@ -905,7 +911,7 @@ class PhotoProcessor:
 		async with contextlib.nullcontext():
 
 			if not anonymization_override:
-				image, detections = await self._anonymize_image(source_path, encoding=encoding)
+				image, detections = await self._anonymize_image(source_path, **decode_options)
 			else:
 				if anonymization_override.detections is not None:
 					# Precomputed detections: reuse another run's rects on the
@@ -921,7 +927,7 @@ class PhotoProcessor:
 								f"blurring {len(to_blur)}/{len(objects)} objects")
 					if pyr is None:
 						with _timed('decode', unique_id):
-							image = read_image(source_path, encoding=encoding)
+							image = read_image(source_path, **decode_options)
 					if to_blur:
 						processing_state.set_phase("anonymizing")
 						from blur import apply_blur
@@ -930,13 +936,13 @@ class PhotoProcessor:
 					logger.info(f"Skipping anonymization for {unique_id} due to override")
 					if pyr is None:
 						with _timed('decode', unique_id):
-							image = read_image(source_path, encoding=encoding)
+							image = read_image(source_path, **decode_options)
 					detections = {"objects": [], "manual": True}
 				else:
 					logger.info(f"Applying manual anonymization for {unique_id} with rectangles: {anonymization_override.rectangles}")
 					if pyr is None:
 						with _timed('decode', unique_id):
-							image = read_image(source_path, encoding=encoding)
+							image = read_image(source_path, **decode_options)
 					detections = {"objects": [], "manual": True}
 					for rect in anonymization_override.rectangles:
 						x = rect.get('x')
@@ -1003,7 +1009,7 @@ class PhotoProcessor:
 			# variants may still clamp on short-and-wide strips — see
 			# for_center_crop — accepted for what they are used for.)
 			from pyramid_source import RasterSource, scale_bboxes
-			src = RasterSource(image, source_path, encoding) if image is not None else pyr
+			src = RasterSource(image, source_path, encoding, orientation_override=orientation_override) if image is not None else pyr
 
 			if fast:
 				size_variants = ['full', 320, 1200, 2048]
@@ -1684,7 +1690,8 @@ class PhotoProcessor:
 			logger.warning(f"Could not store the IMU window for {unique_id}: {e}", exc_info=True)
 			return None
 
-	async def _anonymize_image(self, source_path: str, encoding: Optional[str] = None) -> tuple[Optional[str], dict]:
+	async def _anonymize_image(self, source_path: str, encoding: Optional[str] = None,
+							 orientation_override: Optional[int] = None) -> tuple[Optional[str], dict]:
 		"""Anonymize image by blurring people and vehicles.
 
 		encoding: EXR pixel encoding ('srgb'/'linear') from the upload metadata,
@@ -1694,7 +1701,10 @@ class PhotoProcessor:
 			tuple: (anonymized_path: Optional[str], detections: dict)
 		"""
 		from anonymize import anonymize_image
-		anonymized_path, detections = anonymize_image(source_path, encoding=encoding)
+		options = {'encoding': encoding}
+		if orientation_override is not None:
+			options['orientation_override'] = orientation_override
+		anonymized_path, detections = anonymize_image(source_path, **options)
 		logger.info(f"Anonymization completed for {source_path}, detections: {detections}")
 		return anonymized_path, detections
 
@@ -1808,6 +1818,9 @@ class PhotoProcessor:
 		gps_data = exif_data.get('gps', {})
 		debug_info = exif_data.get('debug', {})
 
+		# The file's own orientation wins. A browser can only supply its flag out
+		# of band, so pass that fallback to every decoder, not just the size probe.
+		orientation_override = None
 		# If metadata is provided (e.g., from browser capture), use it to fill missing data
 		if metadata:
 			logger.info(f"Metadata provided: {metadata}")
@@ -1839,6 +1852,7 @@ class PhotoProcessor:
 			# Use metadata for orientation if not in EXIF
 			if metadata.get('orientation_code') and not exif_data['data'].get('Orientation'):
 				exif_data['data']['Orientation'] = metadata['orientation_code']
+				orientation_override = metadata['orientation_code']
 
 			# Capture time: metadata WINS, same rule as geo above. The uploader
 			# sends the canonical instant (the app's shutter clock in ms-ISO
@@ -1947,7 +1961,7 @@ class PhotoProcessor:
 		# .exr.encoding sidecar value); read_image falls back to the embedded
 		# header tag when this is absent.
 		encoding = metadata.get('encoding') if metadata else None
-		optimized = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override, quality=quality, fast=fast, encoding=encoding, output_base=output_base, keep_pics_in_worker=keep_pics_in_worker, local_pyramid_path=local_pyramid_path, artifact_version=artifact_version)
+		optimized = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override, quality=quality, fast=fast, encoding=encoding, output_base=output_base, keep_pics_in_worker=keep_pics_in_worker, local_pyramid_path=local_pyramid_path, artifact_version=artifact_version, orientation_override=orientation_override)
 
 		# The raw inertial window, stored as its own gzipped artifact rather than
 		# folded into exif_data. NOT in PROVENANCE_KEYS by design — see the note

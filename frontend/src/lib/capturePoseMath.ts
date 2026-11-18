@@ -18,6 +18,7 @@
  */
 
 import { MAX_PITCH_DEG, MAX_ROLL_DEG } from './panoramaxStatus';
+import type { ExifOrientation } from './deviceOrientationExif';
 
 export const STANDARD_GRAVITY = 9.80665;
 
@@ -112,6 +113,15 @@ export function poseFromGravity(g: Vec3 | null): Pose | null {
 	const pitch = -Math.asin(Math.max(-1, Math.min(1, z / n))) * DEG + 0;
 	if (Math.hypot(x, y) / n < ROLL_FLOOR) return { pitch, roll: null };
 	return { pitch, roll: levelRoll(Math.atan2(x, y) * DEG) };
+}
+
+/** Device quarter turn, matching the native OrientationEventListener/EXIF map.
+ * Keep the previous orientation near flat: gravity cannot say which edge is up.
+ * Screen rotation is applied separately by relativeOrientationExif. */
+export function exifOrientationFromGravity(g: Vec3 | null): ExifOrientation | null {
+	if (!isUsableGravity(g) || Math.hypot(g[0], g[1]) / length(g) < ROLL_FLOOR) return null;
+	const angle = (Math.atan2(-g[0], g[1]) * DEG + 360) % 360;
+	return ([1, 6, 3, 8] as const)[Math.floor((angle + 45) / 90) % 4];
 }
 
 /** What the Panoramax pitch and roll gates will decide, in the indicator's words. */

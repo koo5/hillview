@@ -7,6 +7,7 @@
 	import Map from './Map.svelte';
 	import {
 		Camera,
+		Search,
 		Menu,
 		Bug,
 		Maximize2,
@@ -21,7 +22,8 @@
 		showCalibrationView,
 		showPhotoInfoWindow,
 		togglePhotoInfoWindow,
-		onAppActivityChange
+		onAppActivityChange,
+		parseActivityParam
 	} from "$lib/data.svelte.js";
 	import {resizableSplit} from '$lib/actions/resizableSplit';
 	import {
@@ -39,6 +41,7 @@
 	import DebugOverlay from './DebugOverlay.svelte';
 	import CompassCalibration from './CompassCalibration.svelte';
 	import Lines from './Lines.svelte';
+	import SearchPane from './SearchPane.svelte';
 	import TerrainPane from './TerrainPane.svelte';
 	import WorldPane from './WorldPane.svelte';
 	import { worldModeAvailable } from '$lib/world';
@@ -62,6 +65,20 @@ import TimelinePanel from './TimelinePanel.svelte';
 	import {toggleCamera} from '$lib/appActions';
 	import {track} from '$lib/analytics';
 	import InsetGradients from "$lib/components/InsetGradients.svelte";
+	import { parsePhotoUid } from '$lib/urlUtilsServer';
+
+	// Choose the initial activity before rendering any activity controls or
+	// panes. Delaying this until Leaflet finishes initializing can overwrite
+	// a choice the user has already made in the toolbar.
+	if (browser) {
+		const params = new URLSearchParams(window.location.search);
+		const activity = parseActivityParam(params.get('activity')) ??
+			(parsePhotoUid(params.get('photo')) ? 'view' : null);
+		if (activity !== null && activity !== get(app).activity) {
+			onAppActivityChange(activity);
+			app.update(a => ({...a, activity}));
+		}
+	}
 
 	let map: any = null;
 	let mapComponent: any = null;
@@ -75,6 +92,14 @@ import TimelinePanel from './TimelinePanel.svelte';
 	$: showLinesEditor = $app.activity === 'lines';
 	$: showTerrainPane = $app.activity === 'terrain';
 	$: showWorldPane = $app.activity === '3d';
+	$: showSearchPane = $app.activity === 'search';
+
+	function toggleSearch() {
+		const mode = showSearchPane ? 'view' : 'search';
+		track(mode === 'search' ? 'activitySearch' : 'activityView');
+		onAppActivityChange(mode);
+		app.update(a => ({...a, activity: mode}));
+	}
 
 	function toggleWorld() {
 		const mode = showWorldPane ? 'view' : '3d';
@@ -124,6 +149,10 @@ import TimelinePanel from './TimelinePanel.svelte';
 	}
 
 	$: if (update_url) {
+		// A user can move or turn after mapReady but before URL syncing starts.
+		// Replay both stores when the gate opens, just as for photo/zoom state.
+		onSpatialStateChange(get(spatialState));
+		onBearingStateChange(get(bearingState));
 		flushPhotoToUrl(get(photoInFront));
 		// Reconcile zoom params too: the pending overlay can be dismissed (or its
 		// photo can fail to load) during the ~100ms window before update_url flips
@@ -634,6 +663,18 @@ import TimelinePanel from './TimelinePanel.svelte';
 	</button>
 {/if}-->
 
+<button
+	class="search-button"
+	class:active={showSearchPane}
+	on:click={toggleSearch}
+	aria-label={showSearchPane ? 'Close place search' : 'Search places'}
+	aria-pressed={showSearchPane}
+	title={showSearchPane ? 'Close place search' : 'Search places'}
+	data-testid="search-button"
+>
+	<Search size={24} />
+</button>
+
 <!-- Alert area for main page -->
 <div class="main-page-alert-area">
 	<AlertArea position="main"/>
@@ -683,6 +724,8 @@ import TimelinePanel from './TimelinePanel.svelte';
 			/>
 		{:else if showLinesEditor}
 			<Lines />
+		{:else if showSearchPane}
+			<SearchPane canSelect={$mapReady} onSelect={(place) => mapComponent?.showPlace(place)} />
 		{:else if showTerrainPane}
 			<TerrainPane />
 		{:else if showWorldPane}
@@ -827,6 +870,27 @@ import TimelinePanel from './TimelinePanel.svelte';
 		padding: 0;
 		transition: all 0.2s ease;
 	}
+
+	.search-button {
+		position: absolute;
+		top: calc(0px + var(--safe-area-inset-top, 10px));
+		left: calc(250px + var(--safe-area-inset-left, 10px));
+		z-index: 30001;
+		background: white;
+		border-radius: 50%;
+		width: 40px;
+		height: 40px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+		cursor: pointer;
+		border: none;
+		padding: 0;
+	}
+
+	.search-button.active { background: #4a90e2; color: white; }
+	.search-button:hover { transform: scale(1.05); }
 
 	.debug-toggle {
 		position: absolute;
