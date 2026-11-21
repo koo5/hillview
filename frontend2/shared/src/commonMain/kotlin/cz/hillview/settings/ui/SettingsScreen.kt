@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContentPadding
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -59,6 +60,7 @@ import cz.hillview.settings.StorageMode
 import cz.hillview.settings.storageFacts
 import cz.hillview.settings.storageFolderName
 import cz.hillview.settings.UploadSettingsRepository
+import cz.hillview.settings.activeWorker
 import org.koin.compose.koinInject
 
 /**
@@ -67,137 +69,324 @@ import org.koin.compose.koinInject
  * it reads). The server URL takes effect for auth/login on next app start
  * (BackendConfig is resolved once at startup); the upload stack reads it
  * per drain.
+ *
+ * Since 2026-11-07 this is the list of [SettingsSection]s, each a page of
+ * its own ([SettingsSectionScreen]); the controls below are grouped into
+ * those pages unchanged. The build stamp stays here, on the list, where a
+ * bug report looks for it.
  */
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    onOpenSection: (SettingsSection) -> Unit = {},
+    repository: UploadSettingsRepository = koinInject(),
+    mapRepository: cz.hillview.settings.MapSettingsRepository = koinInject(),
+    sessionManager: cz.hillview.auth.SessionManager = koinInject(),
+    runtimeConfig: cz.hillview.core.net.BackendConfig = koinInject(),
+) {
+    val settings by repository.settings.collectAsState()
+    val mapSettings by mapRepository.settings.collectAsState()
+    val sessionState by sessionManager.state.collectAsState()
+    SettingsIndex(
+        upload = settings,
+        map = mapSettings,
+        loggedIn = sessionState is cz.hillview.auth.SessionState.LoggedIn,
+        runtimeApiUrl = runtimeConfig.apiUrl,
+        onBack = onBack,
+        onOpenSection = onOpenSection,
+    )
+}
+
+/** The list itself, stateless so a test can draw it from plain values. */
+@Composable
+fun SettingsIndex(
+    upload: cz.hillview.settings.UploadSettings,
+    map: cz.hillview.settings.MapSettings,
+    loggedIn: Boolean,
+    runtimeApiUrl: String,
+    onBack: () -> Unit,
+    onOpenSection: (SettingsSection) -> Unit,
+    buildInfo: @Composable () -> Unit = { BuildInfoFooter() },
+) {
+    SettingsPage(title = "Settings", tag = "settings-screen", onBack = onBack) {
+        SettingsSection.entries.forEach { section ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = { onOpenSection(section) })
+                    .testTag("settings-section-link-${section.key}"),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(section.title, style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        settingsSectionSummary(section, upload, map, loggedIn, runtimeApiUrl),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.testTag("settings-section-summary-${section.key}"),
+                    )
+                }
+                Text("›", style = MaterialTheme.typography.titleLarge)
+            }
+        }
+        buildInfo()
+    }
+}
+
+/** One Settings sub-page: the same controls the single page had, grouped. */
+@Composable
+fun SettingsSectionScreen(
+    section: SettingsSection,
+    onBack: () -> Unit,
     onOpenLogin: () -> Unit = {},
     onOpenPanoramaxInfo: () -> Unit = {},
     onOpenLicenseInfo: (String) -> Unit = {},
-    repository: UploadSettingsRepository = koinInject(),
-    compassRepository: CompassSettingsRepository = koinInject(),
-    mapRepository: cz.hillview.settings.MapSettingsRepository = koinInject(),
-    sessionManager: cz.hillview.auth.SessionManager = koinInject(),
+    onOpenSfmSettings: () -> Unit = {},
+    onOpenUploads: () -> Unit = {},
 ) {
-    val settings by repository.settings.collectAsState()
-    val compass by compassRepository.settings.collectAsState()
-    val mapSettings by mapRepository.settings.collectAsState()
-    val sessionState by sessionManager.state.collectAsState()
-    val requestNotifications = rememberNotificationPermissionRequester()
+    SettingsPage(title = section.title, tag = "settings-section-${section.key}", onBack = onBack) {
+        when (section) {
+            SettingsSection.Uploads -> {
+                UploadSwitches()
+                AccountAndLicense(
+                    onOpenLogin = onOpenLogin,
+                    onOpenPanoramaxInfo = onOpenPanoramaxInfo,
+                    onOpenLicenseInfo = onOpenLicenseInfo,
+                )
+            }
+            SettingsSection.Capture -> CaptureRows(onOpenSfmSettings = onOpenSfmSettings)
+            SettingsSection.Storage -> {
+                StorageRows()
+                PhotoIndexRow()
+            }
+            SettingsSection.Location -> {
+                TrackingExportRows()
+                GpsIntervalRow()
+                DiagnosticRows()
+            }
+            //SettingsSection.Servers -> ServerRows()
+            SettingsSection.Servers -> ServerRows(onOpenUploads = onOpenUploads)
+        }
+    }
+}
 
+/**
+ * The frame every Settings page shares: back, title, a scrolling column.
+ * [tag] marks the page; its back button is "$tag-back".
+ */
+@Composable
+private fun SettingsPage(
+    title: String,
+    tag: String,
+    onBack: () -> Unit,
+    content: @Composable () -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .safeContentPadding()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+            .padding(16.dp)
+            .testTag(tag),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("< Back") }
+            TextButton(onClick = onBack, modifier = Modifier.testTag("$tag-back")) { Text("< Back") }
             Text(
-                text = "Settings",
+                text = title,
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.padding(start = 8.dp),
             )
         }
+        content()
+    }
+}
 
-        // The field edits RAW text (normalizing per keystroke would fight
-        // the cursor); the persisted setting is normalized — trimmed, no
-        // trailing slash (a stored slash doubles up in every "$url/path").
-        // A combobox: predefined URLs sit under ▾ (serverPresets), and
-        // anything else is typed. Either way it is the FULL …/api URL,
-        // never assembled from a host.
-        var serverUrlText by rememberSaveable { mutableStateOf(settings.serverUrl) }
-        var serverMenuOpen by remember { mutableStateOf(false) }
-        fun setServerUrl(url: String) {
-            serverUrlText = url
-            repository.update { it.copy(serverUrl = url.trim().trimEnd('/')) }
-        }
-        Box(Modifier.fillMaxWidth()) {
-            OutlinedTextField(
-                value = serverUrlText,
-                onValueChange = { setServerUrl(it) },
-                label = { Text("API URL") },
-                supportingText = { Text("Full API URL incl. /api — applies after an app restart") },
-                singleLine = true,
-                trailingIcon = {
-                    IconButton(
-                        onClick = { serverMenuOpen = true },
-                        modifier = Modifier.testTag("settings-server-url-presets"),
-                    ) { Text("▾", style = MaterialTheme.typography.titleLarge) }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("settings-server-url"),
-            )
-            DropdownMenu(
-                expanded = serverMenuOpen,
-                onDismissRequest = { serverMenuOpen = false },
-            ) {
-                serverPresets().forEach { preset ->
-                    val current = settings.serverUrl.trimEnd('/') == preset.apiUrl.trimEnd('/')
-                    DropdownMenuItem(
-                        text = {
-                            Column {
-                                Text((if (current) "✓ " else "") + preset.label)
-                                Text(preset.apiUrl, style = MaterialTheme.typography.bodySmall)
-                            }
-                        },
-                        onClick = {
-                            serverMenuOpen = false
-                            setServerUrl(preset.apiUrl)
-                        },
-                        modifier = Modifier.testTag(
-                            "settings-server-preset-" + preset.label.lowercase().replace(' ', '-'),
-                        ),
-                    )
+// The controls, one function per contiguous block of the former single
+// page — moved, not rewritten; each re-reads the state it needs.
+
+@Composable
+private fun ServerRows(
+    onOpenUploads: () -> Unit,
+    repository: UploadSettingsRepository = koinInject(),
+) {
+    val settings by repository.settings.collectAsState()
+
+    // Three groups (2026-11-09), each saying when its change takes effect:
+    // the API server (on restart — so what is IN USE is shown beside what is
+    // saved, and the restart prompt sits right under the field it is about,
+    // not at the bottom of the page), the web app (at once), and the uploads'
+    // worker (at once; chosen on the Uploads screen, this only links there).
+    // The setting vs the RUNTIME: see the restart prompt below.
+    val runtimeConfig: cz.hillview.core.net.BackendConfig = koinInject()
+
+    ServerGroup("API server", "settings-servers-api") {
+        Text(
+            "In use now: ${runtimeConfig.apiUrl}",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.testTag("settings-server-url-in-use"),
+        )
+            // The field edits RAW text (normalizing per keystroke would fight
+            // the cursor); the persisted setting is normalized — trimmed, no
+            // trailing slash (a stored slash doubles up in every "$url/path").
+            // A combobox: predefined URLs sit under ▾ (serverPresets), and
+            // anything else is typed. Either way it is the FULL …/api URL,
+            // never assembled from a host.
+            var serverUrlText by rememberSaveable { mutableStateOf(settings.serverUrl) }
+            var serverMenuOpen by remember { mutableStateOf(false) }
+            fun setServerUrl(url: String) {
+                serverUrlText = url
+                repository.update { it.copy(serverUrl = url.trim().trimEnd('/')) }
+            }
+            Box(Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = serverUrlText,
+                    onValueChange = { setServerUrl(it) },
+                    label = { Text("API URL") },
+                    supportingText = { Text("Full API URL incl. /api — applies after an app restart") },
+                    singleLine = true,
+                    trailingIcon = {
+                        IconButton(
+                            onClick = { serverMenuOpen = true },
+                            modifier = Modifier.testTag("settings-server-url-presets"),
+                        ) { Text("▾", style = MaterialTheme.typography.titleLarge) }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("settings-server-url"),
+                )
+                DropdownMenu(
+                    expanded = serverMenuOpen,
+                    onDismissRequest = { serverMenuOpen = false },
+                ) {
+                    serverPresets().forEach { preset ->
+                        val current = settings.serverUrl.trimEnd('/') == preset.apiUrl.trimEnd('/')
+                        DropdownMenuItem(
+                            text = {
+                                Column {
+                                    Text((if (current) "✓ " else "") + preset.label)
+                                    Text(preset.apiUrl, style = MaterialTheme.typography.bodySmall)
+                                }
+                            },
+                            onClick = {
+                                serverMenuOpen = false
+                                setServerUrl(preset.apiUrl)
+                            },
+                            modifier = Modifier.testTag(
+                                "settings-server-preset-" + preset.label.lowercase().replace(' ', '-'),
+                            ),
+                        )
+                    }
                 }
             }
-        }
 
-        // The web app, for the viewer's "open in web app" link. Applies
-        // live — nothing caches it.
-        var webUrlText by rememberSaveable { mutableStateOf(settings.webUrl) }
-        OutlinedTextField(
-            value = webUrlText,
-            onValueChange = { url ->
-                webUrlText = url
-                repository.update { it.copy(webUrl = url.trim().trimEnd('/')) }
-            },
-            label = { Text("Web app URL") },
-            supportingText = { Text("Where \"open in web app\" links go") },
-            singleLine = true,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("settings-web-url"),
-        )
+            // The setting vs the RUNTIME: deliberately separate values. Auth,
+            // the upload workers, and every cached client resolved the runtime
+            // URL at startup; the only sanctioned way to move them all is a
+            // full restart — a live switch leaves components talking to
+            // different servers (the stranded-client-key incident).
+            if (settings.serverUrl.trimEnd('/') != runtimeConfig.apiUrl.trimEnd('/')) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("settings-restart-required"),
+                ) {
+                    Text(
+                        //"Server URL changed — the app must restart to apply it everywhere.",
+                        "Not in use yet — the app must restart to switch everything over to it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        onClick = { cz.hillview.core.restartApp() },
+                        modifier = Modifier.testTag("restart-app-button"),
+                    ) { Text("Restart now") }
+                }
+            }
+    }
 
-        // The setting vs the RUNTIME: deliberately separate values. Auth,
-        // the upload workers, and every cached client resolved the runtime
-        // URL at startup; the only sanctioned way to move them all is a
-        // full restart — a live switch leaves components talking to
-        // different servers (the stranded-client-key incident).
-        val runtimeConfig: cz.hillview.core.net.BackendConfig = koinInject()
-        if (settings.serverUrl.trimEnd('/') != runtimeConfig.apiUrl.trimEnd('/')) {
+    ServerGroup("Web app", "settings-servers-web") {
+            // The web app, for the viewer's "open in web app" link. Applies
+            // live — nothing caches it.
+            var webUrlText by rememberSaveable { mutableStateOf(settings.webUrl) }
+            OutlinedTextField(
+                value = webUrlText,
+                onValueChange = { url ->
+                    webUrlText = url
+                    repository.update { it.copy(webUrl = url.trim().trimEnd('/')) }
+                },
+                label = { Text("Web app URL") },
+                supportingText = { Text("Where \"open in web app\" links go") },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("settings-web-url"),
+            )
+    }
+
+    ServerGroup("Uploads", "settings-servers-uploads") {
+            // The worker override: like the API URL, but a list — a dev worker
+            // may be http or self-signed, so each saved one carries its own
+            // trust. Applies live: the upload stack reads it per photo.
+            // Chosen, pinned and tested on the Uploads screen (WorkerPanel), where
+            // each worker's status is (2026-11-09); this row only says which one
+            // is in use and goes there. It opened a dialog with a second, different
+            // set of status lines until then.
+            //var workerDialogOpen by rememberSaveable { mutableStateOf(false) }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("settings-restart-required"),
+                    //.selectable(selected = false, onClick = { workerDialogOpen = true }, role = Role.Button)
+                    .selectable(selected = false, onClick = onOpenUploads, role = Role.Button)
+                    .testTag("settings-worker-url"),
             ) {
-                Text(
-                    "Server URL changed — the app must restart to apply it everywhere.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(
-                    onClick = { cz.hillview.core.restartApp() },
-                    modifier = Modifier.testTag("restart-app-button"),
-                ) { Text("Restart now") }
+                Column(Modifier.weight(1f)) {
+                    //Text("Worker URL", style = MaterialTheme.typography.bodyLarge)
+                    Text("Worker", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        settings.activeWorker?.let { w -> w.url + if (w.pin != null) " · pinned certificate" else "" }
+                            ?: "As the server says",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.testTag("settings-worker-url-value"),
+                    )
+                    Text(
+                        "Choose, pin and test on the Uploads screen",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
+                }
+                Text("›", style = MaterialTheme.typography.titleLarge)
             }
-        }
+            //if (workerDialogOpen) {
+            //    WorkerUrlDialog(
+            //        settings = settings,
+            //        update = { transform -> repository.update(transform) },
+            //        onDismiss = { workerDialogOpen = false },
+            //    )
+            //}
+    }
+}
+
+/** A titled group on the Servers page. */
+@Composable
+private fun ServerGroup(title: String, tag: String, content: @Composable () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().testTag(tag),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        content()
+    }
+}
+
+@Composable
+private fun UploadSwitches(
+    repository: UploadSettingsRepository = koinInject(),
+) {
+    val settings by repository.settings.collectAsState()
+    val requestNotifications = rememberNotificationPermissionRequester()
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -249,7 +438,10 @@ fun SettingsScreen(
                 modifier = Modifier.testTag("settings-wifi-only"),
             )
         }
+}
 
+@Composable
+private fun TrackingExportRows() {
         // Geo tracking export: the CSVs that let photos be stamped
         // retroactively as if taken in the moment (the effective stream
         // samples the same arbitration the shutter runs). Auto-export
@@ -324,6 +516,13 @@ fun SettingsScreen(
                 }
             }
         }
+}
+
+@Composable
+private fun GpsIntervalRow(
+    mapRepository: cz.hillview.settings.MapSettingsRepository = koinInject(),
+) {
+    val mapSettings by mapRepository.settings.collectAsState()
 
         // How often the fused provider is asked for a fix. The value goes
         // straight through BindGeoToActivity into the GeoEngine — one of the
@@ -365,6 +564,18 @@ fun SettingsScreen(
                 }
             }
         }
+}
+
+@Composable
+private fun AccountAndLicense(
+    onOpenLogin: () -> Unit,
+    onOpenPanoramaxInfo: () -> Unit,
+    onOpenLicenseInfo: (String) -> Unit,
+    repository: UploadSettingsRepository = koinInject(),
+    sessionManager: cz.hillview.auth.SessionManager = koinInject(),
+) {
+    val settings by repository.settings.collectAsState()
+    val sessionState by sessionManager.state.collectAsState()
 
         // Uploads are impossible logged out, and this section is where a
         // user chasing the auto-upload prompt lands — so the way in sits
@@ -459,6 +670,13 @@ fun SettingsScreen(
                 modifier = Modifier.testTag("settings-panoramax-info"),
             ) { Text("About contributing to Panoramax") }
         }
+}
+
+@Composable
+private fun StorageRows(
+    repository: UploadSettingsRepository = koinInject(),
+) {
+    val settings by repository.settings.collectAsState()
 
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("Photo storage", style = MaterialTheme.typography.bodyLarge)
@@ -526,6 +744,17 @@ fun SettingsScreen(
                 modifier = Modifier.testTag("settings-write-exif"),
             )
         }
+}
+
+@Composable
+private fun CaptureRows(
+    onOpenSfmSettings: () -> Unit,
+    repository: UploadSettingsRepository = koinInject(),
+    mapRepository: cz.hillview.settings.MapSettingsRepository = koinInject(),
+) {
+    val settings by repository.settings.collectAsState()
+    // Read only for the SfM row's on/off, which went with the switch (2026-11-09).
+    //val mapSettings by mapRepository.settings.collectAsState()
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -550,6 +779,38 @@ fun SettingsScreen(
             )
         }
 
+        CaptureSoundSection(repository = repository)
+
+        // The SfM run's own page, reached from here rather than the main
+        // menu (user, 2026-11-07: "make the SfM dialog a part of the settings
+        // screen, like a sub-screen"). It is a capture preference you set
+        // once, not a place you visit mid-shoot. The row says whether it is
+        // on, so the state is readable without opening it.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onOpenSfmSettings)
+                .testTag("settings-sfm-run"),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("SfM run", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    //"Stills for 3-D reconstruction, a shot each time you have moved " +
+                    //    "or turned far enough. " +
+                    //    if (mapSettings.sfmRunEnabled) "On — offered in the shutter's ladder."
+                    //    else "Off.",
+                    "Stills for 3-D reconstruction, a shot each time you have moved " +
+                        "or turned far enough — the bottom rung of the shutter's ladder.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Text("›", style = MaterialTheme.typography.titleLarge)
+        }
+}
+
+@Composable
+private fun PhotoIndexRow() {
         // Not a switch: the dump always runs. What the screen owes the user
         // is where it went, so the file can be found — and a way to write it
         // again when it cannot be. See PhotoIndexExport.
@@ -587,6 +848,15 @@ fun SettingsScreen(
                 modifier = Modifier.testTag("settings-photo-index-write"),
             ) { Text(if (writing) "Writing…" else "Write it now") }
         }
+}
+
+@Composable
+private fun DiagnosticRows(
+    compassRepository: CompassSettingsRepository = koinInject(),
+    mapRepository: cz.hillview.settings.MapSettingsRepository = koinInject(),
+) {
+    val compass by compassRepository.settings.collectAsState()
+    val mapSettings by mapRepository.settings.collectAsState()
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -629,9 +899,7 @@ fun SettingsScreen(
                 modifier = Modifier.testTag("settings-landscape-workaround"),
             )
         }
-
-        BuildInfoFooter()
-    }
+        // BuildInfoFooter() moved to the list page (SettingsIndex).
 }
 
 /**

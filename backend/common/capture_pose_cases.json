@@ -1,0 +1,472 @@
+{
+	"_about": "Camera pitch and roll from a gravity vector: the cases common/capture_pose.py, the web app's level indicator (frontend/src/lib/capturePoseMath.ts) and frontend2 must agree on. gravity is the up vector in DEVICE coordinates (Android TYPE_GRAVITY: x right, y to the screen's top, z out of the screen), pitch and roll are GPano (positive up; roll from the nearest quarter turn, null within roll_floor of flat), and level is the indicator's verdict: 'level' passes both Panoramax gates, 'flat' has no roll. 'deviceorientation' adds the beta/gamma a browser reports for each vector. See docs/todo/web-capture-level-stamp.md.",
+	"max_pitch_deg": 20,
+	"max_roll_deg": 10,
+	"roll_floor": 0.26,
+	"cases": [
+		{
+			"id": "series-portrait-cw",
+			"gravity": [
+				3.802262,
+				9.020489,
+				-0.640069
+			],
+			"pitch": 3.741,
+			"roll": -22.856,
+			"level": "tilted"
+		},
+		{
+			"id": "series-portrait-ccw",
+			"gravity": [
+				-3.736076,
+				9.069076,
+				-0.172359
+			],
+			"pitch": 1.007,
+			"roll": 22.39,
+			"level": "tilted"
+		},
+		{
+			"id": "series-portrait-looking-down",
+			"gravity": [
+				2.932063,
+				9.331985,
+				0.743736
+			],
+			"pitch": -4.348,
+			"roll": -17.442,
+			"level": "tilted"
+		},
+		{
+			"id": "series-landscape-270-cw",
+			"gravity": [
+				9.175564,
+				-3.344684,
+				0.926404
+			],
+			"pitch": -5.419,
+			"roll": -20.028,
+			"level": "tilted"
+		},
+		{
+			"id": "series-landscape-270-ccw",
+			"gravity": [
+				9.472578,
+				2.447256,
+				0.71924
+			],
+			"pitch": -4.205,
+			"roll": 14.486,
+			"level": "tilted"
+		},
+		{
+			"id": "series-landscape-90-cw",
+			"gravity": [
+				-8.828668,
+				4.23193,
+				0.61765
+			],
+			"pitch": -3.61,
+			"roll": -25.61,
+			"level": "tilted"
+		},
+		{
+			"id": "series-landscape-90-ccw",
+			"gravity": [
+				-8.621812,
+				-4.593916,
+				0.892411
+			],
+			"pitch": -5.219,
+			"roll": 28.05,
+			"level": "tilted"
+		},
+		{
+			"id": "upright-portrait",
+			"gravity": [
+				0.0,
+				9.80665,
+				0.0
+			],
+			"pitch": 0,
+			"roll": 0.0,
+			"level": "level"
+		},
+		{
+			"id": "looking-up-23.4",
+			"gravity": [
+				0.0,
+				9.000098,
+				-3.89469
+			],
+			"pitch": 23.4,
+			"roll": 0.0,
+			"level": "tilted"
+		},
+		{
+			"id": "pitch-up-19.9",
+			"gravity": [
+				0.0,
+				9.221077,
+				-3.337983
+			],
+			"pitch": 19.9,
+			"roll": 0.0,
+			"level": "level"
+		},
+		{
+			"id": "pitch-up-20.1",
+			"gravity": [
+				0.0,
+				9.209369,
+				-3.37015
+			],
+			"pitch": 20.1,
+			"roll": 0.0,
+			"level": "tilted"
+		},
+		{
+			"id": "pitch-down-19.9",
+			"gravity": [
+				0.0,
+				9.221077,
+				3.337983
+			],
+			"pitch": -19.9,
+			"roll": 0.0,
+			"level": "level"
+		},
+		{
+			"id": "pitch-down-20.1",
+			"gravity": [
+				0.0,
+				9.209369,
+				3.37015
+			],
+			"pitch": -20.1,
+			"roll": 0.0,
+			"level": "tilted"
+		},
+		{
+			"id": "roll-ccw-9.9",
+			"gravity": [
+				1.686049,
+				9.660622,
+				0.0
+			],
+			"pitch": 0,
+			"roll": -9.9,
+			"level": "level"
+		},
+		{
+			"id": "roll-ccw-10.1",
+			"gravity": [
+				1.71976,
+				9.654678,
+				0.0
+			],
+			"pitch": 0,
+			"roll": -10.1,
+			"level": "tilted"
+		},
+		{
+			"id": "roll-cw-9.9",
+			"gravity": [
+				-1.686049,
+				9.660622,
+				0.0
+			],
+			"pitch": 0,
+			"roll": 9.9,
+			"level": "level"
+		},
+		{
+			"id": "roll-cw-10.1",
+			"gravity": [
+				-1.71976,
+				9.654678,
+				0.0
+			],
+			"pitch": 0,
+			"roll": 10.1,
+			"level": "tilted"
+		},
+		{
+			"id": "landscape-90-level",
+			"gravity": [
+				9.769355,
+				0.68314,
+				0.51324
+			],
+			"pitch": -3,
+			"roll": 4.0,
+			"level": "level"
+		},
+		{
+			"id": "landscape-90-rolled-12",
+			"gravity": [
+				9.579205,
+				2.036123,
+				0.51324
+			],
+			"pitch": -3,
+			"roll": 12.0,
+			"level": "tilted"
+		},
+		{
+			"id": "landscape-270-level",
+			"gravity": [
+				-9.715815,
+				1.021173,
+				-0.854706
+			],
+			"pitch": 5,
+			"roll": -6.0,
+			"level": "level"
+		},
+		{
+			"id": "upside-down-level",
+			"gravity": [
+				0.342195,
+				-9.799183,
+				0.17115
+			],
+			"pitch": -1,
+			"roll": 2.0,
+			"level": "level"
+		},
+		{
+			"id": "quarter-turn-44",
+			"gravity": [
+				6.812272,
+				7.054314,
+				0.0
+			],
+			"pitch": 0,
+			"roll": -44.0,
+			"level": "tilted"
+		},
+		{
+			"id": "quarter-turn-46",
+			"gravity": [
+				7.054314,
+				6.812272,
+				0.0
+			],
+			"pitch": 0,
+			"roll": 44.0,
+			"level": "tilted"
+		},
+		{
+			"id": "down-25-rolled-12",
+			"gravity": [
+				-1.847887,
+				8.693623,
+				4.144469
+			],
+			"pitch": -25,
+			"roll": 12.0,
+			"level": "tilted"
+		},
+		{
+			"id": "down-74-has-a-roll",
+			"gravity": [
+				0.0,
+				2.703079,
+				9.426757
+			],
+			"pitch": -74,
+			"roll": 0.0,
+			"level": "tilted"
+		},
+		{
+			"id": "down-76-is-flat",
+			"gravity": [
+				0.0,
+				2.372443,
+				9.515351
+			],
+			"pitch": -76,
+			"roll": null,
+			"level": "flat"
+		},
+		{
+			"id": "up-76-is-flat",
+			"gravity": [
+				0.0,
+				2.372443,
+				-9.515351
+			],
+			"pitch": 76,
+			"roll": null,
+			"level": "flat"
+		},
+		{
+			"id": "flat-face-up",
+			"gravity": [
+				0.0,
+				0.0,
+				9.80665
+			],
+			"pitch": -90,
+			"roll": null,
+			"level": "flat"
+		},
+		{
+			"id": "flat-face-down",
+			"gravity": [
+				0.0,
+				0.0,
+				-9.80665
+			],
+			"pitch": 90,
+			"roll": null,
+			"level": "flat"
+		}
+	],
+	"deviceorientation": [
+		{
+			"id": "upright-looking-down-5",
+			"beta": 85.0,
+			"gamma": 0.0,
+			"gravity": [
+				0.0,
+				9.769333,
+				0.854706
+			],
+			"pitch": -5,
+			"roll": 0,
+			"level": "level"
+		},
+		{
+			"id": "upright-looking-up-5",
+			"beta": 95.0,
+			"gamma": 0.0,
+			"gravity": [
+				0.0,
+				9.769333,
+				-0.854706
+			],
+			"pitch": 5,
+			"roll": 0,
+			"level": "level"
+		},
+		{
+			"id": "portrait-rolled-ccw-15",
+			"beta": 75.0,
+			"gamma": -90.0,
+			"gravity": [
+				2.538148,
+				9.472497,
+				0.0
+			],
+			"pitch": 0,
+			"roll": -15,
+			"level": "tilted"
+		},
+		{
+			"id": "portrait-rolled-cw-15",
+			"beta": 105.0,
+			"gamma": -90.0,
+			"gravity": [
+				-2.538148,
+				9.472497,
+				0.0
+			],
+			"pitch": 0,
+			"roll": 15,
+			"level": "tilted"
+		},
+		{
+			"id": "portrait-down-5-ccw-4",
+			"beta": 83.6001,
+			"gamma": -38.5661,
+			"gravity": [
+				0.68147,
+				9.745536,
+				0.854699
+			],
+			"pitch": -5,
+			"roll": -4,
+			"level": "level"
+		},
+		{
+			"id": "portrait-up-3-cw-4",
+			"beta": 94.9985,
+			"gamma": -53.0826,
+			"gravity": [
+				-0.683135,
+				9.769355,
+				-0.513237
+			],
+			"pitch": 3,
+			"roll": 4,
+			"level": "level"
+		},
+		{
+			"id": "portrait-down-8-ccw-25",
+			"beta": 63.8298,
+			"gamma": -71.6056,
+			"gravity": [
+				4.104133,
+				8.80135,
+				1.364818
+			],
+			"pitch": -8,
+			"roll": -25,
+			"level": "tilted"
+		},
+		{
+			"id": "landscape-left-down-5",
+			"beta": 0.0,
+			"gamma": -85.0,
+			"gravity": [
+				9.769333,
+				0.0,
+				0.854706
+			],
+			"pitch": -5,
+			"roll": 0,
+			"level": "level"
+		},
+		{
+			"id": "landscape-right-down-5",
+			"beta": 0.0,
+			"gamma": 85.0,
+			"gravity": [
+				-9.769333,
+				0.0,
+				0.854706
+			],
+			"pitch": -5,
+			"roll": 0,
+			"level": "level"
+		},
+		{
+			"id": "upside-down",
+			"beta": -90.0,
+			"gamma": 0.0,
+			"gravity": [
+				0.0,
+				-9.80665,
+				0.0
+			],
+			"pitch": 0,
+			"roll": 0,
+			"level": "level"
+		},
+		{
+			"id": "flat",
+			"beta": 0.0,
+			"gamma": 0.0,
+			"gravity": [
+				0.0,
+				0.0,
+				9.80665
+			],
+			"pitch": -90,
+			"roll": null,
+			"level": "flat"
+		}
+	]
+}

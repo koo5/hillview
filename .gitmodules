@@ -1,0 +1,3 @@
+[submodule "hillview_common"]
+	path = hillview_common
+	url = https://github.com/koo5/hillview_common.git

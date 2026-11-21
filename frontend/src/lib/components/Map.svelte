@@ -4,13 +4,14 @@
 	import {LatLng} from 'leaflet';
 	import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, LocateFixed, Pause, ArrowUp, ArrowDown, Layers, Eye, Map as MapIcon, Info, Filter, Clock, Leaf} from 'lucide-svelte';
 	import FiltersModal from './filters-modal/FiltersModal.svelte';
-	import { activeFilterCount, openFiltersModal, clearFilters } from './filters-modal/filtersStore';
+	import { activeFilterCount, openFiltersModal, clearFilters, filters, filtersFromUrl, FILTER_URL_PREFIX } from './filters-modal/filtersStore';
+	import { replaceState } from '$app/navigation';
 	import { longPress } from '$lib/actions/longPress';
 	import L from 'leaflet';
 import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, toggleTimeline } from '$lib/timeline';
 	import 'leaflet/dist/leaflet.css';
 	import 'leaflet-textpath';
-	import { getCurrentProviderConfig, setTileProvider, currentTileProvider } from '$lib/tileProviders';
+	import { getCurrentProviderConfig, setTileProvider, currentTileProvider, EARTH_ORTHO_PROVIDER, earthOrtho, ensureEarthOrtho, retryOrthoTile } from '$lib/tileProviders';
 	import Spinner from './Spinner.svelte';
 	import TileProviderSelector from './TileProviderSelector.svelte';
 	import CompassButton from './CompassButton.svelte';
@@ -53,16 +54,18 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 	import { overrideFilters } from '$lib/components/filters-modal/filtersStore';
 	import {featuredPhotoData, maybeFetchFeaturedPhoto} from "$lib/featuredPhoto";
 	import {updateBearingWithPhoto, disableBearingTracking} from "$lib/bearingTracking";
-	import {adjustMountOffset, gpsOrientationEnabled} from "$lib/gpsOrientation.svelte";
-	import {getAngularDistance} from "$lib/utils/bearingUtils";
+	import {gpsOrientationEnabled} from "$lib/gpsOrientation.svelte";
 	import {enableSourceForPhotoUid, sources, showPhotoInfoWindow, togglePhotoInfoWindow} from "$lib/data.svelte.js";
 	import { simplePhotoWorker } from '$lib/simplePhotoWorker';
 	import { turn_to_photo_to, app, sourceLoadingStatus, powerSavingActive } from "$lib/data.svelte.js";
 	import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation, locationTracking, lastKnownGpsLocation, backgroundLocationTracking, setBackgroundLocationTracking } from "$lib/location.svelte.js";
-	import { isOnMapRoute, compassEnabled, disableCompass } from "$lib/compass.svelte.js";
+	import { enterBackgroundTracking } from '$lib/userMove';
+	import { isOnMapRoute } from "$lib/compass.svelte.js";
+	import { stopBearingProducers, userTurn } from '$lib/userTurn';
 	import { optimizedMarkerSystem, setupMarkerClickDelegation } from '$lib/optimizedMarkers';
 	import '$lib/styles/optimizedMarkers.css';
 	import type { PhotoData } from '$lib/types/photoTypes';
+	import type { PlaceResult } from '$lib/placesApi';
 	import PhotoMarkerIcon from './PhotoMarkerIcon.svelte';
 	import { enqueueTerrainRender, selectedTerrainRender, terrainPick, terrainRenders, terrainWedge } from '$lib/terrain.svelte';
 	import { gridMetaOf, markerStateOf, wedgeArcLatLngs, type TerrainRender } from '$lib/terrainModel';
@@ -81,6 +84,20 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 	const doLog = false;
 
 	export let update_url = false;
+
+	// Search is a manual move, just like a pan: stop GPS following before
+	// writing the shared state so the next fix cannot pull the map back.
+	export function showPlace(place: PlaceResult) {
+		enterBackgroundTracking();
+		let zoom = 16;
+		if (map && place.bounds) {
+			const [south, north, west, east] = place.bounds;
+			zoom = Math.max(2, Math.min(16, map.getBoundsZoom(
+				L.latLngBounds([south, west], [north, east]), false, L.point(40, 40)
+			)));
+		}
+		updateSpatialState({ center: { lat: place.lat, lng: place.lon }, zoom }, 'map');
+	}
 
 	//let flying = false;
 	let programmaticMove = false; // Flag to prevent position sync conflicts
@@ -358,6 +375,24 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 			clearFilters();
 		}
 
+		// Filters preset by the link (?filters_cat=1, see filtersFromUrl) replace the
+		// visitor's saved ones. Applied once, then removed from the address bar: the
+		// store persists them, and a lingering param would reapply on every reload
+		// over whatever the visitor changed in the Filters modal since.
+		const urlFilters = filtersFromUrl(urlParams);
+		if (urlFilters) {
+			filters.set(urlFilters);
+			const url = new URL(window.location.href);
+			for (const key of [...url.searchParams.keys()]) {
+				if (key.startsWith(FILTER_URL_PREFIX)) url.searchParams.delete(key);
+			}
+			try {
+				replaceState(url.toString(), {});
+			} catch (e) {
+				console.error('🢄Failed to strip URL filter params', e);
+			}
+		}
+
 		// Handle photo parameter and enable corresponding source
 		const photoUid = parsePhotoUid(photoParam);
 		if (photoUid) {
@@ -365,8 +400,6 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 			pendingZoomViewError.set(null); // fresh open attempt
 			enableSourceForPhotoUid(photoUid);
 			picks.set(new Set([photoUid])); // ensure culling grid keeps this photo
-			// Switch to view mode when opening a specific photo
-			app.update(a => ({...a, activity: 'view'}));
 			// Auto-set hunterMode once this photo arrives in range
 			setUrlRequestedPhoto(photoUid, bearingParam !== null && Number.isFinite(Number(bearingParam)) ? Number(bearingParam) : undefined);
 		}
@@ -730,9 +763,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 					// Keep GPS running (pulses continue, fixes keep logging as
 					// background) but stop the map following. From OFF/BACKGROUND a
 					// manual pan changes nothing about the tracking state.
-					if (get(locationTracking)) {
-						enterBackgroundTracking();
-					}
+					enterBackgroundTracking();
 				} else {
 					//console.log('🢄Zoom button event detected - not disabling location tracking');
 				}
@@ -1019,13 +1050,16 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 			picks.set(new Set([photo.uid, ...get(timelinePinned)]));
 		}
 
-		if (isInRange) {
+		// In the 3D world a pick stands the observer on the photo (WorldPane: at 2 m), so even one inside the range
+		// circle moves the location there; on the map alone such a pick only turns to it (the operator, 11-10)
+		const standOnIt = get(app).activity === '3d';
+		if (isInRange && !standOnIt) {
 			// Photo is in range, just update bearing to select it
 			console.log('🢄Photo in range, selecting directly');
 			updateBearingWithPhoto(photo, source);
 		} else {
-			// Photo is not in range, move map to photo location first
-			console.log('🢄Photo not in range, moving map to photo location');
+			// Photo is not in range (or the 3D world stands on it), move map to photo location first
+			console.log(`🢄Photo ${isInRange ? 'in range, the 3D world open' : 'not in range'}, moving map to photo location`);
 
 			// If a programmatic move is already in flight (e.g. fast timeline
 			// stepping), jump instantly instead of animating — otherwise Leaflet
@@ -1047,11 +1081,12 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 				map.flyTo(newCenter, map.getZoom(), { duration: Math.min(250, px) / 1000 });
 			}
 
-			// Update spatial state
+			// Update spatial state: the location is this photo's position (the 3D world stands at 2 m on it)
 			updateSpatialState({
 				center: newCenter,
 				zoom: map.getZoom(),
 				bounds: null,
+				photoUid: photo.uid,
 			});
 
 			// Update bearing to the photo (this stores photoUid so it will be selected once in range)
@@ -1100,18 +1135,6 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 		}
 	}
 
-	// ACTIVE → BACKGROUND, triggered by a manual map pan. Deliberately does NOT
-	// call stopLocationTracking(): the GPS subscription stays up so pulses
-	// continue and fixes keep logging — under their own name now, simply no
-	// longer the elected source. The map stops following because
-	// locationTracking is false → handleGpsLocationUpdate early-returns.
-	// Nothing needs awaiting: the manual 'map' row written by updateSpatialState
-	// carries the election itself, so it cannot be stamped with the era it ends.
-	function enterBackgroundTracking() {
-		setLocationTracking(false);
-		setBackgroundLocationTracking(true);
-		setElectedLocationSource('manual');
-	}
 
 
 	// Whether the map has been moved to a GPS fix during the current ACTIVE
@@ -1241,10 +1264,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 		arrowDragging = true;
 
 		// Disable compass tracking (same as rotate buttons)
-		if ($compassEnabled) {
-			console.log('🢄🧭 Disabling compass tracking due to arrow drag');
-			disableCompass();
-		}
+		stopBearingProducers();
 
 		// Disable map dragging during arrow drag
 		if (map) map.dragging.disable();
@@ -1269,14 +1289,8 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 
 		function applyBearing(cx: number, cy: number) {
 			const bearing = pointerBearing(cx, cy);
-			if ($bearingMode === 'car' && $gpsOrientationEnabled) {
-				// Translate drag into a mount-offset change so Kotlin (Tauri) /
-				// the subsequent gps-kalman diffs (browser) stay consistent.
-				adjustMountOffset(getAngularDistance(prevPointerBearing, bearing));
-				prevPointerBearing = bearing;
-			} else {
-				updateBearing(bearing, 'arrow_drag');
-			}
+			userTurn(prevPointerBearing, bearing, 'arrow_drag');
+			prevPointerBearing = bearing;
 		}
 
 		function onPointerMove(ev: PointerEvent) {
@@ -1748,6 +1762,13 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 		tileConfig = getCurrentProviderConfig();
 	}
 
+	// Earth's orthophoto over the 'earth.ortho' provider's base map (Hillview world), once its channel is read
+	$: showEarthOrtho = $currentTileProvider === EARTH_ORTHO_PROVIDER;
+	$: if (showEarthOrtho) ensureEarthOrtho();
+	$: orthoLayer = showEarthOrtho ? $earthOrtho : null;
+	$: attributionHtml = [tileConfig.attribution || '© OpenStreetMap contributors', orthoLayer?.attribution]
+		.filter(Boolean).join(' | ');
+
 	// Reactive updates for spatial changes (photos from worker include filtered placeholders)
 	$: if ($visiblePhotos && map && $app.activity !== 'terrain') {
 		//console.log(`🢄Map: Reactive update triggered - updating markers with ${$visiblePhotos.length} total photos`);
@@ -2011,7 +2032,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 					moveend: mapStateUserEvent,
 					zoomend: mapStateUserEvent,
 					dragend: mapStateUserEvent,
-					dragstart: (e) => { if (get(locationTracking)) enterBackgroundTracking(); },
+					dragstart: () => enterBackgroundTracking(),
 				}
 				}
 			options={{
@@ -2067,6 +2088,27 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 				url={tileConfig.url}
 		/>
 		{/key}
+
+		{#if orthoLayer}
+		<TileLayer
+				options={{
+					// ČÚZK's terms: named on the view itself, not only in the ⓘ popup
+					attribution: orthoLayer.attribution,
+					maxZoom: 23,
+					maxNativeZoom: orthoLayer.maxNativeZoom,
+					minZoom: 3,
+					tileSize: 256,
+					crossOrigin: true,
+					updateInterval: 100,
+					// Czechia only: no request for a tile wholly outside (earth would answer 404)
+					bounds: orthoLayer.bounds,
+					className: 'map-tiles ortho-tiles'
+				}}
+				zIndex={2}
+				events={{ tileerror: retryOrthoTile }}
+				url={orthoLayer.url}
+		/>
+		{/if}
 
 
 		{#if ($app.activity != 'capture') && $spatialState.center && $mapReady}
@@ -2242,7 +2284,8 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 			on:keydown={(e) => e.key === 'Escape' && (showAttribution = false)}
 		>
 			<!-- SECURITY: @html is safe here - attribution comes from hardcoded strings in tileProviders.ts, not user input -->
-			{@html tileConfig.attribution || '© OpenStreetMap contributors'}
+			<!-- (the orthophoto's credit is built from earth's /attribution, HTML-escaped in tileProviders.ts) -->
+			{@html attributionHtml}
 		</div>
 	{/if}
 {/if}

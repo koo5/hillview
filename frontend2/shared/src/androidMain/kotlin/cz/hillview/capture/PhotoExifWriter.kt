@@ -70,11 +70,26 @@ object PhotoExifWriter {
         // Tauri shape ignore what they don't know.
         val locationSource = snapshot.locationSource
         val exposure = snapshot.exposure
-        // One serialization, both routes: the fast-write default sends this
-        // same object in the upload metadata (PhotoEntity.attitudeJson).
+        // One serialization, both routes: the fast-write default sends these
+        // same objects in the upload metadata (PhotoEntity.attitudeJson and
+        // friends). Built by the shared functions rather than copied, so the
+        // two routes cannot drift into describing a shot differently.
         val attitude = attitudeProvenanceJson(snapshot)
+        // `attitude` alone is not enough, and that was this writer's bug.
+        // `capture_pose` reads a stamp with no `capture_timing` as
+        // PRE-VERSIONING, and then trusts its attitude angles only when
+        // `device_rotation_deg` is 0 — so an EXIF-stamped landscape or
+        // upside-down shot arrived with no pitch and no roll and failed the
+        // Panoramax level gates. `capture_timing` carries the
+        // `metadata_version` that lifts that restriction, and `inertial`
+        // carries the gravity vector the server prefers over the angles
+        // anyway. Both off by default, with "Write EXIF" off by default too,
+        // which is why no photo in the 2026-11-15 series showed it.
+        val inertial = inertialProvenanceJson(snapshot)
+        val captureTiming = captureTimingJson(snapshot)
         if (locationSource != null || snapshot.bearingSource != null || exposure != null ||
-            snapshot.altLocation != null || attitude != null
+            snapshot.altLocation != null || attitude != null ||
+            inertial != null || captureTiming != null
         ) {
             val fields = buildList {
                 locationSource?.let { add("\"location_source\":\"$it\"") }
@@ -96,6 +111,11 @@ object PhotoExifWriter {
                 // What the DEVICE measured, beside what the photo FACES —
                 // roll among it, which had never left the phone before.
                 attitude?.let { add("\"attitude\":$it") }
+                // Same keys the upload metadata uses (PhotoUploadLogic's
+                // "inertial" and "capture_timing"), because the worker reads
+                // one shape whichever route the stamp took.
+                inertial?.let { add("\"inertial\":$it") }
+                captureTiming?.let { add("\"capture_timing\":$it") }
             }
             exif.setAttribute(
                 ExifInterface.TAG_USER_COMMENT,

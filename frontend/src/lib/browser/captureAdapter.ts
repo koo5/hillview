@@ -17,7 +17,8 @@ export class BrowserCaptureAdapter {
             {
                 location: item.location,
                 captured_at: item.captured_at,
-                orientation_code: item.orientation_code
+                orientation_code: item.orientation_code,
+                inertial: item.inertial ?? null
             },
             { license: item.license, panoramax_share: item.panoramax_share }
         );

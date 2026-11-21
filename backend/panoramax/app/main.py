@@ -190,7 +190,14 @@ async def dev_suspicious() -> HTMLResponse:
 @app.get('/api/health')
 async def health() -> dict:
 	async with get_engine().connect() as conn:
-		await conn.execute(text('SELECT 1'))
+		commit_timestamps = (await conn.execute(text('SHOW track_commit_timestamp'))).scalar()
+		schema_ready = (await conn.execute(text(sequencer.SCHEMA_READY_SQL))).scalar()
+	if not schema_ready:
+		raise HTTPException(status_code=503, detail='database not migrated yet; the api applies the migrations at its start')
+	if commit_timestamps != 'on':
+		# Every collection listing would fail too (see SEQUENCE_UPDATED).
+		raise HTTPException(status_code=503,
+			detail='PostgreSQL track_commit_timestamp is off; docker-compose.yml starts postgres with it on')
 	return {'status': 'ok'}
 
 
@@ -237,14 +244,16 @@ async def configuration() -> dict:
 	return {
 		'name': settings.instance_name(),
 		'logo': settings.logo_url(),
-		# Placeholder declaration until the panoramax outflow wording is final.
+		# The SPDX slot holds one id, so the derived-data part of the outflow
+		# licence (Hillview's "CC BY-SA 4.0 + LO derivatives") is stated here.
 		'description': (
 			'Hillview (https://hillview.cz) serves a Panoramax-compatible read API. '
-			'Owners opt in per photo under the full1 or panoramax_in intake grant; '
-			'only approved contributions with no anonymization doodles are federated. '
-			'Photos remain hosted on Hillview. The Panoramax outflow licence wording '
-			f'and this {scope.license} declaration are placeholders pending final terms. '
-			'Full terms: https://hillview.cz/licensing'
+			'Owners opt in per photo; only approved contributions with no anonymization '
+			'doodles are federated. Photos remain hosted on Hillview. '
+			f'They are published under {scope.license} and may be used to create derived '
+			'data, including AI models, under Licence Ouverte 2.0, CC-BY 4.0 or ODbL 1.0. '
+			'The metadata this API serves is published by Hillview under Licence Ouverte 2.0. '
+			'Full terms: https://hillview.cz/licensing#lo-derivatives'
 		),
 		'license': {'id': scope.license, 'url': scope.license_url},
 		'auth': {'enabled': False},
@@ -256,6 +265,17 @@ async def configuration() -> dict:
 
 
 # --- collections -----------------------------------------------------------
+
+# A collection's `updated`, which the harvester's incremental crawl filters on
+# (updated > its previous harvest's start, less 3 s): when the sequence row's
+# latest version was committed, not updated_at. now() stamps updated_at with
+# its transaction's start, and a sequencer pass is one long transaction, so a
+# harvest that lists collections while a pass runs cannot see its changes yet,
+# and the next one asks only for updates after that harvest began, which the
+# start-time stamp predates — the changes would never be fetched. Needs
+# track_commit_timestamp (docker-compose.yml turns it on; /api/health checks);
+# rows committed before it was on have no commit time and keep updated_at.
+SEQUENCE_UPDATED = 'greatest(s.updated_at, pg_xact_commit_timestamp(s.xmin))'
 
 # Aggregates over *servable* member photos only, so counts/extents never leak
 # photos that flipped out of scope between sequencer passes.
@@ -286,7 +306,7 @@ async def _fetch_collections_page(
 	where = ["s.scope = :scope", "s.status = ANY(:statuses)"]
 	params: dict[str, Any] = {'scope': scope.id, 'statuses': sorted(statuses), 'limit': limit}
 	if updated_after is not None:
-		where.append(f"s.updated_at {'>=' if updated_inclusive else '>'} :updated_after")
+		where.append(f"{SEQUENCE_UPDATED} {'>=' if updated_inclusive else '>'} :updated_after")
 		params['updated_after'] = updated_after
 	if after_id:
 		where.append("s.id > :after_id")
@@ -294,7 +314,7 @@ async def _fetch_collections_page(
 
 	async with get_engine().connect() as conn:
 		seq_rows = (await conn.execute(text(f"""
-			SELECT s.id, s.status, s.owner_id, u.username, s.created_at, s.updated_at
+			SELECT s.id, s.status, s.owner_id, u.username, s.created_at, {SEQUENCE_UPDATED}
 			FROM panoramax.sequences s
 			LEFT JOIN users u ON u.id = s.owner_id
 			WHERE {' AND '.join(where)}
@@ -372,8 +392,8 @@ async def collections(
 async def _load_sequence(seq_id: str):
 	scope = settings.active_scope()
 	async with get_engine().connect() as conn:
-		row = (await conn.execute(text("""
-			SELECT s.id, s.status, s.owner_id, u.username, s.created_at, s.updated_at
+		row = (await conn.execute(text(f"""
+			SELECT s.id, s.status, s.owner_id, u.username, s.created_at, {SEQUENCE_UPDATED}
 			FROM panoramax.sequences s
 			LEFT JOIN users u ON u.id = s.owner_id
 			WHERE s.id = :seq_id AND s.scope = :scope
@@ -419,7 +439,7 @@ _ITEMS_SQL = f"""
 		p.id, sp.rank,
 		ST_X(p.geometry) AS lon, ST_Y(p.geometry) AS lat,
 		p.effective_at, p.uploaded_at, p.compass_angle,
-		p.width, p.height, p.original_filename, p.title, p.description,
+		p.width, p.height, p.original_filename,
 		p.sizes, u.username, p.owner_id
 	FROM panoramax.sequence_photos sp
 	JOIN photos p ON p.id = sp.photo_id
@@ -461,8 +481,8 @@ async def items(
 			lon=r[2], lat=r[3],
 			effective_at=r[4], uploaded_at=r[5],
 			compass_angle=r[6], width=r[7], height=r[8],
-			original_filename=r[9], title=r[10], description=r[11],
-			sizes=r[12] or {}, username=r[13], owner_id=r[14],
+			original_filename=r[9],
+			sizes=r[10] or {}, username=r[11], owner_id=r[12],
 			license_id=scope.license, base_url=base,
 		)
 		if feature:
@@ -502,7 +522,7 @@ async def item(seq_id: str, item_id: str) -> dict:
 				p.id, sp.rank,
 				ST_X(p.geometry) AS lon, ST_Y(p.geometry) AS lat,
 				p.effective_at, p.uploaded_at, p.compass_angle,
-				p.width, p.height, p.original_filename, p.title, p.description,
+				p.width, p.height, p.original_filename,
 				p.sizes, u.username, p.owner_id
 			FROM panoramax.sequence_photos sp
 			JOIN photos p ON p.id = sp.photo_id
@@ -520,8 +540,8 @@ async def item(seq_id: str, item_id: str) -> dict:
 		lon=r[2], lat=r[3],
 		effective_at=r[4], uploaded_at=r[5],
 		compass_angle=r[6], width=r[7], height=r[8],
-		original_filename=r[9], title=r[10], description=r[11],
-		sizes=r[12] or {}, username=r[13], owner_id=r[14],
+		original_filename=r[9],
+		sizes=r[10] or {}, username=r[11], owner_id=r[12],
 		license_id=scope.license, base_url=_base_url(),
 	)
 	if feature is None:

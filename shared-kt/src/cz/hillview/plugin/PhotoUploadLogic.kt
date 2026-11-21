@@ -34,7 +34,46 @@ class DuplicateFileException(message: String) : Exception(message)
  * Deliberately not an IOException so the generic network catches don't
  * swallow it into a per-photo failure.
  */
-class WorkerBusyException(message: String) : Exception(message)
+//class WorkerBusyException(message: String) : Exception(message)
+/**
+ * The worker said it is full (HTTP 503 from /ready or the upload itself).
+ * [retryAfterSeconds] is its `Retry-After`, when it sent a number of seconds:
+ * the pace the WORKER asks for, which the drain honours instead of WorkManager's
+ * exponential backoff — see PhotoUploadManager.resumeAfterWorkerBusy.
+ */
+class WorkerBusyException(message: String, val retryAfterSeconds: Long? = null) : Exception(message)
+
+/**
+ * A row still `uploading` this long after its last heartbeat (every 30 s while the
+ * body is in flight) belonged to a drain that died — hand it back.
+ */
+internal const val UPLOADING_STALE_MS = 10L * 60_000
+
+/**
+ * How long a photo the worker ACCEPTED may stay in `processing` before the phone
+ * gives up on it and uploads it again (2026-11-06: 8 h, was 1 h).
+ *
+ * The phone cannot ask the worker about a photo — only the API, whose status
+ * says `authorized` both for a photo still queued at the worker and for one the
+ * worker lost (crash, restart: its queue is in memory). So this timer is the
+ * only thing that recovers a lost photo, and it cannot tell lost from queued.
+ * At 1 h — set while hunting upload bugs, when a fast retry was the point — a
+ * worker with a few hundred photos queued saw them re-sent while they still
+ * waited their turn: the API deletes the `authorized` row and authorizes again,
+ * so the same photo was processed twice. 8 h covers a deep queue; the cost is
+ * that a genuinely lost photo waits that long. A real answer needs the server
+ * to know lost from queued (the worker telling the API it received a photo,
+ * and that it restarted).
+ */
+internal const val PROCESSING_STALE_MS = 8L * 60 * 60_000
+
+/** ", come back in 500 s" from a `Retry-After`, for a status line; empty without one. */
+internal fun retryAfterNote(header: String?): String =
+	retryAfterSeconds(header)?.let { ", come back in $it s" } ?: ""
+
+/** `Retry-After` as seconds; null for the HTTP-date form or anything unparseable. */
+internal fun retryAfterSeconds(header: String?): Long? =
+	header?.trim()?.toLongOrNull()?.takeIf { it >= 0 }
 
 /**
  * Secure Upload Manager for Android Background Uploads
@@ -94,8 +133,51 @@ class PhotoUploadLogic(internal val context: Context) {
 	// we receive the sibling's ready + id instead. Pin uploads to that machine
 	// via fly-force-instance-id; clear on busy/IO failure so the next preflight
 	// re-discovers. Never persisted — machine ids churn on every deploy.
+	//@Volatile
+	//private var pinnedWorkerMachine: String? = null
+	// Since 2026-11-09 the pin remembers which worker URL it came from, and is
+	// sent only there (WorkerMachinePin.kt): a bare id followed the phone to the
+	// next worker after a switch. A ready answer without a machine id — a
+	// worker off Fly — clears it, as does any /ready that isn't a 200 or 404.
 	@Volatile
-	private var pinnedWorkerMachine: String? = null
+	private var pinnedWorker: WorkerMachinePin? = null
+
+	// The client for a user-pinned worker (WorkerOverride.kt), built once per
+	// pin rather than per photo: an SSLContext and a fresh connection pool
+	// each upload would undo the keep-alive the drain relies on.
+	@Volatile
+	private var pinnedWorkerClient: Pair<WorkerOverride, OkHttpClient>? = null
+
+	/**
+	 * The last worker contact, for the upload-status page (WorkerOverride.kt's
+	 * PREF_LAST_WORKER_*), and — when it went wrong — the in-app event log, so a
+	 * worker that refuses a pinned certificate or cannot be reached says so on
+	 * the phone, not only in logcat. Successes stay out of the event log: one
+	 * line per photo would push everything else out of its ring.
+	 */
+	//private fun noteWorker(url: String, outcome: String, failed: Boolean) {
+	//	recordWorkerContact(prefs, url, outcome, failed)
+	//	if (failed) EventLog.record("upload", "worker $url: $outcome")
+	//}
+	// [busy]: a 503, the worker full — recorded as such, not as a failure, and
+	// kept out of the event log: with a deep queue every drain ends in one.
+	private fun noteWorker(url: String, outcome: String, failed: Boolean, busy: Boolean = false) {
+		recordWorkerContact(prefs, url, outcome, failed, busy)
+		if (failed) EventLog.record("upload", "worker $url: $outcome")
+	}
+
+	/** The worker to upload to and the client to reach it with — see WorkerOverride.kt. */
+	private fun workerTarget(serverWorkerUrl: String): Pair<String, OkHttpClient> {
+		val override = readWorkerOverride(prefs) ?: return serverWorkerUrl to client
+		Log.d(TAG, "Worker override: ${override.url} instead of $serverWorkerUrl" +
+			(if (override.pinnedCertDer != null) " (pinned certificate)" else ""))
+		val pin = override.pinnedCertDer ?: return override.url to client
+		val cached = pinnedWorkerClient
+		if (cached != null && cached.first == override) return override.url to cached.second
+		val built = pinnedClient(client, pin)
+		pinnedWorkerClient = override to built
+		return override.url to built
+	}
 
 	private val prefs: SharedPreferences by lazy { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
 	private val authManager by lazy { AuthenticationManager(context) }
@@ -185,13 +267,25 @@ class PhotoUploadLogic(internal val context: Context) {
 				// (getUploadableCandidates) + backoff via isEligibleNow.
 				// Validation drops are loop-only, so N can be a touch high, never low.
 				val nowSnap = System.currentTimeMillis()
-				val total = photoDao.getUploadableCandidates(
-					nowSnap - 1000 * 60 * 10,
-					nowSnap - 1000 * 60 * 60,
+				// Three columns, not whole rows: the full-row query brought every
+				// candidate's raw IMU window into memory just to count it, and a
+				// 5385-photo queue was an OutOfMemoryError (2026-11-06). See
+				// SimplePhotoDao.getUploadableCandidateStates.
+				//val total = photoDao.getUploadableCandidates(
+				//	nowSnap - 1000 * 60 * 10,
+				//	nowSnap - 1000 * 60 * 60,
+				//	nowSnap
+				//).count { isEligibleNow(it, triggerSource, nowSnap) }
+				val total = photoDao.getUploadableCandidateStates(
+					nowSnap - UPLOADING_STALE_MS,
+					//nowSnap - 1000 * 60 * 60,
+					nowSnap - PROCESSING_STALE_MS,
 					nowSnap
-				).count { isEligibleNow(it, triggerSource, nowSnap) }
+				).count { isEligibleNow(it.uploadStatus, it.lastUploadAttempt, it.retryCount, triggerSource, nowSnap) }
 
 				var workerBusy = false
+				// The worker's own Retry-After, from the 503 that set workerBusy.
+				var workerBusyRetryAfterSeconds: Long? = null
 				var networkDeferred = false
 				// Set when the loop stops because a precondition went away
 				// rather than because the work is done — see the return below.
@@ -270,8 +364,10 @@ class PhotoUploadLogic(internal val context: Context) {
 					else
 					{
 						val now = System.currentTimeMillis()
-						val uploadingStaleThreshold = now - 1000 * 60 * 10  // 10 minutes
-						val processingStaleThreshold = now - 1000 * 60 * 60 // 1 hour
+						//val uploadingStaleThreshold = now - 1000 * 60 * 10  // 10 minutes
+						//val processingStaleThreshold = now - 1000 * 60 * 60 // 1 hour
+						val uploadingStaleThreshold = now - UPLOADING_STALE_MS
+						val processingStaleThreshold = now - PROCESSING_STALE_MS
 						photo = photoDao.getNextPhotoForUpload(seen, uploadingStaleThreshold, processingStaleThreshold, now)
 					}
 
@@ -406,6 +502,7 @@ class PhotoUploadLogic(internal val context: Context) {
 						Log.w(TAG, "⏳ Worker busy, aborting upload pass: ${e.message}")
 						photoDao.updateUploadStatus(photo.id, photo.uploadStatus, photo.uploadedAt)
 						workerBusy = true
+						workerBusyRetryAfterSeconds = e.retryAfterSeconds
 						break
 					} catch (e: CancellationException) {
 						// WorkManager stopped this run (network constraint lost,
@@ -453,14 +550,30 @@ class PhotoUploadLogic(internal val context: Context) {
 				// getNextPhotoForUpload query — and ExistingWorkPolicy.KEEP
 				// silently dropped the capture triggers that arrived in that
 				// window, leaving the session's last photo stuck in "pending".
-				if (photoDao.getProcessingPhotos().isNotEmpty()) {
+				//if (photoDao.getProcessingPhotos().isNotEmpty()) {
+				// EXISTS, not the rows: whole rows carry the raw IMU window (see above).
+				if (photoDao.hasProcessingPhotos()) {
 					PhotoUploadManager(context).schedulePostUploadStatusSync()
 				}
 
+				//if (workerBusy) {
+				//	Log.d(TAG, "Worker busy — letting WorkManager reschedule the drain")
+				//	recordDrain(triggerSource, "worker busy, will retry")
+				//	return ListenableWorker.Result.retry()
+				//}
+				// Busy is not a failure: the worker is full and has said when to
+				// come back. Result.retry() handed that to WorkManager's exponential
+				// backoff, whose count only resets on success — so a long backlog
+				// against a worker that is merely at capacity waited 10 min, 20, 40…
+				// up to 5 h between refills while the worker sat idle (2026-11-06,
+				// 5385 photos against a 100-slot queue). The resume follows the
+				// worker's pace instead; real FAILURES below keep the exponential
+				// backoff, so a broken setup still backs off hard.
 				if (workerBusy) {
-					Log.d(TAG, "Worker busy — letting WorkManager reschedule the drain")
-					recordDrain(triggerSource, "worker busy, will retry")
-					return ListenableWorker.Result.retry()
+					val delayMs = PhotoUploadManager(context).resumeAfterWorkerBusy(workerBusyRetryAfterSeconds)
+					Log.d(TAG, "Worker busy — resuming the drain in ${delayMs / 1000}s")
+					recordDrain(triggerSource, "worker busy, resuming in ${delayMs / 1000}s")
+					return ListenableWorker.Result.success()
 				}
 
 				if (networkDeferred) {
@@ -829,10 +942,12 @@ class PhotoUploadLogic(internal val context: Context) {
 			}
 			response.use { r ->
 				if (!r.isSuccessful) {
+					@Suppress("UNNECESSARY_SAFE_CALL") // OkHttp 4's body is nullable in the Tauri build.
 					val error = r.body?.string() ?: "Unknown error"
 					throw Exception("Upload authorization failed: ${r.code} - $error")
 				}
 
+				@Suppress("UNNECESSARY_NOT_NULL_ASSERTION") // OkHttp 4's body is nullable in the Tauri build.
 				val responseJson = JSONObject(r.body!!.string())
 
 				// Check if this is a duplicate file detection response
@@ -907,11 +1022,14 @@ class PhotoUploadLogic(internal val context: Context) {
 		photo.locationSource?.let { put("location_source", it) }
 		photo.bearingSource?.let { put("bearing_source", it) }
 		photo.locationAgeMs?.let { put("location_age_ms", it) }
-		// Metadata is pitch's ONLY route to the server: unlike bearing it has
-		// no EXIF home to fall back on, and the fast-write path writes no EXIF
-		// anyway. Null stays absent rather than becoming 0 — see
-		// PhotoEntity.pitch.
-		photo.pitch?.let { put("pitch", it) }
+		// The top-level `pitch` is NOT sent, from 2026-11-17. It was pitch's only
+		// route to the server when the stamp had no attitude; every capture has
+		// carried `attitude` and `inertial` for a while now, and `capture_pose`
+		// reads this key only when the stamp has neither (`_from_upload_pitch`).
+		// Since the app turned positive up, a value here would be NEGATED into the
+		// wrong sign by a server that still assumes positive down — so sending it
+		// is not merely redundant, it is wrong. The line is kept as history:
+		//     photo.pitch?.let { put("pitch", it) }
 		// What the DEVICE measured, as opposed to what the photo is stamped
 		// as facing: roll (which had no route off the phone at all before
 		// this), the raw and corrected headings, the fusion behind them, the
@@ -946,7 +1064,10 @@ class PhotoUploadLogic(internal val context: Context) {
 		// renditions — `exif_data` is read wholesale on every detail request
 		// and has no business carrying a time series.
 		// docs/recon-capture-metadata.md, Phase 5.
-		photo.imuSamplesJson?.let {
+		//photo.imuSamplesJson?.let {
+		// Read by id from its own table since v32 (PhotoImuSamplesEntity): the
+		// column on the row is retired and always null.
+		photoDao.getImuSamplesJson(photo.id)?.let {
 			try {
 				put("imu_samples", JSONObject(it))
 			} catch (e: Exception) {
@@ -979,47 +1100,80 @@ class PhotoUploadLogic(internal val context: Context) {
 		filename: String,
 		uploadJwt: String,
 		signature: String,
-		workerUrl: String,
+		serverWorkerUrl: String,
 		photoId: String,
 		anonymizationOverride: String? = null,
 		metadata: String? = null
 	): Boolean {
+		// The worker authorize-upload named, unless the user overrode it (frontend2
+		// settings → Worker URL); workerClient trusts that worker's pinned
+		// certificate, if it has one. Everything below talks to these two.
+		val (workerUrl, workerClient) = workerTarget(serverWorkerUrl)
+		// For the Uploads screen's "as the server says" (WorkerOverride.kt).
+		recordServerWorkerUrl(prefs, serverWorkerUrl.trimEnd('/'))
 		// Pre-flight readiness check — /ready returns 503 only when the WHOLE
 		// fleet is saturated (a single busy machine's 503 carries fly-replay and
 		// the edge re-runs the preflight on a sibling before we ever see it).
 		// The 200 body carries the answering machine's id — pin the upload to it
-		// (see pinnedWorkerMachine). 404 = older worker without /ready; other
+		// (see pinnedWorker). 404 = older worker without /ready; other
 		// failures fall through to the upload attempt itself.
 		try {
 			val readyBuilder = Request.Builder()
 				.url("$workerUrl/ready")
 				.get()
-			pinnedWorkerMachine?.let { readyBuilder.addHeader("fly-force-instance-id", it) }
-			client.newCall(readyBuilder.build()).execute().use { readyResponse ->
+			//pinnedWorkerMachine?.let { readyBuilder.addHeader("fly-force-instance-id", it) }
+			pinnedWorker.machineFor(workerUrl)?.let { readyBuilder.addHeader("fly-force-instance-id", it) }
+			workerClient.newCall(readyBuilder.build()).execute().use { readyResponse ->
 				if (readyResponse.code == 503) {
-					pinnedWorkerMachine = null
-					throw WorkerBusyException("Worker upload queue is full (readiness check)")
+					//pinnedWorkerMachine = null
+					pinnedWorker = null
+					//noteWorker(workerUrl, "ready: HTTP 503 (queue full)", failed = true)
+					noteWorker(workerUrl, "ready: queue full (HTTP 503)${retryAfterNote(readyResponse.header("Retry-After"))}", failed = false, busy = true)
+					//throw WorkerBusyException("Worker upload queue is full (readiness check)")
+					throw WorkerBusyException(
+						"Worker upload queue is full (readiness check)",
+						retryAfterSeconds(readyResponse.header("Retry-After")),
+					)
 				}
+				if (readyResponse.code != 200 && readyResponse.code != 404) {
+					// Whatever is wrong, a pin may be part of it (a machine that
+					// is gone); the next preflight re-discovers, as the web
+					// client does (uploadProtocol.ts).
+					pinnedWorker = null
+					noteWorker(workerUrl, "ready: HTTP ${readyResponse.code}", failed = true)
+				}
+				//if (readyResponse.code == 200) {
+				//	try {
+				//		val machineId = JSONObject(readyResponse.body?.string() ?: "")
+				//			.optString("fly_machine_id")
+				//		if (machineId.isNotEmpty()) {
+				//			if (machineId != pinnedWorkerMachine) {
+				//				Log.d(TAG, "🔌 Pinning uploads to worker machine $machineId")
+				//			}
+				//			pinnedWorkerMachine = machineId
+				//		}
+				//	} catch (e: Exception) {
+				//		Log.w(TAG, "Could not parse /ready body for machine id: ${e.message}")
+				//	}
+				//}
 				if (readyResponse.code == 200) {
-					try {
-						val machineId = JSONObject(readyResponse.body?.string() ?: "")
-							.optString("fly_machine_id")
-						if (machineId.isNotEmpty()) {
-							if (machineId != pinnedWorkerMachine) {
-								Log.d(TAG, "🔌 Pinning uploads to worker machine $machineId")
-							}
-							pinnedWorkerMachine = machineId
-						}
-					} catch (e: Exception) {
-						Log.w(TAG, "Could not parse /ready body for machine id: ${e.message}")
+					@Suppress("UNNECESSARY_SAFE_CALL") // OkHttp 4's body is nullable in the Tauri build.
+					val machineId = readyMachineId(readyResponse.body?.string())
+					val pin = machineId?.let { WorkerMachinePin(workerUrl, it) }
+					if (pin != pinnedWorker) {
+						Log.d(TAG, if (pin != null) "🔌 Pinning uploads to worker machine $machineId at $workerUrl"
+							else "🔌 $workerUrl names no machine — uploads unpinned")
 					}
+					pinnedWorker = pin
 				}
 			}
 		} catch (e: IOException) {
 			// The pinned machine may be stopped/gone (force-pinned requests fail
 			// outright) — drop the pin so the next attempt re-discovers.
-			pinnedWorkerMachine = null
+			//pinnedWorkerMachine = null
+			pinnedWorker = null
 			Log.w(TAG, "Readiness check failed for $workerUrl, proceeding with upload: ${e.message}")
+			noteWorker(workerUrl, "ready: ${describeFailure(e)}", failed = true)
 		}
 
 		val mediaType = PhotoUtils.getContentType(filename).toMediaType()
@@ -1056,7 +1210,8 @@ class PhotoUploadLogic(internal val context: Context) {
 			.url("$workerUrl/upload_async")
 			.addHeader("Authorization", "Bearer $uploadJwt")
 			.post(requestBody)
-		pinnedWorkerMachine?.let { requestBuilder.addHeader("fly-force-instance-id", it) }
+		//pinnedWorkerMachine?.let { requestBuilder.addHeader("fly-force-instance-id", it) }
+		pinnedWorker.machineFor(workerUrl)?.let { requestBuilder.addHeader("fly-force-instance-id", it) }
 		val request = requestBuilder.build()
 
 		Log.d(TAG, "Uploading $filename to worker $workerUrl")
@@ -1076,43 +1231,60 @@ class PhotoUploadLogic(internal val context: Context) {
 		}
 
 		try {
-			client.newCall(request).execute().use { response ->
+			workerClient.newCall(request).execute().use { response ->
 				if (response.code == 503) {
-					pinnedWorkerMachine = null
+					//pinnedWorkerMachine = null
+					pinnedWorker = null
+					@Suppress("UNNECESSARY_SAFE_CALL") // OkHttp 4's body is nullable in the Tauri build.
 					val error = response.body?.string() ?: "Unknown error"
 					Log.w(TAG, "Worker rejected upload as busy: $error")
-					throw WorkerBusyException("Worker upload queue is full")
+					//noteWorker(workerUrl, "upload: HTTP 503 (queue full)", failed = true)
+					noteWorker(workerUrl, "upload: queue full (HTTP 503)${retryAfterNote(response.header("Retry-After"))}", failed = false, busy = true)
+					//throw WorkerBusyException("Worker upload queue is full")
+					throw WorkerBusyException(
+						"Worker upload queue is full",
+						retryAfterSeconds(response.header("Retry-After")),
+					)
 				}
 
 				if (!response.isSuccessful) {
+					@Suppress("UNNECESSARY_SAFE_CALL") // OkHttp 4's body is nullable in the Tauri build.
 					val error = response.body?.string() ?: "Unknown error"
 					Log.e(TAG, "Worker upload failed: ${response.code} - $error")
+					noteWorker(workerUrl, "upload: HTTP ${response.code} ${error.take(120)}", failed = true)
 					return false
 				}
 
+				@Suppress("UNNECESSARY_NOT_NULL_ASSERTION") // OkHttp 4's body is nullable in the Tauri build.
 				val responseJson = JSONObject(response.body!!.string())
 				val success = responseJson.optBoolean("success", false)
 
 				if (success) {
 					Log.d(TAG, "✅ Secure upload completed: $filename")
+					noteWorker(workerUrl, "uploaded $filename", failed = false)
 				} else {
 					val errorMsg = responseJson.optString("error", "Unknown worker error")
 					Log.e(TAG, "❌ Secure upload $filename failed: $errorMsg")
+					noteWorker(workerUrl, "upload refused: ${errorMsg.take(120)}", failed = true)
 				}
 
 				return success
 			}
 		} catch (e: java.net.ConnectException) {
 			Log.e(TAG, "❌ Cannot reach worker server for $filename: ${e.message}")
+			noteWorker(workerUrl, "upload: ${describeFailure(e)}", failed = true)
 			return false
 		} catch (e: java.net.SocketTimeoutException) {
 			Log.e(TAG, "⏱️ Worker upload timeout for $filename: ${e.message}")
+			noteWorker(workerUrl, "upload: ${describeFailure(e)}", failed = true)
 			return false
 		} catch (e: java.net.UnknownHostException) {
 			Log.e(TAG, "🔍 Cannot resolve worker hostname for $filename: ${e.message}")
+			noteWorker(workerUrl, "upload: ${describeFailure(e)}", failed = true)
 			return false
 		} catch (e: IOException) {
 			Log.e(TAG, "📡 Network I/O error during worker upload for $filename: ${e.message}")
+			noteWorker(workerUrl, "upload: ${describeFailure(e)}", failed = true)
 			return false
 		} finally {
 			heartbeatJob.cancel()
@@ -1189,9 +1361,19 @@ class PhotoUploadLogic(internal val context: Context) {
      * count's denominator so they can't drift. Pure — no DB writes / file I/O
      * (unlike validatePhotoForUpload).
      */
-    private fun isEligibleNow(photo: PhotoEntity, triggerSource: String, now: Long): Boolean {
-        if (photo.uploadStatus == "failed" && triggerSource != "retry_button") {
-            if (now - photo.lastUploadAttempt < calculateBackoffTime(photo.retryCount)) return false
+    private fun isEligibleNow(photo: PhotoEntity, triggerSource: String, now: Long): Boolean =
+        isEligibleNow(photo.uploadStatus, photo.lastUploadAttempt, photo.retryCount, triggerSource, now)
+
+    /** The same predicate on just the columns it reads — for the drain's count, which must not load rows. */
+    private fun isEligibleNow(
+        uploadStatus: String,
+        lastUploadAttempt: Long,
+        retryCount: Int,
+        triggerSource: String,
+        now: Long,
+    ): Boolean {
+        if (uploadStatus == "failed" && triggerSource != "retry_button") {
+            if (now - lastUploadAttempt < calculateBackoffTime(retryCount)) return false
         }
         return true
     }
@@ -1209,7 +1391,10 @@ class PhotoUploadLogic(internal val context: Context) {
      * Sends batch request to POST /api/photos/status and updates local DB.
      */
     internal suspend fun syncProcessingPhotosStatus() = withContext(Dispatchers.IO) {
-        val processingPhotos = photoDao.getProcessingPhotos()
+        // Refs, not rows: thousands of photos in "processing" is normal, and whole
+        // rows carry the raw IMU window (SimplePhotoDao.getProcessingPhotoRefs).
+        //val processingPhotos = photoDao.getProcessingPhotos()
+        val processingPhotos = photoDao.getProcessingPhotoRefs()
 
         if (processingPhotos.isEmpty()) {
             Log.d(TAG, "No processing photos to sync")
@@ -1219,8 +1404,11 @@ class PhotoUploadLogic(internal val context: Context) {
         Log.d(TAG, "Syncing status for ${processingPhotos.size} processing photos")
 
         // Build map of serverPhotoId -> local photo for quick lookup (filter nulls)
-        val photosByServerId = processingPhotos.filter { it.serverPhotoId != null }.associateBy { it.serverPhotoId!! }
-        val serverPhotoIds = processingPhotos.mapNotNull { it.serverPhotoId }
+        //val photosByServerId = processingPhotos.filter { it.serverPhotoId != null }.associateBy { it.serverPhotoId!! }
+        //val serverPhotoIds = processingPhotos.mapNotNull { it.serverPhotoId }
+        // The query already excludes rows without a server id.
+        val photosByServerId = processingPhotos.associateBy { it.serverPhotoId }
+        val serverPhotoIds = processingPhotos.map { it.serverPhotoId }
 
         // Batch query server for statuses
         val serverStatuses = queryPhotoStatuses(serverPhotoIds)
@@ -1267,6 +1455,7 @@ class PhotoUploadLogic(internal val context: Context) {
                     return null
                 }
 
+                @Suppress("UNNECESSARY_NOT_NULL_ASSERTION") // OkHttp 4's body is nullable in the Tauri build.
                 val responseJson = JSONObject(response.body!!.string())
                 val photosArray = responseJson.getJSONArray("photos")
                 val statuses = mutableListOf<ServerPhotoStatus>()
@@ -1295,7 +1484,9 @@ class PhotoUploadLogic(internal val context: Context) {
      */
     private fun updatePhotosFromServerStatuses(
         serverStatuses: List<ServerPhotoStatus>,
-        photosByServerId: Map<String, PhotoEntity>
+        // Refs since 2026-11-06 — it reads only id, filename and retryCount.
+        //photosByServerId: Map<String, PhotoEntity>
+        photosByServerId: Map<String, ProcessingPhotoRef>
     ) {
         for (status in serverStatuses) {
             val localPhoto = photosByServerId[status.id] ?: continue
@@ -1335,8 +1526,10 @@ class PhotoUploadLogic(internal val context: Context) {
      * @return Number of photos updated
      */
     fun updatePhotoStatusesFromFrontend(statuses: List<ServerPhotoStatus>): Int {
-        val processingPhotos = photoDao.getProcessingPhotos()
-        val photosByServerId = processingPhotos.filter { it.serverPhotoId != null }.associateBy { it.serverPhotoId!! }
+        //val processingPhotos = photoDao.getProcessingPhotos()
+        //val photosByServerId = processingPhotos.filter { it.serverPhotoId != null }.associateBy { it.serverPhotoId!! }
+        // Refs, not rows — see syncProcessingPhotosStatus.
+        val photosByServerId = photoDao.getProcessingPhotoRefs().associateBy { it.serverPhotoId }
 
         var updatedCount = 0
         for (status in statuses) {

@@ -4,6 +4,7 @@
 
 import { writable, get } from 'svelte/store';
 import type { CaptureLocation } from '../captureQueue';
+import type { InertialStamp } from '../capturePoseMath';
 
 const DB_NAME = 'HillviewPhotoDB';
 const DB_VERSION = 4;
@@ -23,6 +24,8 @@ export interface StoredPhoto {
         location: CaptureLocation;
         captured_at: number;
         orientation_code: number; // EXIF orientation (1, 3, 6, 8)
+        /** Gravity at the shutter, sent as the upload's `inertial`; null/absent = unmeasured. */
+        inertial?: InertialStamp | null;
     };
     status: 'pending' | 'uploading' | 'processing' | 'completed' | 'failed';
     deleted: boolean;
@@ -152,11 +155,7 @@ class BrowserPhotoStorage {
     async savePhotoFromImageData(
         id: string,
         imageData: ImageData,
-        metadata: {
-            location: CaptureLocation;
-            captured_at: number;
-            orientation_code: number;
-        },
+        metadata: StoredPhoto['metadata'],
         consent: { license?: string | null; panoramax_share?: boolean } = {}
     ): Promise<void> {
         if (!this.db) await this.init();
@@ -207,11 +206,7 @@ class BrowserPhotoStorage {
         blob: Blob,
         width: number,
         height: number,
-        metadata: {
-            location: CaptureLocation;
-            captured_at: number;
-            orientation_code: number;
-        },
+        metadata: StoredPhoto['metadata'],
         consent: { license?: string | null; panoramax_share?: boolean } = {}
     ): Promise<void> {
         if (!this.db) await this.init();
@@ -390,7 +385,8 @@ class BrowserPhotoStorage {
         await this.updateQueueStatus();
     }
 
-    async markPhotoAsUploaded(photoId: string, serverPhotoId: string): Promise<void> {
+    async markPhotoAsUploaded(photoId: string, serverPhotoId: string,
+        consent?: { license: string; panoramax_share: boolean }): Promise<void> {
         if (!this.db) await this.init();
 
         const transaction = this.db!.transaction([PHOTO_STORE], 'readwrite');
@@ -401,6 +397,10 @@ class BrowserPhotoStorage {
             photo.status = 'processing';
             photo.uploaded_at = Date.now();
             photo.server_photo_id = serverPhotoId;
+            if (consent) {
+                photo.license = consent.license;
+                photo.panoramax_share = consent.panoramax_share;
+            }
             await this.promisifyRequest(photoStore.put(photo));
         }
 

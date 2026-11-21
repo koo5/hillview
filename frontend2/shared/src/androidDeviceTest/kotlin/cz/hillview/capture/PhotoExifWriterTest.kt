@@ -9,6 +9,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import org.junit.Test
+import org.json.JSONObject
 
 /**
  * The EXIF contract, on a real device because it is Android's ExifInterface
@@ -103,6 +104,108 @@ class PhotoExifWriterTest {
         assertNotNull(comment)
         assertTrue(comment.contains("bearing_source"), "provenance is part of the contract: $comment")
         assertTrue(comment.contains("ROTATION_VECTOR"), "the sensor should be named: $comment")
+        file.delete()
+    }
+
+    /**
+     * The gravity vector and the version, not just the angles.
+     *
+     * With "Write EXIF" on, the worker keeps the file's own UserComment and the
+     * upload metadata never speaks. A stamp carrying `attitude` alone reads to
+     * `capture_pose` as PRE-VERSIONING, which trusts the angles only when
+     * `device_rotation_deg` is 0 — so a landscape or upside-down shot arrived with
+     * no pitch and no roll and failed the Panoramax level gates. `capture_timing`
+     * carries the `metadata_version` that lifts that, and `inertial` carries the
+     * gravity the server prefers over the angles anyway.
+     */
+    @Test
+    fun theExifStampCarriesGravityAndTheMetadataVersion() {
+        val file = jpeg()
+        PhotoExifWriter.write(
+            file,
+            snapshot.copy(
+                motion = cz.hillview.map.DeviceMotionSample(
+                    gravity = listOf(3.802262f, 9.020489f, -0.640069f),
+                    atMs = snapshot.capturedAtMs,
+                ),
+                captureTiming = CaptureTiming(
+                    capturedAtSource = "press",
+                    metadataVersion = 3,
+                ),
+            ),
+        )
+
+        val comment = ExifInterface(file.absolutePath)
+            .getAttribute(ExifInterface.TAG_USER_COMMENT)
+        assertNotNull(comment)
+        assertTrue(comment.contains("\"inertial\""), "no inertial object: $comment")
+        assertTrue(comment.contains("\"gravity\":[3.802262,9.020489,-0.640069]"), comment)
+        assertTrue(comment.contains("\"capture_timing\""), "no capture_timing: $comment")
+        assertTrue(
+            comment.contains("\"metadata_version\":3"),
+            "without this the server reads the stamp as pre-versioning: $comment",
+        )
+        file.delete()
+    }
+
+    @Test
+    fun landscapeWithoutGravityKeepsTheVersionNeededToReadItsAttitude() {
+        val file = jpeg()
+        try {
+            PhotoExifWriter.write(
+                file,
+                snapshot.copy(
+                    deviceRotationDeg = 270,
+                    attitude = cz.hillview.map.DeviceAttitude(
+                        trueDeg = 68.5,
+                        magneticDeg = 64.25,
+                        pitch = 6.5, // the lens is above the horizon
+                        roll = 90.0,
+                        ts = snapshot.capturedAtMs,
+                    ),
+                    captureTiming = CaptureTiming(
+                        capturedAtSource = "press",
+                        metadataVersion = METADATA_VERSION,
+                        pressToExposureMs = 77,
+                        exposureToJpegMs = 126,
+                    ),
+                ),
+            )
+
+            val rawComment = ExifInterface(file.absolutePath)
+                .getAttribute(ExifInterface.TAG_USER_COMMENT)
+            assertNotNull(rawComment)
+            val comment = JSONObject(rawComment)
+            assertTrue(!comment.has("inertial"), "no gravity may be invented")
+            val timing = comment.getJSONObject("capture_timing")
+            assertEquals(METADATA_VERSION, timing.getInt("metadata_version"))
+            assertEquals("press", timing.getString("captured_at_source"))
+            assertEquals(77L, timing.getLong("press_to_exposure_ms"))
+            assertEquals(126L, timing.getLong("exposure_to_jpeg_ms"))
+            val attitude = comment.getJSONObject("attitude")
+            assertEquals(270, attitude.getInt("device_rotation_deg"))
+            assertEquals(-6.5, attitude.getDouble("pitch_deg"), 0.001)
+            assertEquals(90.0, attitude.getDouble("roll_deg"), 0.001)
+        } finally {
+            file.delete()
+        }
+    }
+
+    /**
+     * ...and a shot with neither still stamps what it does have, rather than
+     * nothing. The two objects are additive: the guard that decides whether to
+     * write a UserComment at all must not start depending on them.
+     */
+    @Test
+    fun aShotWithNoGravityStillCarriesItsOtherProvenance() {
+        val file = jpeg()
+        PhotoExifWriter.write(file, snapshot)
+
+        val comment = ExifInterface(file.absolutePath)
+            .getAttribute(ExifInterface.TAG_USER_COMMENT)
+        assertNotNull(comment)
+        assertTrue(comment.contains("bearing_source"), comment)
+        assertTrue(!comment.contains("\"inertial\""), "nothing measured it: $comment")
         file.delete()
     }
 

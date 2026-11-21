@@ -16,6 +16,7 @@
     $: queueStats = captureQueue.stats;
     import {photoCaptureSettings} from '$lib/stores';
     import DebugMode1 from './DebugMode1.svelte';
+    import CapturePoseDebug from './CapturePoseDebug.svelte';
 
     let debugPosition: 'left' | 'right' = 'left'; // Default to left to avoid photo thumbnails
 
@@ -349,6 +350,9 @@
                         <div class="subsection-header">📷 Last Captured Photo:</div>
                         <div class="no-photos-captured">Feature temporarily disabled</div>
                     </div>
+
+                    <!-- Device pose: the level stamp's reading, and a raw diagnostic -->
+                    <CapturePoseDebug/>
 
                     <!-- Camera Activity Status -->
                     <div class="capture-subsection">

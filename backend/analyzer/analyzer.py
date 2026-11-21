@@ -51,6 +51,7 @@ import traceback
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from uuid import UUID
 
 import httpx
 
@@ -65,6 +66,7 @@ from sqlalchemy import select, func, or_, update, delete, Integer
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from common.database import SessionLocal
 from common.models import Photo, PhotoAnalysisQueue
+from common.artifact_identity import selected_image, session_matches_image
 
 from analyze_photo import (
 	run_analysis,
@@ -75,6 +77,8 @@ from analyze_photo import (
 	build_schema,
 	build_prompt_template,
 	generate_focal_length_context,
+	response_format_for,
+	validate_analysis,
 )
 
 from distill import (
@@ -83,6 +87,7 @@ from distill import (
 	save_sessions,
 	find_duplicate,
 	count_failed_attempts,
+	matching_request_rejections,
 	distill_sessions,
 	lock_path_for,
 	acquire_file_lock,
@@ -91,6 +96,7 @@ from distill import (
 
 # Environment variable to control image fetching
 FETCH_IMAGES = os.environ.get("ANALYZER_FETCH_IMAGES", "false").lower() == "true"
+CHECK_IMAGES = os.environ.get("ANALYZER_CHECK_IMAGES", "false").lower() == "true"
 
 # Two numbers go into every document the database gets.
 #
@@ -122,6 +128,8 @@ RETRY_ERROR = timedelta(hours=1)          # an exception anywhere in the run (ne
 RETRY_MISSING_IMAGE = timedelta(days=1)   # no image URL, or the image 404s
 RETRY_JUNK_STEP = timedelta(days=1)       # × failed attempts, when the model returns unparseable output
 MAX_JUNK_ATTEMPTS = 3                     # failed attempts (same model+prompt) before giving up: GIVEN_UP
+MAX_PROVIDER_REJECTIONS = 3               # HTTP 400s trigger a photo-specific cooldown, never a provider-wide ban
+PROVIDER_REJECTION_COOLDOWN = timedelta(days=1)
 ERROR_SLEEP = 60                          # pause after an exception, so a dead provider does not burn through the backlog
 
 
@@ -132,6 +140,8 @@ class Outcome:
 	analysis: dict | None = None   # the complete document for photos.analysis; only ever set when kind == 'ok'
 	junk_attempts: int = 0         # kind == 'junk': failed attempts for the failing pass, counted from the JSON file
 	queried: bool = False
+	quota_reset_at: datetime | None = None
+	retry_at: datetime | None = None
 
 
 # The keys readers get. Everything else distill produces (description, objects,
@@ -170,7 +180,11 @@ def next_retry_for(outcome: Outcome, now: datetime) -> datetime | None:
 		return now + RETRY_JUNK_STEP * max(outcome.junk_attempts, 1)
 	if outcome.kind in ('no_image', 'image_404'):
 		return now + RETRY_MISSING_IMAGE
+	if outcome.kind == 'provider_rejected':
+		return outcome.retry_at
 	if outcome.kind == 'error':
+		if outcome.quota_reset_at is not None:
+			return outcome.quota_reset_at
 		return now + RETRY_ERROR
 	raise ValueError(f"unknown outcome kind {outcome.kind!r}")
 
@@ -193,6 +207,10 @@ def get_image_url(photo: Photo) -> str | None:
 	return None
 
 
+class ImageAccessError(RuntimeError):
+	"""Expected image preflight failure, reported without an internal HTTP traceback."""
+
+
 def check_image(image_url: str) -> bool:
 	# Verify URL is accessible with HEAD request
 	try:
@@ -202,7 +220,23 @@ def check_image(image_url: str) -> bool:
 		if e.response.status_code == 404:
 			print(f"    ✗ Image not found (404)")
 			return None
-		raise
+		raise ImageAccessError(
+			f"Image URL preflight failed: HEAD {image_url} returned HTTP {e.response.status_code}. "
+			"No model request was sent. Existing analysis is preserved; the photo will be retried."
+		) from e
+	except httpx.RequestError as e:
+		if isinstance(e, httpx.ConnectTimeout):
+			reason = "connection timed out after 30s"
+		elif isinstance(e, httpx.TimeoutException):
+			reason = f"request timed out after 30s ({type(e).__name__})"
+		else:
+			reason = f"{type(e).__name__}: {e}"
+		raise ImageAccessError(
+			f"Image URL preflight failed: HEAD {image_url}: {reason}. "
+			"No model request was sent. Check photo-host access from inside the analyzer container "
+			"(DNS, routing, proxy/firewall); a successful host-shell download does not verify container access. "
+			"Existing analysis is preserved; the photo will be retried."
+		) from e
 	return True
 
 
@@ -245,11 +279,43 @@ def build_prompt_for_mode(distances: bool, features: bool, focal_length_35mm: fl
 	)
 
 
+def model_has_complete_answer(sessions, model):
+	"""Coverage is model-specific, independent of today's prompt spelling."""
+	merged = {}
+	for session in sorted(sessions, key=lambda s: s.get('metadata', {}).get('timestamp', ''), reverse=True):
+		if session.get('kind', 'llm_session') != 'llm_session' or session.get('metadata', {}).get('model') != model:
+			continue
+		if session.get('result', {}).get('parse_error', True):
+			continue
+		for key, value in session.get('analysis', {}).items():
+			merged.setdefault(key, value)
+	return not validate_analysis(merged, build_schema(distances=True, features=True))
+
+
+def rejection_backoff(sessions, model, prompt, response_format, *, queried=False):
+	failed = matching_request_rejections(sessions, model, prompt, TEMPERATURE, MAX_TOKENS, response_format)
+	if len(failed) < MAX_PROVIDER_REJECTIONS:return None
+	timestamps = []
+	for session in failed:
+		try:
+			stamp = datetime.fromisoformat(session['metadata']['timestamp'])
+			if stamp.tzinfo is None:stamp = stamp.replace(tzinfo=timezone.utc)
+			timestamps.append(stamp)
+		except (ValueError, KeyError, TypeError):pass
+	if not timestamps:return None
+	deadline = max(timestamps) + PROVIDER_REJECTION_COOLDOWN
+	if deadline <= datetime.now(timezone.utc):return None
+	print(f"    Provider rejected this image/model/prompt with HTTP 400 {len(failed)} times; "
+	      f"photo-specific cooldown until {deadline.isoformat()}. Other photos continue.")
+	return Outcome('provider_rejected', queried=queried, retry_at=deadline)
+
+
 async def process_photo(
 	photo: Photo,
 	datadir: Path,
 	model: str,
-	verbose: bool
+	verbose: bool,
+	skip_model_covered: bool = False,
 ) -> Outcome:
 	"""
 	Process a single photo: features + distances analysis.
@@ -258,6 +324,11 @@ async def process_photo(
 	sessions cache is read and written with lock=False here.
 	"""
 	print(f"  Photo: {photo.id} ({photo.original_filename})")
+	print(f"    https://hillview.cz/photo/hillview-{photo.id}")
+	print(f"    Created at: {getattr(photo, 'record_created_ts', None) or 'unknown'}; "
+	      f"captured at: {getattr(photo, 'captured_at', None) or 'unknown'}; "
+	      f"uploaded at: {getattr(photo, 'uploaded_at', None) or 'unknown'}")
+	print(f"    MD5: {photo.file_md5}; user: {getattr(photo, 'owner_id', None) or 'unknown'}")
 
 	# Get image URL
 	image_url = get_image_url(photo)
@@ -271,6 +342,8 @@ async def process_photo(
 	# Prepare image (fetch if needed)
 	try:
 		final_image_url, image_hash = prepare_image_url(image_url, FETCH_IMAGES)
+		if image_hash and selected_image(photo).get('sha256') and image_hash != selected_image(photo)['sha256']:
+			raise ImageAccessError("Downloaded image differs from its database checksum; no model request was sent. The photo will be retried.")
 	except httpx.HTTPStatusError as e:
 		if e.response.status_code == 404:
 			print(f"    ✗ Image not found (404)")
@@ -284,7 +357,14 @@ async def process_photo(
 
 	# Load existing sessions for this photo
 	json_path = json_path_for(datadir, photo)
+	print(f"    Legacy sessions: {json_path} ({'exists' if json_path.is_file() else 'not found'})")
+	response_directory = datadir / 'responses' / photo.file_md5
+	print(f"    Immutable responses: {response_directory}/*.json ({sum(1 for _ in response_directory.glob('*.json'))} files)")
 	sessions = load_sessions(json_path, lock=False)
+	current_sessions = [s for s in sessions if session_matches_image(s, photo)]
+	if skip_model_covered and model_has_complete_answer(current_sessions, model):
+		print(f"    Already has complete {model} answers; skipping")
+		return Outcome('cached')
 
 	if verbose:
 		print(f"    Existing sessions: {len(sessions)}")
@@ -294,9 +374,11 @@ async def process_photo(
 		distances=False, features=True,
 		focal_length_35mm=None, focal_length_hints=False, distance_table=False
 	)
+	features_format = response_format_for(model, distances=False, features=True)
 
 	features_dup = find_duplicate(
-		sessions, model, features_prompt, TEMPERATURE, MAX_TOKENS, verbose=verbose
+		current_sessions, model, features_prompt, TEMPERATURE, MAX_TOKENS, verbose=verbose,
+		response_format=features_format,
 	)
 
 	image_checked = False
@@ -305,7 +387,13 @@ async def process_photo(
 	if features_dup:
 		print(f"    Features: cached")
 	else:
-		if not FETCH_IMAGES and not image_checked and not check_image(image_url):
+		backoff = rejection_backoff(current_sessions, model, features_prompt, features_format)
+		if backoff:return backoff
+		failures = count_failed_attempts(current_sessions, model, features_prompt, TEMPERATURE, MAX_TOKENS, response_format=features_format)
+		if failures >= MAX_JUNK_ATTEMPTS:
+			print(f"    Features: stopped after {failures} invalid answers for this image/model/prompt; no new request")
+			return Outcome('junk', junk_attempts=failures)
+		if CHECK_IMAGES and not FETCH_IMAGES and not image_checked and not check_image(image_url):
 			return Outcome('image_404')
 		image_checked = True
 
@@ -316,12 +404,17 @@ async def process_photo(
 			final_image_url=final_image_url,
 			image_hash=image_hash,
 			prompt_text=features_prompt,
-			verbose=verbose
+			verbose=verbose,
+			response_format=features_format,
 		)
 		sessions.append(features_session)
+		features_session["metadata"]["photo_id"] = str(photo.id)
+		features_session["metadata"]["image_content_sha256"] = selected_image(photo).get('sha256')
+		features_session["metadata"]["artifact_version"] = selected_image(photo).get('artifact_version')
+		current_sessions.append(features_session)
 		save_sessions(json_path, sessions, lock=False)
 		if features_session.get("result", {}).get("error"):
-			return Outcome('error', queried=True)
+			return rejection_backoff(current_sessions, model, features_prompt, features_format, queried=True) or request_error_outcome(features_session)
 
 		if features_session.get("result", {}).get("parse_error"):
 			print(f"    Features: ✗ parse error")
@@ -336,9 +429,11 @@ async def process_photo(
 		focal_length_hints=True,
 		distance_table=True
 	)
+	distances_format = response_format_for(model, distances=True, features=False)
 
 	distances_dup = find_duplicate(
-		sessions, model, distances_prompt, TEMPERATURE, MAX_TOKENS, verbose=verbose
+		current_sessions, model, distances_prompt, TEMPERATURE, MAX_TOKENS, verbose=verbose,
+		response_format=distances_format,
 	)
 
 	distances_ok = True
@@ -346,7 +441,13 @@ async def process_photo(
 	if distances_dup:
 		print(f"    Distances: cached")
 	else:
-		if not FETCH_IMAGES and not image_checked and not check_image(image_url):
+		backoff = rejection_backoff(current_sessions, model, distances_prompt, distances_format, queried=not features_dup)
+		if backoff:return backoff
+		failures = count_failed_attempts(current_sessions, model, distances_prompt, TEMPERATURE, MAX_TOKENS, response_format=distances_format)
+		if failures >= MAX_JUNK_ATTEMPTS:
+			print(f"    Distances: stopped after {failures} invalid answers for this image/model/prompt; no new request")
+			return Outcome('junk', junk_attempts=failures, queried=not features_dup)
+		if CHECK_IMAGES and not FETCH_IMAGES and not image_checked and not check_image(image_url):
 			return Outcome('image_404')
 		image_checked = True
 
@@ -357,9 +458,14 @@ async def process_photo(
 			final_image_url=final_image_url,
 			image_hash=image_hash,
 			prompt_text=distances_prompt,
-			verbose=verbose
+			verbose=verbose,
+			response_format=distances_format,
 		)
 		sessions.append(distances_session)
+		distances_session["metadata"]["photo_id"] = str(photo.id)
+		distances_session["metadata"]["image_content_sha256"] = selected_image(photo).get('sha256')
+		distances_session["metadata"]["artifact_version"] = selected_image(photo).get('artifact_version')
+		current_sessions.append(distances_session)
 
 		if distances_session.get("result", {}).get("parse_error"):
 			print(f"    Distances: ✗ parse error")
@@ -370,15 +476,16 @@ async def process_photo(
 	# Save sessions
 	save_sessions(json_path, sessions, lock=False)
 	if not distances_dup and distances_session.get("result", {}).get("error"):
-		return Outcome('error', queried=True)
+		return rejection_backoff(current_sessions, model, distances_prompt, distances_format, queried=True) or request_error_outcome(distances_session)
 
 	if not (features_ok and distances_ok):
 		# A pass came back unparseable this run. Nothing reaches the database —
 		# readers get complete assessments only. The sessions file holds every
 		# such attempt for this model+prompt; that count drives the backoff.
 		junk_attempts = max(
-			count_failed_attempts(sessions, model, prompt, TEMPERATURE, MAX_TOKENS)
-			for ok, prompt in ((features_ok, features_prompt), (distances_ok, distances_prompt))
+			count_failed_attempts(current_sessions, model, prompt, TEMPERATURE, MAX_TOKENS,
+				response_format=format_)
+			for ok, prompt, format_ in ((features_ok, features_prompt, features_format), (distances_ok, distances_prompt, distances_format))
 			if not ok
 		)
 		print(f"    Junk: failed attempt #{junk_attempts} for this model+prompt"
@@ -390,7 +497,7 @@ async def process_photo(
 		return Outcome('collected', queried=queried)
 
 	# Distill results
-	distilled = distill_sessions(sessions)
+	distilled = distill_sessions(current_sessions)
 	if not distilled:
 		# both passes have a successful session, so this cannot happen; treat it as a bug, not a backoff
 		raise RuntimeError(f"distill_sessions produced nothing for {photo.id} although both passes succeeded")
@@ -402,7 +509,10 @@ async def process_photo(
 		for k, v in distilled.items():
 			print(f"      {k}: {v}")
 
-	return Outcome('ok', analysis=db_document(distilled), queried=queried)
+	document = db_document(distilled)
+	if selected_image(photo).get('sha256'):
+		document['image_content_sha256'] = selected_image(photo)['sha256']
+	return Outcome('ok', analysis=document, queried=queried)
 
 
 # ---------------------------------------------------------------------------
@@ -423,6 +533,7 @@ def eligible_conditions() -> list:
 	return [
 		Photo.processing_status == 'completed',
 		Photo.deleted == False,
+		PhotoAnalysisQueue.batch_id.is_(None),  # pending batches retain ownership across quota resets/version changes
 		Photo.file_md5.isnot(None),  # the sessions cache and its lock are keyed by md5
 		or_(PhotoAnalysisQueue.last_attempted_version.is_distinct_from(ANALYZER_VERSION),
 			PhotoAnalysisQueue.next_retry <= func.now()),
@@ -446,7 +557,7 @@ async def sync_queue(db) -> int:
 		.where(Photo.processing_status == 'completed')
 		.where(Photo.deleted == False)
 		.where(Photo.file_md5.isnot(None))
-		.where(or_(Photo.analysis.is_(None), document_analyzer_version().is_distinct_from(ANALYZER_VERSION)))
+		.where(or_(Photo.analysis.is_(None), func.jsonb_typeof(Photo.analysis) == 'null', document_analyzer_version().is_distinct_from(ANALYZER_VERSION)))
 		.where(~select(PhotoAnalysisQueue.photo_id).where(PhotoAnalysisQueue.photo_id == Photo.id).exists())
 	)
 	stmt = pg_insert(PhotoAnalysisQueue).from_select(["photo_id"], missing).on_conflict_do_nothing()
@@ -515,6 +626,7 @@ async def claim_next(datadir: Path, dry_run: bool, deferred: dict[str, datetime]
 				if dry_run:
 					deferred[photo.id] = GIVEN_UP  # i.e. never, for this process
 				else:
+					queued.provider = "openrouter"
 					queued.last_attempted_version = ANALYZER_VERSION
 					queued.next_retry = now + CLAIM_LEASE
 					await db.commit()
@@ -524,7 +636,15 @@ async def claim_next(datadir: Path, dry_run: bool, deferred: dict[str, datetime]
 			return photo, lock_file
 
 
-async def claim_refresh(datadir: Path, cursor, prefer: str, deferred: dict):
+def request_error_outcome(session: dict) -> Outcome:
+	reset = session.get("result", {}).get("quota_reset_at")
+	if not reset and session.get('result', {}).get('http_status') == 400:
+		return Outcome('provider_rejected', queried=True, retry_at=datetime.now(timezone.utc) + RETRY_ERROR)
+	return Outcome('error', queried=True,
+		quota_reset_at=datetime.fromisoformat(reset) if reset else None)
+
+
+async def claim_refresh(datadir: Path, cursor, prefer: str, deferred: dict, photo_ids: list[str] | None = None):
 	"""Visit completed photos in stable order, with the same JSON lock as the queue.
 
 	Only selection uses the DB here; publication is still controlled by trust.
@@ -533,7 +653,10 @@ async def claim_refresh(datadir: Path, cursor, prefer: str, deferred: dict):
 	while True:
 		async with SessionLocal() as db:
 			stmt = select(Photo).where(Photo.processing_status == 'completed',
-				Photo.deleted == False, Photo.file_md5.isnot(None))
+				Photo.deleted == False, Photo.file_md5.isnot(None)).where(~select(PhotoAnalysisQueue.photo_id).where(
+				PhotoAnalysisQueue.photo_id == Photo.id, PhotoAnalysisQueue.batch_id.isnot(None)).exists())
+			if photo_ids:
+				stmt = stmt.where(Photo.id.in_(photo_ids))
 			rank = (Photo.analysis.isnot(None) if prefer == "missing" else Photo.analysis.is_(None)).cast(Integer)
 			stmt = stmt.order_by(rank, Photo.id)
 			if cursor is not None:
@@ -564,6 +687,10 @@ async def record_outcome(photo: Photo, outcome: Outcome, dry_run: bool) -> None:
 			print(f"    Database: skipped (dry run) — would {'write the document and ' if write_analysis else ''}dequeue")
 			return
 		async with SessionLocal() as db:
+			current = await db.get(Photo, photo.id, with_for_update=True)
+			if current is None or current.file_md5 != photo.file_md5 or current.sizes != photo.sizes or current.analysis != photo.analysis:
+				print("    Database: photo changed during analysis; preserving current photo and recorded answers")
+				return
 			if write_analysis:
 				await db.execute(update(Photo).where(Photo.id == photo.id).values(analysis=outcome.analysis))
 			await db.execute(delete(PhotoAnalysisQueue).where(PhotoAnalysisQueue.photo_id == photo.id))
@@ -584,6 +711,46 @@ async def record_outcome(photo: Photo, outcome: Outcome, dry_run: bool) -> None:
 	print(f"    Database: document unchanged, next_retry={next_retry_text}")
 
 
+def disk_sources_revision(datadir):
+	"""Cheap change signal for batch answers; no per-photo DB or JSON reads."""
+	root = datadir / 'aaa'
+	paths = list((root / 'golden/labels').glob('*.jsonl'))
+	paths += list((root / 'distiller/acquisition').glob('*/accepted'))
+	return tuple(sorted((str(path), path.stat().st_mtime_ns) for path in paths))
+
+
+async def analysis_counts(photo_ids=None):
+	"""One aggregate snapshot, outside the per-photo processing loop."""
+	async with SessionLocal() as db:
+		missing = or_(Photo.analysis.is_(None), func.jsonb_typeof(Photo.analysis) == 'null')
+		stmt = select(func.count(Photo.id), func.count(Photo.id).filter(missing),
+			func.count(Photo.id).filter(missing & Photo.file_md5.isnot(None))).where(
+			Photo.processing_status == 'completed', Photo.deleted == False)
+		if photo_ids:
+			stmt = stmt.where(Photo.id.in_(photo_ids))
+		return tuple((await db.execute(stmt)).one())
+
+
+async def startup_backfill(datadir, dry_run=False, photo_ids=None):
+	"""Restore trusted disk answers before measuring the acquisition backlog."""
+	from types import SimpleNamespace
+	from redistill import run
+	total, initial_gaps, eligible = await analysis_counts(photo_ids)
+	print(f"Before disk backfill. Completed active photos: {total}; with analyses: {total - initial_gaps}; "
+		f"missing analyses: {initial_gaps}; rows to check against disk: {eligible}; "
+		f"missing upload hash: {initial_gaps - eligible}", flush=True)
+	print("Backfilling missing database analyses from trusted answers on disk...", flush=True)
+	status = await run(SimpleNamespace(datadir=datadir, aaa_dir=None, aaa_closest="subject",
+		aaa_only=False, verify_images=False, limit=None, photo_ids=photo_ids,
+		dry_run=dry_run, missing_only=True))
+	if status:
+		print("Disk backfill encountered unavailable or invalid answers; see its audit.", flush=True)
+	total, gaps, _ = await analysis_counts(photo_ids)
+	print(f"Disk backfill complete. Completed active photos: {total}; missing analyses: {gaps}; "
+		f"with analyses: {total - gaps}" + (" (dry run; database unchanged)" if dry_run else ""), flush=True)
+	return total, gaps
+
+
 async def main_loop(
 	datadir: Path,
 	model: str,
@@ -593,25 +760,51 @@ async def main_loop(
 	dry_run: bool = False,
 	prefer: str = "missing",
 	interval: float = 60,
+	photo_ids: list[str] | None = None,
+	collect_only: bool = False,
+	skip_model_covered: bool = False,
 ):
 	"""Main processing loop."""
 	datadir.mkdir(parents=True, exist_ok=True)
 
 	print(f"Analyzer started")
 	print(f"  Model: {model}")
+	print(f"  Response format: {response_format_for(model, distances=False, features=True)['type']}")
 	print(f"  Schema version: {SCHEMA_VERSION}")
 	print(f"  Analyzer version: {ANALYZER_VERSION}")
 	print(f"  Datadir: {datadir}")
 	print(f"  Dry run: {dry_run}")
 	print(f"  Fetch images: {FETCH_IMAGES}")
+	print(f"  Check image URLs locally: {CHECK_IMAGES}")
 	print(f"  Claim lease: {CLAIM_LEASE}")
 	print(f"  API key file: {os.environ.get('OPENROUTER_API_KEY_FILE', 'NOT SET')}")
 	print()
 
+	if not collect_only:
+		disk_revision = disk_sources_revision(datadir)
+		await startup_backfill(datadir, dry_run, photo_ids)
+		if model not in TRUSTED_MODELS:
+			print(f"Primary acquisition paused: {model} is untrusted. Configure a trusted query model; "
+				"experiments belong in the collect-only analyzer.", flush=True)
+			while not once:
+				await asyncio.sleep(sleep_interval)
+				revision = disk_sources_revision(datadir)
+				if revision != disk_revision:
+					print("New disk answers detected; backfilling trusted results.", flush=True)
+					await startup_backfill(datadir, dry_run, photo_ids)
+					disk_revision = revision
+			return
+
 	deferred: dict[str, datetime] = {}  # this process's own skip list, see claim_next
 	processed = 0
 	cursor = None
-	refresh = prefer == "update" or model not in TRUSTED_MODELS
+	scheduler = None
+	acquisition_resume_at = None
+	if not collect_only:
+		from batch_scheduler import Scheduler, quota_reset
+		scheduler = Scheduler(datadir, SessionLocal, photo_ids=photo_ids)
+		acquisition_resume_at = await quota_reset(SessionLocal)
+	refresh = collect_only or prefer == "update" or model not in TRUSTED_MODELS or bool(photo_ids)
 
 	if not refresh:
 		async with SessionLocal() as db:
@@ -621,6 +814,23 @@ async def main_loop(
 	print(f"  Preference: {prefer}; trusted models: {TRUSTED_MODELS}")
 
 	while True:
+		# Batch completion identifies exact response files through Postgres;
+		# only startup/reconciliation scans imported disk histories.
+		if scheduler is not None and not dry_run:
+			try:
+				await scheduler.tick(allow_submit=acquisition_resume_at is not None and acquisition_resume_at > datetime.now(timezone.utc))
+			except Exception as error:
+				print(f"Claude scheduler error (Dots scheduling continues): {error}", flush=True)
+				traceback.print_exc()
+		if acquisition_resume_at is not None:
+			delay = (acquisition_resume_at - datetime.now(timezone.utc)).total_seconds()
+			if delay > 0:
+				if once:
+					print("OpenRouter quota paused; pending Claude batches checked.", flush=True)
+					return
+				await asyncio.sleep(min(sleep_interval, delay))
+				continue
+			acquisition_resume_at = None
 		# # Count remaining unanalyzed photos
 		# count_result = await db.execute(
 		# 	select(func.count(Photo.id))
@@ -633,7 +843,7 @@ async def main_loop(
 
 		try:
 			if refresh:
-				claimed = await claim_refresh(datadir, cursor, prefer, deferred)
+				claimed = await claim_refresh(datadir, cursor, prefer, deferred, photo_ids)
 			else:
 				claimed = await claim_next(datadir, dry_run, deferred)
 		except Exception as e:
@@ -660,23 +870,33 @@ async def main_loop(
 			continue
 
 		photo, lock_file = claimed
+		previous_cursor = cursor
 		if refresh:
 			cursor = (photo.analysis is not None if prefer == "missing" else photo.analysis is None, photo.id)
 
 		print(f"[{datetime.now().strftime('%H:%M:%S')}] Processing photo...")
 		try:
 			try:
-				outcome = await process_photo(photo, datadir, model, verbose)
+				if not collect_only:
+					from redistill import disk_document
+					document, _, _ = disk_document(photo, datadir)
+				else:
+					document = None
+				outcome = Outcome('ok', analysis=document) if document is not None else await process_photo(photo, datadir, model, verbose, skip_model_covered=skip_model_covered)
+			except ImageAccessError as e:
+				print(f"    Photo {photo.id}: {e}", flush=True)
+				outcome = Outcome('error')
 			except Exception as e:
 				print(f"    Error: {e}")
 				traceback.print_exc()
 				outcome = Outcome('error')
 
 			try:
-				if model in TRUSTED_MODELS:
+				if not collect_only and model in TRUSTED_MODELS:
 					await record_outcome(photo, outcome, dry_run)
 				else:
-					print("    Recorded answers; query model is not trusted for distillation")
+					print("    Recorded answers; collect-only service does not publish" if collect_only
+					      else "    Recorded answers; query model is not trusted for distillation")
 				if refresh and outcome.kind not in ('ok', 'collected', 'cached'):
 					deferred[photo.id] = next_retry_for(outcome, datetime.now(timezone.utc))
 			except Exception as e:
@@ -690,7 +910,25 @@ async def main_loop(
 		print(f"{processed} photos processed in this session.")
 		print()
 
-		if outcome.kind == 'error':
+		if outcome.quota_reset_at is not None:
+			delay = max(60, (outcome.quota_reset_at - datetime.now(timezone.utc)).total_seconds())
+			print(f"Daily free quota exhausted; waiting until {outcome.quota_reset_at.isoformat()} before retrying.", flush=True)
+			if not collect_only and not dry_run:
+				from batch_scheduler import save_quota_reset
+				await save_quota_reset(SessionLocal, outcome.quota_reset_at)
+				# Let Claude take the photo which discovered the daily quota, too.
+				if scheduler is not None and scheduler.transport is not None and scheduler.budget > scheduler.prior:
+					async with SessionLocal() as db:
+						await db.execute(update(PhotoAnalysisQueue).where(PhotoAnalysisQueue.photo_id == photo.id,
+							PhotoAnalysisQueue.batch_id.is_(None)).values(next_retry=func.now(), provider=None))
+						await db.commit()
+			if once or collect_only:
+				await asyncio.sleep(delay)
+			else:
+				# Keep publishing local batch answers while OpenRouter is paused.
+				acquisition_resume_at = outcome.quota_reset_at
+			cursor = previous_cursor  # retry the same photo after the global quota reset
+		elif outcome.kind == 'error':
 			print(f"sleeping {ERROR_SLEEP}s before continuing...")
 			await asyncio.sleep(ERROR_SLEEP)
 		elif outcome.queried or not refresh:
@@ -742,26 +980,74 @@ def main():
 		help="Seconds between photos requiring calls when revisiting existing data")
 	parser.add_argument("--prefer", choices=("missing", "update"), default="missing",
 		help="Prioritize photos without assessments, or revisit all photos for the query model")
+	parser.add_argument("--photo-ids", nargs="+", type=lambda value: str(UUID(value)),
+		help="Restrict collection to these exact photo UUIDs")
+	parser.add_argument("--photo-ids-file", type=Path, help="Whitespace-separated photo UUIDs")
+	parser.add_argument("--skip-model-covered", action="store_true",
+		help="Skip photos with complete saved answers from the query model, even under older prompts")
+
+	parser.add_argument("--claude-attach-batch", nargs=2, metavar=("LOCAL_ID", "PROVIDER_ID"), help="Reconcile an uncertain Claude submission after its results are available")
+	parser.add_argument("--collect-only", action="store_true", help="Collect experimental answers without backfilling or writing the database")
+	parser.add_argument("--distill-only", action="store_true", help="Finite pass from trusted saved answers; never query an LLM")
+	parser.add_argument("--aaa-dir", type=Path, help="Explicitly trust labels from this aaa checkout (distill-only)")
+	parser.add_argument("--aaa-closest", choices=("subject", "object"), default="subject", help="aaa field mapped to the existing consequential-object distance")
+	parser.add_argument("--verify-images", action="store_true", help="Fetch exact LLM-image bytes and backfill hashes (otherwise reuse cached hashes)")
+	parser.add_argument("--aaa-only", action="store_true", help="Publish only aaa answers in a distill-only pass")
+	parser.add_argument("--limit", type=int, help="Maximum photos visited in a distill-only pass")
 
 	args = parser.parse_args()
+	if args.skip_model_covered and not args.collect_only:
+		parser.error("--skip-model-covered requires --collect-only")
+	if args.photo_ids_file:
+		try:
+			args.photo_ids = (args.photo_ids or []) + [str(UUID(value)) for value in args.photo_ids_file.read_text().split()]
+		except (OSError, ValueError) as error:
+			parser.error(str(error))
 	if args.interval < 0 or args.sleep <= 0:
 		parser.error("--interval must be nonnegative and --sleep positive")
+
+	if args.limit is not None and args.limit <= 0:
+		parser.error("--limit must be positive")
+	if args.claude_attach_batch:
+		from batch_scheduler import Scheduler
+		scheduler = Scheduler(args.datadir, SessionLocal)
+		if scheduler.transport is None:
+			parser.error("Claude credentials and prompt files are needed for reconciliation")
+		asyncio.run(scheduler.attach(*args.claude_attach_batch))
+		return
+	if args.distill_only:
+		from redistill import run
+		sys.exit(asyncio.run(run(args)))
+	if args.aaa_dir or args.aaa_only or args.verify_images or args.limit is not None:
+		parser.error("--aaa-dir, --aaa-only, --verify-images and --limit require --distill-only")
 
 	# Verify API key file is configured
 	if not os.environ.get("OPENROUTER_API_KEY_FILE"):
 		print("Error: OPENROUTER_API_KEY_FILE environment variable not set.")
 		sys.exit(1)
 
-	asyncio.run(main_loop(
-		datadir=args.datadir,
-		model=args.model,
-		verbose=args.verbose,
-		once=args.once,
-		sleep_interval=args.sleep,
-		dry_run=args.dry_run,
-		prefer=args.prefer,
-		interval=args.interval,
-	))
+	scheduler_lock = None
+	if not args.collect_only:
+		scheduler_lock = acquire_file_lock(args.datadir / 'meta/analyzer-primary.lock', blocking=False)
+		if scheduler_lock is None:
+			parser.error("A primary analyzer is already running for this data directory")
+	try:
+		asyncio.run(main_loop(
+			datadir=args.datadir,
+			model=args.model,
+			verbose=args.verbose,
+			once=args.once,
+			sleep_interval=args.sleep,
+			dry_run=args.dry_run,
+			prefer=args.prefer,
+			interval=args.interval,
+			photo_ids=args.photo_ids,
+			collect_only=args.collect_only,
+			skip_model_covered=args.skip_model_covered,
+		))
+	finally:
+		if scheduler_lock is not None:
+			release_file_lock(scheduler_lock)
 
 
 if __name__ == "__main__":

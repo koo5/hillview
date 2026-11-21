@@ -1,0 +1,18 @@
+# Optional Claude Batch fallback for the SAME primary analyzer service.
+# Add after the base and dev/prod overlays. Set a positive spending cap in .env.
+services:
+  analyzer:
+    environment:
+      - CLAUDE_ANALYZER_API_KEY_FILE=/run/secrets/CLAUDE_ANALYZER
+      - ANALYZER_CLAUDE_BUDGET_USD=${ANALYZER_CLAUDE_BUDGET_USD:-0}
+      - ANALYZER_CLAUDE_BUDGET_PERIOD=${ANALYZER_CLAUDE_BUDGET_PERIOD:-initial}
+      - ANALYZER_CLAUDE_PRIOR_SPEND_USD=${ANALYZER_CLAUDE_PRIOR_SPEND_USD:-0}
+      - ANALYZER_CLAUDE_EFFORT=${ANALYZER_CLAUDE_EFFORT:-medium}
+      - ANALYZER_CLAUDE_RESPONSE_FORMAT=${ANALYZER_CLAUDE_RESPONSE_FORMAT:-compiled-flat-v1}
+      - ANALYZER_CLAUDE_BATCH_PHOTOS=${ANALYZER_CLAUDE_BATCH_PHOTOS:-500}
+    secrets:
+      - CLAUDE_ANALYZER
+
+secrets:
+  CLAUDE_ANALYZER:
+    file: ./secrets/CLAUDE_ANALYZER

@@ -9,6 +9,7 @@ import { TAURI, BROWSER } from './tauri';
 import { browserCaptureAdapter } from './browser/captureAdapter';
 import { triggerPhotoSync } from './browser/photoSync';
 import { auth } from './authStore';
+import type { InertialStamp } from './capturePoseMath';
 
 const doLog = false;
 
@@ -42,6 +43,9 @@ export interface CaptureQueueItem {
 	placeholder_id: string;
 	image_data: ImageData;
 	orientation_code: number; // EXIF orientation value (1, 3, 6, 8)
+	// Gravity at the shutter (capturePose.ts); null/absent = unmeasured. Browser
+	// captures only: the Tauri save path below does not carry it.
+	inertial?: InertialStamp | null;
 	license?: string | null;
 	panoramax_share?: boolean;
 }

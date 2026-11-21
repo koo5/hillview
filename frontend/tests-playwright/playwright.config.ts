@@ -89,6 +89,10 @@ export default defineConfig({
             // an SSL error (a pageerror that console-checking tests flag). This
             // flag makes Chromium accept the cert for SW fetches too.
             '--ignore-certificate-errors',
+            // WebGL for the 3D world (world-far-view.spec.ts): headless Chromium draws it with SwiftShader, which
+            // newer Chromium only allows when asked
+            '--use-angle=swiftshader',
+            '--enable-unsafe-swiftshader',
             ...CHROMIUM_HOST_RESOLVER_ARGS,
           ]
         }

@@ -4,6 +4,7 @@
 # Pins the two things that are easy to get wrong by hand:
 #   - env-file order: .env (base) first, .env.dev (dev overrides) last → dev wins
 #   - both compose files: docker-compose.yml + docker-compose.dev.yml
+#   - optional ignored docker-compose.local.yml, loaded last for host opt-ins
 #
 # Everything after is passed straight through to `docker compose`, so use it
 # for any subcommand:
@@ -20,9 +21,15 @@ set -euo pipefail
 
 cd "$(dirname "$(readlink -f -- "$0")")"
 
+local_compose=()
+if [[ -f docker-compose.local.yml ]]; then
+    local_compose=(-f docker-compose.local.yml)
+fi
+
 exec docker compose \
     --env-file .env \
     --env-file .env.dev \
     -f docker-compose.yml \
     -f docker-compose.dev.yml \
+    "${local_compose[@]}" \
     "$@"

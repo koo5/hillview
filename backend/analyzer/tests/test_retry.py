@@ -34,6 +34,80 @@ from analyzer import (
 )
 
 MODEL = "qwen/qwen3-vl-30b-a3b-thinking"
+
+
+def test_image_preflight_timeout_names_container_and_phase(monkeypatch):
+	import httpx
+	def timeout(*args, **kwargs):
+		raise httpx.ConnectTimeout('timed out')
+	monkeypatch.setattr(analyzer.httpx, 'head', timeout)
+	with pytest.raises(analyzer.ImageAccessError) as error:
+		analyzer.check_image('https://photos.invalid/photo.webp')
+	message = str(error.value)
+	assert 'HEAD https://photos.invalid/photo.webp' in message
+	assert 'connection timed out after 30s' in message
+	assert 'inside the analyzer container' in message
+	assert 'No model request was sent' in message
+
+
+def test_url_acquisition_needs_no_local_image_network_access(tmp_path, monkeypatch):
+	import asyncio
+	monkeypatch.setattr(analyzer, 'FETCH_IMAGES', False)
+	monkeypatch.setattr(analyzer, 'CHECK_IMAGES', False)
+	def forbidden(*args, **kwargs):
+		pytest.fail('URL-only acquisition fetched or checked the image locally')
+	monkeypatch.setattr(analyzer.httpx, 'head', forbidden)
+	monkeypatch.setattr(analyzer.httpx, 'get', forbidden)
+	fake = _fake_run_analysis(fail_features=False)
+	def run(**kwargs):
+		assert kwargs['image_hash'] is None
+		assert kwargs['image_url'] == kwargs['final_image_url']
+		return fake(**kwargs)
+	monkeypatch.setattr(analyzer, 'run_analysis', run)
+	outcome = asyncio.run(analyzer.process_photo(_photo(), tmp_path, MODEL, False))
+	assert outcome.kind == 'ok' and len(fake.calls) == 2
+
+
+@pytest.mark.parametrize('status', [404, 503])
+def test_image_preflight_distinguishes_missing_image_and_http_error(monkeypatch, status):
+	import httpx
+	response = httpx.Response(status, request=httpx.Request('HEAD', 'https://photos.invalid/photo.webp'))
+	monkeypatch.setattr(analyzer.httpx, 'head', lambda *args, **kwargs: response)
+	if status == 404:
+		assert not analyzer.check_image('https://photos.invalid/photo.webp')
+	else:
+		with pytest.raises(analyzer.ImageAccessError, match='returned HTTP 503'):
+			analyzer.check_image('https://photos.invalid/photo.webp')
+
+
+def test_expected_image_access_failure_does_not_dump_traceback(tmp_path, monkeypatch, capsys):
+	import asyncio
+	from unittest.mock import AsyncMock
+	photo = _photo()
+	lock = acquire_file_lock(lock_path_for(tmp_path/'md5x.json'))
+	monkeypatch.setattr(analyzer, 'claim_refresh', AsyncMock(side_effect=[(photo, lock), None]))
+	monkeypatch.setattr(analyzer, 'process_photo', AsyncMock(side_effect=analyzer.ImageAccessError('Image URL preflight failed')))
+	monkeypatch.setattr(analyzer.asyncio, 'sleep', AsyncMock())
+	asyncio.run(analyzer.main_loop(tmp_path, MODEL, True, True, 30, prefer='update', collect_only=True))
+	output = capsys.readouterr()
+	assert 'Image URL preflight failed' in output.out
+	assert 'Traceback' not in output.err
+
+
+@pytest.mark.parametrize('text,estimate,lower,upper', [
+	('Less than a meter to a couple of meters', 1.5, None, 2),
+	('a meter to a couple of meters', 1.5, 1, 2),
+	('less than a metre', 1, None, 1),
+	('a couple of kilometers', 2000, 2000, 2000),
+	('300 m to 2 km', 1150, 300, 2000),
+])
+def test_legacy_natural_language_distance_bounds(text, estimate, lower, upper):
+	from distill import parse_distance_details
+	parsed = parse_distance_details(text)
+	assert parsed is not None
+	assert (parsed.estimate_m, parsed.lower_m, parsed.upper_m) == (estimate, lower, upper)
+
+
 PROMPT = "Analyze this photo.\n{schema}"
 TEMPERATURE = 0
 MAX_TOKENS = 6666
@@ -206,7 +280,7 @@ def _fake_run_analysis(fail_features: bool):
 	"""Stand-in for the OpenRouter call: answers each pass from the prompt text, no network."""
 	calls = []
 
-	def run(model, image_url, final_image_url, image_hash, prompt_text, verbose):
+	def run(model, image_url, final_image_url, image_hash, prompt_text, verbose, response_format=None):
 		calls.append(prompt_text)
 		is_distances = "farthest_object" in prompt_text
 		if not is_distances and fail_features:
@@ -217,6 +291,8 @@ def _fake_run_analysis(fail_features: bool):
 					{"time_of_day": "day", "location_type": "outdoors", "features": {"hill": True, "street": False},
 					 "scenic_score": 4, "visibility_distance": "far", "tallest_building": "low_rise"})
 		s = _session(model=model, prompt=prompt_text)
+		if response_format is not None:
+			s["request"]["response_format"] = response_format
 		s["analysis"] = analysis
 		return s
 

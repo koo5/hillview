@@ -108,7 +108,6 @@ BASE_ITEM_KWARGS = dict(
 	compass_angle=283.6,
 	width=4000, height=3000,
 	original_filename='IMG_1234.jpg',
-	title='A hill', description='A view of a hill',
 	sizes=FULL_SIZES,
 	username='alice', owner_id='99999999-8888-7777-6666-555555555555',
 	license_id='CC-BY-SA-4.0',
@@ -133,6 +132,8 @@ class TestItemJson:
 		assert p['view:azimuth'] == 284
 		assert p['license'] == 'CC-BY-SA-4.0'
 		assert p['geovisio:producer'] == 'alice'
+		# The owner's own text stays out of the LO-licensed metadata.
+		assert 'title' not in p and 'description' not in p
 		assert p['original_file:name'] == 'IMG_1234.jpg'
 
 	def test_azimuth_wraps_and_optional(self):

@@ -5,7 +5,7 @@
     export let sharing = false;
     export let disabled = false;
     export let groupName = 'capture-upload-license';
-    export let context = 'Future camera photos. Existing photos keep their choices.';
+    export let context = 'Existing photos keep their choices.';
     export let note = 'This does not start an upload.';
     export let testId = 'license-change-button';
     export let currentTestId = 'license-current';

@@ -170,6 +170,11 @@ data class PhotoEntity(
      * says which way the camera faced; this says how far it was tilted, and
      * the viewer pane needs both to offer "the photo above this one".
      *
+     * It said "positive up" from v19 and did not hold it: the value came from the
+     * sensor's convention, which is positive DOWN. The app's one state moved to
+     * positive up on 2026-11-17 and MIGRATION_32_33 negated the rows already
+     * stored, so the sentence above is true from v33 rather than aspirational.
+     *
      * Nullable on purpose, unlike `bearing` which uses 0.0 for unset: the
      * viewer's rule is strictly-higher / strictly-lower, so "level" and
      * "not recorded" must not collapse into each other.
@@ -212,6 +217,16 @@ data class PhotoEntity(
     val attitudeJson: String? = null,
 
     /**
+     * RETIRED in v32 (2026-11-06) — ALWAYS NULL. The window moved to its own table,
+     * PhotoImuSamplesEntity, because as a column it rode along with every
+     * `SELECT * FROM photos` and made a large upload queue an OutOfMemoryError.
+     * The v31→v32 migration copied every value there and emptied this column.
+     *
+     * The column stays only because SQLite cannot drop it on minSdk 24 (DROP COLUMN
+     * arrived in 3.35, Android 14) and rebuilding `photos` for one column is the
+     * bigger risk. Do not read it and do not write it; the history below is what it
+     * used to be.
+     *
      * The RAW inertial window this photo owns (v26), columnar and
      * delta-encoded — see `imuSamplesPayloadJson`.
      *

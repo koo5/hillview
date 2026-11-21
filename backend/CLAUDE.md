@@ -6,6 +6,8 @@ its own lock. Dependencies change through `scripts/deps.py` at the repo root.
 
 ## Docs
 
+- **[Rendered photo identity](../docs/photo-artifact-identity.md)**: content-addressed WebP/DZI URLs, optional worker upload version, and analyzer cache reuse after reuploads
+
 - **[Database Migrations Guide](../docs/database-migrations.md)**: Complete workflow for managing database schema changes with Alembic
 - **[PostgreSQL Alpine Migration](../docs/postgres-alpine-migration.md)**: why the postgres image moved to the alpine tag + ICU collation, the dump/restore procedure, and `backend/scripts/pg_rehearse_alpine.py` to prove it on a throwaway cluster first
 - **[DB sessions and cancellation](../docs/db-session-cancellation.md)**: why a request cancelled mid-statement used to leave its connection "idle in transaction" forever (asyncpg `Protocol.abort()` is a no-op after an interrupted close), the Pool "invalidate" terminate + shielded `release_session` fix, the anyio-not-asyncio repro gotcha, how to spot and clear a wedge, and the rule for what a transaction may span

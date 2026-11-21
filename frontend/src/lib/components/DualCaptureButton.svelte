@@ -2,6 +2,7 @@
     import { createEventDispatcher, onDestroy, onMount } from 'svelte';
     import { Camera, Zap, Turtle } from 'lucide-svelte';
 	import {frontendBusy} from "$lib/data.svelte.js";
+    import { getCssRotationFromOrientation, relativeOrientationExif } from '$lib/deviceOrientationExif';
 
     export let disabled = false;
     export let slowInterval = 10000;
@@ -303,7 +304,11 @@
         on:mouseleave={handleSinglePointerLeave}
         data-testid="single-capture-button"
     >
-        <Camera size={24} />
+        <span class="capture-orientation" data-testid="capture-orientation-icon"
+            data-orientation={$relativeOrientationExif}
+            style="transform: rotate({getCssRotationFromOrientation($relativeOrientationExif)}deg)">
+            <Camera size={24} />
+        </span>
         <span class="mode-label">{activeMode ? 'Stop' : ''}</span>
     </button>
 
@@ -331,6 +336,11 @@
 </div>
 
 <style>
+    .capture-orientation {
+        display: inline-flex;
+        transition: transform 0.15s ease;
+    }
+
     .capture-button-container {
         position: relative;
         display: flex;

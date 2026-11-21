@@ -84,9 +84,15 @@ is the licence Hillview publishes on every read (`license`). These are separate:
 | `ccbysa4+osm` | `ccbysa4+osm` |
 | `panoramax_in` | `panoramax`, regardless of sharing or federation eligibility |
 
-The `panoramax` wording is still a placeholder. The federation's declared SPDX
-`CC-BY-SA-4.0`, URL and configuration description remain provisional until
-that wording is settled. Installed Tauri clients show unfamiliar outflow ids
+The `panoramax` outflow reads **CC BY-SA 4.0 + LO derivatives** (the
+`panoramax_in` grant carries the same label): CC BY-SA 4.0 on the photo, plus
+derived data, including AI models, under Licence Ouverte 2.0, CC BY 4.0 or
+ODbL 1.0 — the federation policy's CC option, worded the way its docs word it.
+The label names the platform's terms rather than the platform, and LO because
+it is the most permissive of the three. The ids stay. The federation's SPDX
+slot holds one id, so it declares `CC-BY-SA-4.0` and the configuration
+description (`configuration()` in `backend/panoramax/app/main.py`) states the
+derived-data part. Installed Tauri clients show unfamiliar outflow ids
 as unknown until their next release. Contribution controls are implemented in
 frontend2 and the [web frontend](panoramax-web.md); Tauri completion remains
 outside the browser follow-up.
@@ -98,7 +104,32 @@ It does not authorize the LO 2.0 / CC-BY derived-data uses the federation
 catalog makes, including its metadata exports. We therefore do **not**
 federate photos under that intake. Hillview needs the wider `full1` or
 `panoramax_in` intake to publish under a Panoramax-compatible outflow.
-The final photo and metadata terms must be settled before registration.
+
+**Metadata** is licensed separately, by Hillview: the metadata the API serves
+is published under Licence Ouverte 2.0, matching the catalog's own weekly LO
+export. The derived-data clause does not obviously reach it (position,
+heading and capture time are recorded with the photo, not derived from it),
+and as a compiled collection it falls under the EU database right, which is
+Hillview's as the database's maker, not the photographer's. Left unstated it
+would default to the photos' CC BY-SA 4.0, whose section 4 makes an extracted
+database share-alike, contradicting the export. The owner's own text, title
+and description, would need the owner's grant, so federated items no longer
+carry it (`item_json` in `backend/panoramax/app/stac.py`). With only compiled
+facts left, LO's third-party-rights guarantee costs nothing there.
+
+**The Licence Ouverte catch.** LO 2.0 has whoever publishes under it
+guarantee that third-party rights do not obstruct reuse ("Il est garanti au
+« Réutilisateur » que les éventuels « Droits de propriété intellectuelle »
+détenus par des tiers […] ne font pas obstacle aux droits accordés"); CC BY-SA
+4.0 disclaims the same. Panoramax requires that derived data *may* be
+published under LO, but defines neither what counts as derived data nor how
+the chain of grants holds between the final LO licensor and the uploader. A
+photo of a copyrighted information board whose text someone extracts and
+publishes as derived data is the case to keep in mind. Hillview cannot narrow
+LO in its own prose — once data is published under LO, it is LO — so it only
+warns: the "One thing to know about Licence Ouverte" paragraph on /licensing
+(`#lo-derivatives`) suggests leaving sharing off for photos that show someone
+else's work.
 
 A photo is **eligible for selection** iff (one definition in
 `backend/panoramax/app/eligibility.py`, used by sequencer and API):
@@ -116,9 +147,47 @@ A photo is **eligible for selection** iff (one definition in
   order an upload batch as if it were a walk (a 2026-10-30 mirror of prod had
   2,654 of 10,920 published photos like that, one "sequence" jumping 68 km in
   97 s).
-- All existing gates pass: not deleted, public, processing completed, geometry,
-  capture/upload effective time and renditions present, owner active and not a
-  test user, no thumbs-down rating and no unresolved flag.
+- Its location fix, where the device reported an accuracy, was within 5 m
+  (`MAX_LOCATION_ACCURACY_M`; `photos.location_accuracy_m`, a column generated
+  from the capture app's UserComment by migration 039). Selection keeps one
+  photo per few-metre cell, so a wider fix lands in a cell it may not belong to.
+  An unknown accuracy passes: no photo captured before 2026-09-13 carries one.
+  The 2026-10-30 prod mirror had 25,552 photos with a radius, of which 1,385
+  were over 5 m (476 in September, 909 in October).
+- It was not judged blurry (`photos.blurry`, migration 043, derived from
+  `image_metrics` by `common/image_quality.py`). An unjudged photo passes: the
+  curated work wider than 8000 px is deliberately unmeasured.
+- It has a bearing (`compass_angle` not NULL, NaN or infinite).
+- It was measured level: `photos.pitch` within 20° of the horizon
+  (`MAX_PITCH_DEG`) and `photos.roll` within 10° (`MAX_ROLL_DEG`). Both are in
+  GPano conventions, derived from the capture app's stamp by
+  `common/capture_pose.py` (migration 045, `backend/scripts/pose_backfill.py`).
+  Unlike the blur verdict, an unmeasured photo stays out: the Tauri app, the
+  web app and frontend2 before 2026-09-22 stamp no attitude. Car mode
+  (`photos.bearing_source = 'gps-kalman'`, generated from the UserComment) is
+  exempt from both. Neither column bumps the sequence's `updated_at`, so
+  changes reach the catalog on the sequencer's cadence. The numbers and the
+  reasoning are in `docs/todo/photo-pose-and-level-gates.md`.
+- The LLM analyzer (`backend/analyzer`) has analyzed it, and the analysis lists
+  no `signage` among its `features`. The Licence Ouverte catch above is the
+  reason: a photographed information board is the derived-data case Hillview
+  cannot guard against in prose. Unlike the blur verdict an unanalyzed photo
+  stays out, since "no signage" is only a finding once the analyzer has
+  looked, so a fresh upload federates only after the analyzer reaches it. Any
+  analyzer version counts. A document without a readable `features` list fails
+  the `analysis` gate rather than raising. Analyses do not bump the sequence's
+  `updated_at`, so they reach the catalog on the sequencer's cadence; a member
+  whose analysis finds signage leaves `/items` at once through the serve-time
+  filter.
+- All existing gates pass: not deleted, public, processing completed, geometry
+  present and within the range the grid projection places, capture/upload
+  effective time and renditions present, owner active, no thumbs-down rating
+  and no unresolved flag. Test users are treated like anyone else: the
+  automated suites drive the federation through them.
+- Its detections record is one the gates can read: an `objects` array of
+  objects whose `blurred` and the record's `manual` are booleans or absent.
+  Anything else fails the detection gates rather than raising, because the
+  gates run on every photo each pass and a raise would fail the whole pass.
 
 Sharing changes the outflow of a `full1` photo even when another gate excludes
 it from federation. Approval and contributor flags affect eligibility only.
@@ -138,23 +207,24 @@ unuploaded photos authorize with the new choice and already uploaded photos
 receive an idempotent PATCH. Pre-choice photos retain a null intake and adopt
 the global licence at upload, with no migration or dialog.
 
-## Representative views: 5 m cells and bearing sectors
+## Representative views: grid cells and bearing sectors
 
 Eligibility is permission to compete, not a promise that every eligible photo
 appears in the catalog. On each collector pass, `app/selection.py` chooses one
-photo per **(grid SRID, 5 m easting cell, 5 m northing cell, bearing sector)**
+photo per **(grid SRID, easting cell, northing cell, bearing sector)**
 across all contributors, before constructing owner sessions.
 
 - Grid coordinates come from PostGIS `ST_Transform` into local WGS84 UTM
-  projections, with UPS for the polar caps. Cells are 5 × 5 projected metres;
+  projections, with UPS for the polar caps. Cells are squares with an edge of
+  `PANORAMAX_CELL_SIZE_M` projected metres;
   projection scale varies slightly on the ground. Regular six-degree longitude
   zones are used, rather than MGRS's exceptional Norway/Svalbard boundaries.
   Each zone and hemisphere has its own origin; cells are clipped at projection
-  boundaries. This is a grid, not a five-metre radius/distance exclusion rule.
-- The default is eight 45° sectors centered on N, NE, E, etc. North wraps
-  through zero: [337.5°, 22.5°). `PANORAMAX_BEARING_BUCKETS` changes the number
-  of sectors (1–360). Missing/non-finite bearings share one extra unknown
-  bucket, separate from a real north-facing photo.
+  boundaries. This is a grid, not a radius/distance exclusion rule.
+- `PANORAMAX_BEARING_BUCKETS` sectors (1–360) are centered on compass points;
+  with eight, on N, NE, E, etc., and north wraps through zero: [337.5°, 22.5°).
+  Missing/non-finite bearings share one extra unknown bucket, separate from a
+  real north-facing photo.
 - Prefer a capture with the sun above the geometric horizon, then one with
   unknown capture time, then a night capture. Within that class, prefer the
   newest capture; unknown capture times use the existing effective/upload-time
@@ -197,8 +267,8 @@ unchanged full collector pass took 3.0 seconds and changed no timestamps.
 
 ## Sequences
 
-Synthesized from selected winners, persisted, per-owner **time-gap sessions** (default 15 min, env
-`PANORAMAX_SESSION_GAP_HOURS` = 0.25; 3 h until 2026-10-30) — not one ever-growing collection per user,
+Synthesized from selected winners, persisted, per-owner **time-gap sessions** (gap
+`PANORAMAX_SESSION_GAP_HOURS`; 3 h until 2026-10-30) — not one ever-growing collection per user,
 because the meta-catalog's incremental sync re-fetches **all** items of any
 changed collection (collection-level granularity), making giant collections an
 unbounded recurring cost. No distance splitting: the catalog only draws lines
@@ -235,6 +305,37 @@ Lifecycle invariants:
   as the *same* collection uuid, which the catalog re-harvests in place
   instead of drop-and-reimport under a new id. Found by the heavy e2e mode
   (the light run only ever restored a photo into a still-live sequence).
+
+## Why a photo is or isn't federated
+
+Each pass records every photo's outcome in `panoramax.photo_status`
+(migration 040), writing only the rows whose outcome changed:
+
+- `member`: in a sequence; `panoramax.sequence_photos` says which, and at
+  which rank.
+- `suppressed`: eligible, but another photo represents its grid cell and
+  bearing sector (`winner_id`).
+- `ineligible`: `failed_gates` names every gate it failed. The gates are
+  `GATES` in `app/eligibility.py`, the same named list `ELIGIBLE_PHOTO_WHERE`
+  is joined from, so the record cannot drift from the rule.
+
+The gate results and the candidates come from two queries, so a photo can
+change in between. One that now fails a gate is recorded as ineligible, which
+is its state and what the read API already filters on. One that now passes
+every gate but was not yet a candidate keeps its previous record until the
+next pass. The recording runs in a savepoint of its own: if it fails (a photo
+hard-deleted mid-pass trips `photo_status`'s foreign key, say) the error is
+logged and the pass's membership changes still commit. Deleted photos get no
+record.
+
+`decided_at` is when the current outcome was first recorded;
+`panoramax.sequencer_passes` holds when each scope's last pass ran.
+`GET /api/photos/{id}/panoramax-status` serves both to the owner and to
+moderators, and the photo page shows it as its "Panoramax" line, worded by
+`$lib/panoramaxStatus.ts`. It reports what the last pass did, not a
+re-evaluation: a change since then (sharing switched, a doodle removed)
+shows after the next pass, while the read API's serve-time filter already
+hides a photo that stopped qualifying.
 
 ## Meta-catalog harvester contract (verified against its source)
 
@@ -387,7 +488,14 @@ the dev box's `/pics` route in `~/caddy/Caddyfile` sends
    ```
 
 The container health check calls `/api/health`, which opens a database
-connection. `/api/configuration` alone is not a database readiness check: it
+connection and answers 503 until two things hold. First, the schema has the
+newest objects the service reads (`SCHEMA_READY_SQL` in `app/sequencer.py`,
+which the sequencer also waits on, since the api applies the migrations at its
+own start). Second, PostgreSQL runs with `track_commit_timestamp=on`: a
+collection's `updated` is its commit time (`SEQUENCE_UPDATED` in
+`app/main.py`), so the harvester's incremental crawl cannot miss a change
+committed while a harvest was listing, and without the setting every
+collection listing fails. `/api/configuration` alone is not a database readiness check: it
 can return 200 even when the role's password is wrong. If the container is
 running but collections fail with a `panoramax_ro` authentication error,
 re-run `backend/scripts/provision_panoramax_role.sh` after setting the password
@@ -399,16 +507,17 @@ For a local smoke check, request `/geovisio/api/health`,
 Caddy, then follow the response's self/root links. An empty collections list is
 valid when no photos currently pass consent and eligibility checks.
 
-Env knobs: `PANORAMAX_SCOPE` (default `p1`), `PANORAMAX_BEARING_BUCKETS` (8),
-`PANORAMAX_SESSION_GAP_HOURS` (0.25), `PANORAMAX_SEQUENCER_INTERVAL_S` (300), `PANORAMAX_SEQUENCER_ENABLED`
-(true — set false to run the API without the in-process sequencer),
-`PANORAMAX_INSTANCE_NAME` (Hillview), `PANORAMAX_VIEWER_URL`
-(the stack's `FRONTEND_URL` if set, else `https://hillview.cz` — where `/`
-redirects humans arriving from the catalog's per-item `rel=via` link), `PANORAMAX_LOGO_URL`
-(`https://hillview.cz/favicon.png` — `/api/configuration`'s `logo`, which the
+Env knobs: every setting of the container, with its default and what it
+does, is in `backend/panoramax/app/settings.env`. Compose loads it as the
+service's `env_file`, interpolating its `${NAME:-default}` values, so the root
+`.env` overrides any of them without the rest of `.env` reaching the container;
+`settings.py` resolves the same file when run outside compose (unit tests,
+scripts). Changing the cell size or the sector count reshuffles which photo
+wins each cell, so follow it with an incremental harvest, which carries the
+removals. `PANORAMAX_LOGO_URL` is `/api/configuration`'s `logo`, which the
 meta-catalog stores and serves at `/api/instances/<name>/logo`; the web
 viewer's picture panel always asks explore.panoramax.fr for it, so it shows
-only once we are registered there).
+only once we are registered there.
 
 ## Registration
 
@@ -511,6 +620,12 @@ over SSH; neither the light nor heavy test phases branch on collector location.
 
 The wrapper brings up Hillview (or accepts `--reuse-stack`), provisions its
 role, starts the collector's database/migrations and prepares the harvester CLI.
+The collector host needs nothing but the meta-catalog checkout: the harvester
+runs from the checkout's own venv, `harvester/.venv`, which the wrapper syncs
+from upstream's `uv.lock` (`uv sync --frozen`, no extras) when it is missing.
+The suite's catalog queries use the `psycopg` that venv brings. Every HTTP
+check, pystac validation included, runs on the test host in `hillview-tests`,
+where `pystac[validation]` is a locked dependency like any other.
 `META_CATALOG` names the checkout on the collector host. The default is
 `/home/koom/repos/panoramax/server/meta-catalog/0/meta-catalog`. It preserves an
 already-running local collector, leaves remote collectors running, and stops a
@@ -524,7 +639,7 @@ expects five winners across three sequences: a newer daytime photo beats an
 older daytime view and a fresher night view; a different bearing in the same
 cell survives; CC and owner opt-out are excluded. It verifies full harvest,
 providers, computed geometries, paging, STAC validation, image delivery and
-public CORS **from the collector host**, owner edits, photo deletion and
+public CORS, an owner's bearing edit, photo deletion and
 restoration, immediate consent withdrawal, a replacement winner, sequence
 tombstones, and restoration under the same sequence ID. Every harvest must
 finish with zero collection errors.
@@ -542,7 +657,6 @@ the nine isolated upload fixtures are always created and cleaned up.
 INSTANCE_NAME=hillview-dev4-e2e \
   ./backend/panoramax/scripts/e2e_federation.sh --reuse-stack \
   --catalog-ssh koom@192.168.122.37 \
-  --harvester /home/koom/.cache/hillview/panoramax-e2e/venv/bin/stac-harvester \
   --ca-bundle /home/koom/.cache/hillview/panoramax-e2e/ca-bundle.pem
 ```
 
@@ -635,13 +749,12 @@ Changes since the commit: CQL parsing moved to pygeofilter; migration
 renumbered **030 → 033** (the dev2026-07-07 merge added 030–032 on 029,
 leaving two alembic heads that would have failed the api prestart);
 `panoramax.departed_photos` + identity-map merge so tombstones revive (heavy
-mode found that they never did); `generate_load.py` + `--heavy`; the registration
-drafts document.
+mode found that they never did); `generate_load.py` + `--heavy`.
 
 Open decisions, in rough priority order:
 
-1. **Metadata licence** — see the licensing section and
-   [panoramax-registration-drafts.md](panoramax-registration-drafts.md).
+1. ~~**Metadata licence**~~ — decided 2026-11-01: Licence Ouverte 2.0, stated by
+   Hillview (see the licensing section).
 2. **WebP** — accept the two client breakages, add `item-preview` links, or
    generate JPEG thumbs (see the WebP section).
 3. **Prod deploy + registration** — Caddy vhost, then the GitLab issue.

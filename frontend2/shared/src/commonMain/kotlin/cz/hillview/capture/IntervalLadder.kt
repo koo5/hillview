@@ -50,8 +50,28 @@ internal sealed interface LadderRung {
     /** What the ladder band and the shutter both show. */
     val label: String
 
-    data class Every(val ms: Int) : LadderRung {
+    /**
+     * A rung that starts a RUN of stills, however it is paced — what the
+     * shutter, its colour and the release verdict ask about.
+     */
+    sealed interface Run : LadderRung
+
+    data class Every(val ms: Int) : Run {
         override val label: String get() = formatIntervalMs(ms)
+    }
+
+    /**
+     * Stills spaced by overlap rather than by the clock: a shot each time the
+     * camera has moved or turned far enough (see OverlapRun.kt). Between the
+     * slowest interval and VIDEO, which is roughly where it sits in density
+     * (user, 2026-11-05: "the sweet spot is somewhere in the middle").
+     * Since 2026-11-09 the BOTTOM rung, and always there (user: "the sfm menu
+     * does not need to have a toggle for the whole feature … we can make it
+     * the lowest item in the ladder") — so it is also what a finger below
+     * the ladder gets ([overLadderAt]).
+     */
+    data object Overlap : Run {
+        override val label = "SfM"
     }
 
     data object Video : LadderRung {
@@ -83,12 +103,36 @@ private val WHOLE_SECONDS = listOf(1, 2, 3, 4, 6, 8, 10, 20, 30)
  */
 private val SUB_SECOND_MS = listOf(200, 300, 500, 750)
 
-/** The rungs, bottom (index 0) to top. */
+///**
+// * The rungs, bottom (index 0) to top. [overlap] adds the SfM rung under
+// * VIDEO — opt-in (user, 2026-11-05: "lets make it all opt-in and
+// * configurable"), so a phone that never asked for it keeps the ladder it had.
+// */
+//internal fun intervalLadder(overlap: Boolean): List<LadderRung> = buildList {
+//    SUB_SECOND_MS.forEach { add(LadderRung.Every(it)) }
+//    WHOLE_SECONDS.forEach { add(LadderRung.Every(it * 1000)) }
+//    if (overlap) add(LadderRung.Overlap)
+//    add(LadderRung.Video)
+//}
+//
+///** The ladder as it stands without the SfM rung — the default. */
+//internal val INTERVAL_LADDER: List<LadderRung> = intervalLadder(overlap = false)
+
+/**
+ * The rungs, bottom (index 0) to top: the SfM run, the intervals fastest
+ * first, VIDEO. One ladder for everyone since 2026-11-09 — an extra rung
+ * needs no switch (user: "theres no need to toggle the appearance of an extra
+ * capture interval ladder item").
+ */
 internal val INTERVAL_LADDER: List<LadderRung> = buildList {
+    add(LadderRung.Overlap)
     SUB_SECOND_MS.forEach { add(LadderRung.Every(it)) }
     WHOLE_SECONDS.forEach { add(LadderRung.Every(it * 1000)) }
     add(LadderRung.Video)
 }
+
+/** Where the ladder's pick starts: the fastest interval, as before the SfM rung went under it. */
+internal val DEFAULT_LADDER_INDEX: Int = INTERVAL_LADDER.indexOf(LadderRung.Every(200))
 
 /**
  * "0.2s", "0.75s", "3s" — trailing zeros trimmed, and never a bare decimal
@@ -233,8 +277,8 @@ internal fun IntervalLadder(
     armed: Boolean,
     pointerFraction: Float?,
     modifier: Modifier = Modifier,
+    rungs: List<LadderRung> = INTERVAL_LADDER,
 ) {
-    val rungs = INTERVAL_LADDER
     val hover = hoverIndex.coerceIn(0, rungs.lastIndex)
     BoxWithConstraints(
         modifier

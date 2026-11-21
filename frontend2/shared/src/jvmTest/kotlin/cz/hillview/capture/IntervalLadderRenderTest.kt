@@ -65,10 +65,13 @@ class IntervalLadderRenderTest {
         onNodeWithTag("capture-interval-value").assertTextEquals("VIDEO")
     }
 
+    // The bottom rung is the SfM run since 2026-11-09 (it was the fastest interval).
     @Test
-    fun theBottomRungIsTheFastestIntervalNotAWayOut() = runComposeUiTest {
+    //fun theBottomRungIsTheFastestIntervalNotAWayOut() = runComposeUiTest {
+    fun theBottomRungIsTheSfmRunNotAWayOut() = runComposeUiTest {
         ladder(hoverIndex = 0)
-        onNodeWithTag("capture-interval-value").assertTextEquals("0.2s")
+        //onNodeWithTag("capture-interval-value").assertTextEquals("0.2s")
+        onNodeWithTag("capture-interval-value").assertTextEquals("SfM")
     }
 
     /** The button's side of the pane says what releasing there does. */

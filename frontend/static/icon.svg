@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="hill" x1="32.513512" y1="243.0005" x2="395.06" y2="243.0005"
+                    gradientUnits="userSpaceOnUse"
+                    gradientTransform="matrix(1.0691313,0,0,1.0691313,27.433876,-3.7994482)">
+      <stop offset="0" stop-color="#00ff00"/>
+      <stop offset="1" stop-color="#daffaa"/>
+    </linearGradient>
+    <radialGradient id="arrow" cx="240.65649" cy="188.97942" fx="240.65649" fy="188.97942"
+                    r="109.7932" gradientUnits="userSpaceOnUse"
+                    gradientTransform="matrix(1.0691313,0,0,1.8047509,26.054973,-142.73933)">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.73087311"/>
+    </radialGradient>
+  </defs>
+  <ellipse cx="256" cy="256" rx="182.4758" ry="173.57028"
+           fill="url(#hill)" stroke="#2b0000" stroke-width="22.6582"/>
+  <path d="M 188.48124,373.95523 202.95672,22.682912 378.21658,322.06261 Z"
+        fill="url(#arrow)" stroke="#2b0000" stroke-width="45.0327"
+        stroke-linecap="round" stroke-linejoin="round" paint-order="stroke fill markers"/>
+</svg>

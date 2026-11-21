@@ -38,8 +38,8 @@ fun PanoramaxInfoScreen(onBack: () -> Unit) {
         }
 
         Section("Your grant and the published licence")
-        Text("Your upload licence is the grant you give Hillview. Full rights to Hillview and the Panoramax contribution grant allow sharing; CC BY-SA 4.0 + OSM alone does not cover the federation's derived-data uses.")
-        Text("For Full rights photos, turning sharing on publishes the photo as Panoramax even if it does not qualify for federation. The Panoramax contribution grant always publishes as Panoramax, with sharing on or off. Panoramax licence wording is a placeholder pending the final text.")
+        Text("Your upload licence is the grant you give Hillview. Full rights to Hillview and CC BY-SA 4.0 + LO derivatives allow sharing; CC BY-SA 4.0 + OSM alone does not cover the federation's derived-data uses.")
+        Text("For Full rights photos, turning sharing on publishes the photo under CC BY-SA 4.0 + LO derivatives even if it does not qualify for federation. A photo uploaded under CC BY-SA 4.0 + LO derivatives is published under it with sharing on or off.")
         Section("Choose which photos to share")
         Text("The P button above the camera settings button switches sharing for future photos. Each photo keeps that choice. Change an existing photo's Panoramax on/off button in Device photos; offline edits are sent when you reconnect.")
         Section("Anonymization")

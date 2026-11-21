@@ -1,6 +1,8 @@
 package cz.hillview.settings
 
 import android.content.Context
+import cz.hillview.plugin.PREF_WORKER_PINNED_CERT
+import cz.hillview.plugin.PREF_WORKER_URL_OVERRIDE
 import cz.hillview.plugin.PhotoUploadManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -39,6 +41,15 @@ class PrefsUploadSettingsRepository(
             writeExif = prefs.getBoolean("write_exif", false),
             exactCaptureTime = prefs.getBoolean("exact_capture_time", false),
             shareToPanoramax = prefs.getBoolean("share_to_panoramax", false),
+            workerEndpoints = decodeWorkerEndpoints(prefs.getString("worker_endpoints", null)),
+            workerOverrideUrl = prefs.getString(PREF_WORKER_URL_OVERRIDE, null),
+            shutterSound = ShutterSound.fromKey(prefs.getString("shutter_sound", null))
+                ?: ShutterSound.Click,
+            warnDegradedPosition = prefs.getBoolean("warn_degraded_position", true),
+            captureSoundChannel = SoundChannel.fromKey(prefs.getString("capture_sound_channel", null))
+                ?: SoundChannel.Media,
+            captureSoundVolume = prefs.getFloat("capture_sound_volume", CAPTURE_SOUND_VOLUME_DEFAULT)
+                .coerceIn(0f, 1f),
         ).also(::persist)
     )
     override val settings: StateFlow<UploadSettings> = _settings.asStateFlow()
@@ -78,6 +89,16 @@ class PrefsUploadSettingsRepository(
             .putBoolean("write_exif", s.writeExif)
             .putBoolean("exact_capture_time", s.exactCaptureTime)
             .putBoolean("share_to_panoramax", s.shareToPanoramax)
+            .putString("worker_endpoints", encodeWorkerEndpoints(s.workerEndpoints))
+            // The pair the upload stack reads (shared-kt WorkerOverride.kt):
+            // the selected worker and its pin, flattened so it parses no list.
+            // Null removes the key, which is "as the server says".
+            .putString(PREF_WORKER_URL_OVERRIDE, s.activeWorker?.url)
+            .putString(PREF_WORKER_PINNED_CERT, s.activeWorker?.pin?.derBase64)
+            .putString("shutter_sound", s.shutterSound.key)
+            .putBoolean("warn_degraded_position", s.warnDegradedPosition)
+            .putString("capture_sound_channel", s.captureSoundChannel.key)
+            .putFloat("capture_sound_volume", s.captureSoundVolume)
             .apply()
     }
 }

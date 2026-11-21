@@ -239,7 +239,9 @@ class StreamPhotoLoader internal constructor(private val client: OkHttpClient) {
                 throw StreamHttpException(response.code, "HTTP ${response.code}: ${response.message}")
             }
 
-            response.body?.byteStream()?.let { inputStream ->
+            @Suppress("UNNECESSARY_SAFE_CALL") // OkHttp 4's body is nullable in the Tauri build.
+            val bodyStream = response.body?.byteStream()
+            bodyStream?.let { inputStream ->
                 BufferedReader(InputStreamReader(inputStream)).use { reader ->
                 val eventData = StringBuilder()
                 var eventType: String? = null

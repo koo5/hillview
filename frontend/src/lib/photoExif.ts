@@ -40,14 +40,17 @@ export interface PhotoExif {
 }
 
 /**
- * The slice of the public photo record the info window needs: curated EXIF plus
- * the photo's real pixel dimensions. `sizes.full` on the local photo object is a
+ * The slice of the public photo record the info window needs: curated EXIF,
+ * camera pose and real pixel dimensions. `sizes.full` on the local photo object is a
  * rendition (panos are downsized there), so true dimensions come from here.
  */
 export interface PublicPhotoInfo {
 	exif: PhotoExif | null;
 	width?: number;
 	height?: number;
+	/** Camera pose in GPano degrees: pitch positive up, roll counterclockwise. */
+	pitch?: number | null;
+	roll?: number | null;
 }
 
 // uid -> public info (or null on a hard 4xx/5xx). Persists for the session so
@@ -84,7 +87,9 @@ export async function fetchPublicInfo(uid: string): Promise<PublicPhotoInfo | nu
 			const info: PublicPhotoInfo = {
 				exif: (body?.exif ?? null) as PhotoExif | null,
 				width: typeof body?.width === 'number' && body.width > 0 ? body.width : undefined,
-				height: typeof body?.height === 'number' && body.height > 0 ? body.height : undefined
+				height: typeof body?.height === 'number' && body.height > 0 ? body.height : undefined,
+				pitch: typeof body?.pitch === 'number' && Number.isFinite(body.pitch) ? body.pitch : null,
+				roll: typeof body?.roll === 'number' && Number.isFinite(body.roll) ? body.roll : null
 			};
 			cache.set(uid, info);
 			return info;
@@ -100,14 +105,22 @@ export async function fetchPublicInfo(uid: string): Promise<PublicPhotoInfo | nu
 }
 
 // --- Display formatting -----------------------------------------------------
-// Values are shown as-is (no lossy rounding). The only computed value is the
+// Camera settings are shown as-is (no lossy rounding). The only computed value is the
 // shutter denominator, where the reciprocal of a float (e.g. 0.004 → 249.9999…)
 // is snapped to the nearest integer to render the conventional "1/250 s".
 // A bracket's range renders as "lo–hi" with the unit once ("1/2000–1/125 s");
 // " + other" marks a pano whose positions didn't all agree.
+// Pose angles use one decimal, matching the info window's bearing precision.
 
 const RANGE_DASH = '–';
 const MIXED_SUFFIX = ' + other';
+
+/** Signed pose degrees; missing/non-finite readings must not look like level. */
+export function formatPoseAngle(value: number | null | undefined): string | null {
+	if (value == null || !Number.isFinite(value)) return null;
+	const rounded = Math.round(value * 10) / 10;
+	return `${rounded > 0 ? '+' : ''}${(rounded + 0).toFixed(1)}°`;
+}
 
 function withMixed(s: string, mixed?: boolean): string {
 	return mixed ? s + MIXED_SUFFIX : s;

@@ -8,7 +8,7 @@
 import { uploadPendingPhotos, type UploadResult } from './uploadManager';
 import { isBackgroundSyncSupported, type StoredPhoto } from './photoStorage';
 import { secureUploadFile, mainThreadAuthFetch } from '../secureUpload';
-import { syncProcessingPhotosStatus } from '../uploadProtocol';
+import { syncProcessingPhotosStatus, buildUploadMetadata } from '../uploadProtocol';
 import { auth } from '../authStore';
 import { getSettings } from '../settings';
 import { get } from 'svelte/store';
@@ -19,28 +19,19 @@ import { initSyncStatusListener, isSwAlive, createFgStatusReporter } from '../sy
 const LOG_PREFIX = '🢄[PhotoSync]';
 const doLog = false;
 
-/** Foreground uploader — uses the main-thread secure upload flow */
-async function foregroundUploader(photo: StoredPhoto): Promise<UploadResult> {
+/** Foreground uploader — uses the main-thread secure upload flow. Exported for its test. */
+export async function foregroundUploader(photo: StoredPhoto): Promise<UploadResult> {
     const file = new File(
         [photo.blob],
         `${photo.id}.jpg`,
         { type: 'image/jpeg' }
     );
 
-    const metadata = {
-        latitude: photo.metadata.location.latitude,
-        longitude: photo.metadata.location.longitude,
-        altitude: photo.metadata.location.altitude,
-        bearing: photo.metadata.location.bearing,
-        accuracy: photo.metadata.location.accuracy,
-        orientation_code: photo.metadata.orientation_code,
-        captured_at: photo.metadata.captured_at,
-        location_source: photo.metadata.location.location_source,
-        bearing_source: photo.metadata.location.bearing_source,
-        alt_location: photo.metadata.location.alt_location
-    };
+    // The same builder as the service worker's uploader, so the two cannot drift.
+    const metadata = buildUploadMetadata(photo);
 
-    const { license, panoramax_share } = photoUploadConsent(photo, get(autoUploadLicense));
+    const consent = photoUploadConsent(photo, get(autoUploadLicense));
+    const { license, panoramax_share } = consent;
 
     const result = await secureUploadFile(
         file,
@@ -59,7 +50,8 @@ async function foregroundUploader(photo: StoredPhoto): Promise<UploadResult> {
         success: result.success,
         photo_id: result.photo_id,
         error: result.error,
-        busy: result.busy
+        busy: result.busy,
+        consent
     };
 }
 

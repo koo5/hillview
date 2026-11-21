@@ -31,7 +31,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 	invoke: vi.fn(),
 }));
 
-import { sharePhoto, compactShareUrl } from './shareUtils';
+import { shareLink, sharePhoto, compactShareUrl } from './shareUtils';
 import { http } from '$lib/http';
 
 describe('shareUtils', () => {
@@ -111,6 +111,31 @@ describe('shareUtils', () => {
 			const bounds = { x1: 0.1, y1: 0.2, x2: 0.8, y2: 0.9 };
 			await sharePhoto(photo, bounds);
 			expect(constructShareUrl).toHaveBeenCalledWith(photo, bounds);
+		});
+	});
+
+	describe('shareLink', () => {
+		const url = 'https://hillview.cz/?activity=3d&lat=50&lon=14&altitude=1250.75';
+
+		it('copies a 3D link without minting a photo share', async () => {
+			vi.mocked(http.post).mockClear();
+			await shareLink(url, '3D view on Hillview', 'Check out this 3D view');
+			expect(writeTextSpy).toHaveBeenCalledWith(url);
+			expect(http.post).not.toHaveBeenCalled();
+		});
+
+		it('reports a clipboard failure to the menu', async () => {
+			writeTextSpy.mockRejectedValueOnce(new Error('Clipboard denied'));
+			await expect(shareLink(url, '3D view', '')).rejects.toThrow('Clipboard denied');
+		});
+
+		it('cleans up its fallback even when copying is refused', async () => {
+			Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+			const copy = vi.fn().mockReturnValue(false);
+			Object.defineProperty(document, 'execCommand', { value: copy, configurable: true });
+			await expect(shareLink(url, '3D view', '')).rejects.toThrow('Clipboard unavailable');
+			expect(copy).toHaveBeenCalledWith('copy');
+			expect(document.querySelector('textarea')).toBeNull();
 		});
 	});
 

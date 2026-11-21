@@ -747,6 +747,24 @@ the confusion is built into stored data and will outlive anyone's memory of it.
 | `exif_data->'gps'->'pitch'` | the same number one layer earlier, on its way to that column | `docs/todo/pitch-backfill-from-usercomment.md`, `enrich/`'s photo mirror |
 | `attitude.pitch_deg` in the UserComment | what the SENSOR read, freshest at the shutter | anything reconstructing, via the public detail endpoint |
 
+**UPDATE 2026-11-17:** a fourth home, on the phone: `PhotoEntity.pitch` in frontend2's
+own database. It held the sensor's positive-DOWN value until `PHOTO_DB_VERSION` 33
+negated every stored row, so it now agrees with `photos.pitch` and the viewer. The sign
+changes in exactly one place, `frontend2/.../map/PitchConvention.kt`: everything above it
+is positive up, and the capture stamp and the bearings table convert back on the way down.
+See [todo/frontend2-pitch-sign-and-level.md](todo/frontend2-pitch-sign-and-level.md).
+
+**UPDATE 2026-11-18:** new local rows derive `PhotoEntity.pitch` from the completed
+capture's gravity, falling back to its measured attitude, like `capture_pose` does
+on the server. The elected bearing's pitch can stay unchanged when only elevation
+changes, so it no longer supplies local photo geometry. The bearing election and
+the provenance wire conventions are unchanged.
+
+**UPDATE 2026-11-15:** the first row no longer holds that value. `photos.pitch` is
+now derived from the stamp, with its sign flipped to positive up, beside a new
+`photos.roll`. See *`photos.pitch` and `photos.roll` come from the stamp* below. The
+rest of this section is the history that led there.
+
 The first two are one value with two names. The third is the same quantity read at
 a different moment — and the practical rule stands: for anything reconstructing,
 use `attitude.pitch_deg`. It exists because of the user's rule for this work:
@@ -939,6 +957,58 @@ before alembic 032. That is the open decision already parked in
 `docs/todo/pitch-backfill-from-usercomment.md`, and this work changes its inputs:
 new photos carry roll in a NAMED object with a typed projection, where before it
 never left the phone.
+
+**Decided 2026-11-15:** there is a `photos.roll` column now, beside a corrected
+`photos.pitch`. See the next section.
+
+### `photos.pitch` and `photos.roll` come from the stamp (2026-11-15)
+
+Migration 045 adds `photos.roll` and a generated `photos.bearing_source`.
+`common/capture_pose.py` derives both angles from the UserComment on every
+processed-photo write, and `backend/scripts/pose_backfill.py` rewrites existing rows.
+The Panoramax level gates read them. The plan, the measurements and the follow-ups are
+in `docs/todo/photo-pose-and-level-gates.md`.
+
+The columns follow GPano (`PosePitchDegrees` / `PoseRollDegrees`, which Panoramax
+reads). The stamp keeps its own conventions, and the mapping is:
+
+| column | from the stamp | convention |
+|---|---|---|
+| `pitch` | `−asin(g_z / \|g\|)`, else `−attitude.pitch_deg` | degrees above the horizon, positive UP |
+| `roll` | `r = atan2(g_x, g_y)`, else `attitude.roll_deg`; then `−(r − 90·round(r / 90))` | horizon lean in the image from the nearest quarter turn, in (−45, 45], positive counterclockwise |
+
+The order is gravity first, then attitude with `metadata_version` ≥ 1, then
+version-less attitude only in upright portrait (`device_rotation_deg = 0`). Last comes
+the stamp's `gps.pitch`, negated, for pitch only. That applies only when the
+UserComment has no `attitude` and no `inertial` object and the image is
+portrait-shaped. Within about 15° of flat, roll is NULL (`GRAVITY_ROLL_FLOOR`).
+
+**The web app is a gravity source too, since 2026-11-17.** A browser capture stamps
+`inertial` alone, with no `attitude`, no `capture_timing` and no `gps.pitch`. Its
+`gravity` is the 300 ms mean before the shutter, either from Chromium's
+`GravitySensor` (`gravity_source: 'gravity-sensor'`, Android's `TYPE_GRAVITY`,
+rounded by Chromium to 0.1 m/s² per axis) or from deviceorientation's beta/gamma
+(`'deviceorientation'`, iOS Safari and Firefox). Beside it are `age_ms`,
+`sample_count`, `window_ms` and `gravity_spread_deg`, which the API's `inertial`
+projection does not serve: they are in the stored UserComment only. See
+`docs/todo/web-capture-level-stamp.md`.
+
+What changed for the three homes:
+
+- **`photos.pitch` stopped being the stamp's `gps.pitch`.** That value was positive
+  down while migration 032 and both viewers assumed positive up, so up/down
+  navigation was reversed. It is now measured from `inertial` / `attitude`.
+- **`exif_data->'gps'->'pitch'` is still written, and read only as a last resort.**
+  For frontend2's portrait photos from before 2026-09-22, which carry no `attitude`
+  or `inertial`, the column holds it negated. It is rough: 3.3° off at the median and
+  10° at the 90th percentile against gravity. In landscape it is up to 97° off, so it
+  is not read there. Its removal from the stamp stays parked in
+  docs/todo/metadata-structure-sanitization.md, and that plan now has to keep the old
+  rows' values or the column loses its source.
+- **`attitude.pitch_deg` is unchanged**, positive down as documented here.
+
+A deliberate 29-shot series confirmed the roll's sign and size by eye, and the pitch
+sign with it.
 
 ## `attitude` and `inertial` — the split, and the names
 

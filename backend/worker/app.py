@@ -70,6 +70,8 @@ from pathlib import Path
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, BackgroundTasks, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.exception_handlers import http_exception_handler
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -195,6 +197,29 @@ app = FastAPI(
 	version="1.0.1",
 	lifespan=lifespan,
 )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _log_unparseable_bodies(request: Request, exc: StarletteHTTPException):
+	"""Say WHY a body could not be parsed, then answer exactly as before.
+
+	FastAPI turns any exception while reading a form into a bare 400 "There was
+	an error parsing the body" and keeps the real one only as ``__cause__`` —
+	so the client sees nothing useful and neither does this log. Found
+	2026-11-06 with a phone whose every upload to a local worker came back like
+	that, with nothing on either side naming the cause. Starlette's own
+	multipart limits (part size, field count) arrive with their message in
+	``detail`` and need no help; this is for everything else.
+	"""
+	cause = exc.__cause__
+	if exc.status_code == 400 and cause is not None:
+		logger.warning(
+			f"{request.method} {request.url.path}: body not parsed — "
+			f"{type(cause).__name__}: {cause} "
+			f"(content-type={request.headers.get('content-type')!r}, "
+			f"content-length={request.headers.get('content-length')!r})"
+		)
+	return await http_exception_handler(request, exc)
 
 
 # CORS configuration
@@ -763,7 +788,12 @@ class BrowserMetadata(BaseModel):
 	# said so. Any future provenance key needs a line here too.
 	location_age_ms: Optional[int] = None  # age of the stamped fix at the shutter
 	refined: Optional[bool] = None  # the stamp was interpolated after the fact
-	pitch: Optional[float] = None  # camera elevation, degrees, positive up
+	# The tilt that rode along with the bearing, degrees, positive DOWN as
+	# frontend2 sends it (BearingState.pitch).
+	# Kept in exif_data's gps block. photos.pitch is derived from the stamp's
+	# attitude / inertial objects, and reads this only as a last resort for
+	# unstamped portrait photos (common/capture_pose.py).
+	pitch: Optional[float] = None
 	# What the DEVICE measured at the shutter, as opposed to what the photo is
 	# stamped as FACING (bearing/pitch above, which a hand-set arrow or a car
 	# course may own and which measure no tilt at all). Roll lives here and
@@ -1247,7 +1277,7 @@ async def metrics():
 	return Response("\n".join(out) + "\n", media_type="text/plain; version=0.0.4")
 
 
-def validate_upload_parameters(upload_auth: dict, file) -> (str, str):
+def validate_upload_parameters(upload_auth: dict, file) -> tuple[str, str]:
 
 	# Extract upload authorization data
 	raw_photo_id = upload_auth["photo_id"]
@@ -1340,6 +1370,7 @@ async def upload_sync(
 	keep_pics_in_worker: Optional[bool] = Form(None),  # Serve artifacts from this worker's own volume (needs ALLOW_KEEP_PICS_IN_WORKER)
 	local_photo_path: Optional[str] = Form(None),  # Read the photo from this worker-local path instead of a body (needs LOCAL_PHOTO_ROOTS)
 	local_pyramid_path: Optional[str] = Form(None),  # Externally rendered DZI (<prefix>.dzi) the worker MAY reuse (needs LOCAL_PHOTO_ROOTS; see external_pyramid_usable)
+	version: Optional[int] = Form(None, ge=1, le=2147483647),  # optional filename namespace; old clients omit it
 	upload_auth: dict = Depends(get_upload_authorization),
 	response: Response = None
 ):
@@ -1348,6 +1379,7 @@ async def upload_sync(
 	local_src = _check_upload_source(file, local_photo_path)
 	local_pyr = _check_local_pyramid(local_pyramid_path)
 	photo_id, user_id = validate_upload_parameters(upload_auth, file)
+	upload_auth = {**upload_auth, "artifact_version": version}
 	return await upload(file, client_signature, photo_id, user_id, anonymization_override=anonymization_override, metadata=metadata, quality=quality, fast=bool(fast), keep_pics_in_worker=keep_pics, local_photo_path=local_src, upload_auth=upload_auth, local_pyramid_path=local_pyr)
 
 
@@ -1362,6 +1394,7 @@ async def upload_async(
 	keep_pics_in_worker: Optional[bool] = Form(None),  # Serve artifacts from this worker's own volume (needs ALLOW_KEEP_PICS_IN_WORKER)
 	local_photo_path: Optional[str] = Form(None),  # Read the photo from this worker-local path instead of a body (needs LOCAL_PHOTO_ROOTS)
 	local_pyramid_path: Optional[str] = Form(None),  # Externally rendered DZI (<prefix>.dzi) the worker MAY reuse (needs LOCAL_PHOTO_ROOTS; see external_pyramid_usable)
+	version: Optional[int] = Form(None, ge=1, le=2147483647),  # optional filename namespace; old clients omit it
 	upload_auth: dict = Depends(get_upload_authorization),
 	background_tasks: BackgroundTasks = None,
 	response: Response = None
@@ -1372,6 +1405,7 @@ async def upload_async(
 	local_src = _check_upload_source(file, local_photo_path)
 	local_pyr = _check_local_pyramid(local_pyramid_path)
 	photo_id, user_id = validate_upload_parameters(upload_auth, file)
+	upload_auth = {**upload_auth, "artifact_version": version}
 	with pending_background_tasks_mutex:
 		task_id = f"{task_id_counter}_{time.time()}"
 		task_id_counter += 1
@@ -1648,6 +1682,10 @@ async def process(file: Optional[UploadFile], client_signature: str, photo_id: s
 					"output_base": str(work_dir),
 					"keep_pics_in_worker": keep_pics_in_worker,
 					"local_pyramid_path": local_pyramid_path,
+					# Decides whether an aux worker's non-JPEG parsers may see
+					# this file (image_formats.require_supported_source).
+					"local_source": local_photo_path is not None,
+					"artifact_version": claims.get("artifact_version"),
 				},
 				timeout=PROCESSING_TIMEOUT_SECONDS,
 			)

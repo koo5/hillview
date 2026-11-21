@@ -10,9 +10,11 @@ class IntervalLadderTest {
 
     @Test
     fun theLadderRunsFasterThanASecondThenTheSecondsThenVideo() {
-        // No cancel rung at the foot (user, 2026-09-18): the bottom band is
-        // the fastest interval, and the way out is the button's side.
-        assertEquals(LadderRung.Every(200), INTERVAL_LADDER.first())
+        // No cancel rung at the foot (user, 2026-09-18): the way out is the
+        // button's side. Since 2026-11-09 the foot is the SfM run, then the
+        // fastest interval.
+        //assertEquals(LadderRung.Every(200), INTERVAL_LADDER.first())
+        assertEquals(LadderRung.Every(200), INTERVAL_LADDER[1])
         assertSame(LadderRung.Video, INTERVAL_LADDER.last())
 
         // Above 3 s the rungs thin out (user, 2026-10-10: "video 30 20 10 8
@@ -26,6 +28,42 @@ class IntervalLadderTest {
         // The whole point of the sub-second rungs: the run loop can be asked
         // for a beat faster than the second the old ladder bottomed out at.
         assertTrue(intervals.first().ms < 1_000)
+    }
+
+    /**
+     * The SfM run is the bottom rung, always (user, 2026-11-09: "theres no need
+     * to toggle the appearance of an extra capture interval ladder item. And
+     * we can make it the lowest item in the ladder"), and is a RUN: the
+     * shutter starts it, colours it and names it the way it does an interval.
+     */
+    @Test
+    //fun theOverlapRunSitsJustUnderVideoAndIsARun() {
+    fun theOverlapRunIsTheBottomRungAndIsARun() {
+        //val ladder = intervalLadder(overlap = true)
+        //assertSame(LadderRung.Overlap, ladder[ladder.size - 2])
+        val ladder = INTERVAL_LADDER
+        assertSame(LadderRung.Overlap, ladder.first())
+        assertSame(LadderRung.Video, ladder.last())
+        val runs: List<LadderRung> = ladder.filter { it is LadderRung.Run }
+        assertTrue(LadderRung.Overlap in runs)
+        assertFalse(LadderRung.Video in runs)
+        assertEquals(
+            ladderBandColor(LadderRung.Every(1_000), selected = true, armed = true),
+            ladderBandColor(LadderRung.Overlap, selected = true, armed = true),
+        )
+    }
+
+    ///** Opt-in (user, 2026-11-05: "lets make it all opt-in and configurable"). */
+    //@Test
+    //fun withoutOptingInTheLadderIsAsItWas() {
+    //    assertFalse(LadderRung.Overlap in INTERVAL_LADDER)
+    //    assertEquals(INTERVAL_LADDER, intervalLadder(overlap = true).filter { it != LadderRung.Overlap })
+    //}
+
+    /** The pick starts on the fastest interval, as it did before the SfM rung went under it. */
+    @Test
+    fun theDefaultPickIsTheFastestInterval() {
+        assertEquals(LadderRung.Every(200), INTERVAL_LADDER[DEFAULT_LADDER_INDEX])
     }
 
     @Test
@@ -80,14 +118,17 @@ class IntervalLadderTest {
      * Portrait: the pane ends at y = 1000 with the map beneath it and the
      * button's left edge at x = 400. A thumb that slides down-left past the
      * pane's foot meant the bottom rung, and is given it — leaving the pane
-     * used to be the cancel (user, 2026-10-10).
+     * used to be the cancel (user, 2026-10-10). The bottom rung was the
+     * fastest interval until 2026-11-09; it is the SfM run now.
      */
     @Test
-    fun theBottomLeftOffThePaneIsTheFastestRunNotACancel() {
+    //fun theBottomLeftOffThePaneIsTheFastestRunNotACancel() {
+    fun theBottomLeftOffThePaneIsTheBottomRunNotACancel() {
         val belowThePane = 1_180f
         assertTrue(overLadderAt(x = 120f, buttonLeft = 400f))
         assertEquals(0, rungIndexAt(belowThePane, 200f, 1000f))
-        assertEquals(LadderRung.Every(200), INTERVAL_LADDER[0])
+        //assertEquals(LadderRung.Every(200), INTERVAL_LADDER[0])
+        assertSame(LadderRung.Overlap, INTERVAL_LADDER[0])
     }
 
     /** The button's side, the button included, is the way out — at any height. */

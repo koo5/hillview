@@ -97,6 +97,9 @@ fun MainScreen(
     onOpenUploadStatus: () -> Unit = {},
     onOpenEventLog: () -> Unit = {},
     onOpenLockSettings: () -> Unit = {},
+    onOpenSfmSettings: () -> Unit = {},
+    /** The auto-upload prompt's "Configure": straight to Settings → Uploads. */
+    onOpenUploadSettings: () -> Unit = onOpenSettings,
     /** The shutter's thumbnail opens the photo it just took. */
     onOpenPhoto: (String) -> Unit = {},
     settingsRepo: MapSettingsRepository = koinInject(),
@@ -222,6 +225,7 @@ fun MainScreen(
         // `activity` is passed as a parameter, not captured: a remembered
         // lambda would otherwise keep the value it was created with.
         val currentOnOpenSettings by rememberUpdatedState(onOpenSettings)
+        val currentOnOpenUploadSettings by rememberUpdatedState(onOpenUploadSettings)
         val currentOnOpenPanoramaxInfo by rememberUpdatedState(onOpenPanoramaxInfo)
         // Same reason as the line above: the panels are movableContentOf and
         // travel between the portrait Column and the landscape Row, so a
@@ -237,7 +241,9 @@ fun MainScreen(
             movableContentOf { activity: String ->
                 when (activity) {
                     "capture" -> CaptureScreen(
-                        onOpenSettings = { currentOnOpenSettings() },
+                        // Its only settings link is the auto-upload prompt.
+                        // onOpenSettings = { currentOnOpenSettings() },
+                        onOpenSettings = { currentOnOpenUploadSettings() },
                         onOpenPanoramaxInfo = { currentOnOpenPanoramaxInfo() },
                         onOpenPhoto = { photoId -> currentOnOpenPhoto(photoId) },
                     )
@@ -481,6 +487,13 @@ fun MainScreen(
                         menuOpen = false
                         onOpenLockSettings()
                     }
+                    // SfM run moved to Settings → SfM run, as a sub-page
+                    // (user, 2026-11-07): a preference set once, not a page
+                    // visited mid-shoot.
+                    // MenuLink("SfM run", "menu-sfm-settings") {
+                    //     menuOpen = false
+                    //     onOpenSfmSettings()
+                    // }
                     // (External camera moved OUT of the menu to a floating
                     // 🎞 button beside 📷 — it is an activity you toggle,
                     // not a page you visit.)

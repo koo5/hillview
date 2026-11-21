@@ -13,13 +13,15 @@ import {parsePhotoUidParts} from "$lib/urlUtilsServer";
 import {photoInFront, photoToLeft, photoToRight, photoUp, photoDown} from './mapState';
 import {updateBearingWithPhoto} from './bearingTracking';
 import {getSettings, updateSettings} from "$lib/settings";
+import {worldModeAvailable} from "$lib/world";
+import {terrainModeAvailable} from "$lib/terrainAvailability";
 
 const doLog = false;
 
 
 // Draggable split store for gallery/map split percentage (0-100, percentage for photo panel)
 export let splitPercent = localStorageReadOnceSharedStore('splitPercent', 50);
-export type AppActivity = 'capture' | 'view' | 'lines' | 'terrain';
+export type AppActivity = 'capture' | 'view' | 'lines' | 'terrain' | '3d' | 'search';
 
 export interface Line {
 	label: string;
@@ -53,7 +55,7 @@ export interface Source {
 	backend_url?: string;
 }
 
-const baseSources: Source[] = [
+const baseSources: Source[] = ([
 	{
 		id: 'hillview',
 		name: 'Hillview',
@@ -83,7 +85,7 @@ const baseSources: Source[] = [
 // Mapillary is dev-only for now: outside dev mode the source does not exist at
 // all, so no toggle, hotkey or ?photo= auto-enable can reach it (the backend
 // stream also answers empty unless DEV_MODE).
-].filter(src => src.id !== 'mapillary' || import.meta.env.VITE_DEV_MODE === 'true');
+] satisfies Source[]).filter(src => src.id !== 'mapillary' || import.meta.env.VITE_DEV_MODE === 'true');
 
 const deviceSources: Source[] = TAURI ? [
 	{
@@ -147,7 +149,7 @@ export let showCalibrationView = writable(false);
 //                   as 'arr' with sharing off (all rights reserved PLUS the OSM mapping grant),
 //                   or as 'panoramax' with sharing on
 //   'ccbysa4+osm' — CC BY-SA 4.0 + OSM mapping grant, granted by the contributor at upload time
-//   'panoramax_in' — Panoramax contribution grant; published as 'panoramax'
+//   'panoramax_in' — CC BY-SA 4.0 + LO derivatives; published as 'panoramax'
 // These stores hold the identifier string the user has consented to for a given upload path.
 // null means "no license selected" — upload is blocked for that path.
 export let autoUploadLicense = localStorageSharedStore<string | null>('autoUploadLicense', null);
@@ -184,6 +186,11 @@ export let appSettings = localStorageReadOnceSharedStore('appSettings', {
 	activity: 'view' as AppActivity,
 },500);
 
+// Upgrade the activity saved by older builds before syncing it to the app.
+if ((get(appSettings).activity as string) === 'world') {
+	appSettings.update(settings => ({...settings, activity: '3d'}));
+}
+
 // Main app store with both persisted and session-specific fields
 export let app = writable<{
 	error: string | null;
@@ -199,6 +206,30 @@ export let app = writable<{
 	activity: 'view',
 });
 
+// A saved activity this build cannot show (its service is not configured: no button to leave it, an
+// empty pane where the gallery was) opens as the photo view instead.
+function availableActivity(activity: AppActivity): AppActivity {
+	if (import.meta.env.VITE_PICS_OFF) return 'view';
+	if (activity === '3d' && !worldModeAvailable) return 'view';
+	if (activity === 'terrain' && !terrainModeAvailable) return 'view';
+	return activity;
+}
+
+/** URL parameters use the same activity identifiers as the app state. */
+export function parseActivityParam(value: string | null): AppActivity | null {
+	switch (value) {
+		case 'view':
+		case '3d':
+		case 'terrain':
+		case 'lines':
+		case 'capture':
+		case 'search':
+			return availableActivity(value);
+		default:
+			return null;
+	}
+}
+
 // Sync persisted settings with main app store
 appSettings.subscribe(settings => {
 	const currentApp = get(app);
@@ -210,7 +241,7 @@ appSettings.subscribe(settings => {
 			...a,
 			debug: settings.debug,
 			debug_enabled: settings.debug_enabled,
-			activity: !!import.meta.env.VITE_PICS_OFF ? 'view' : settings.activity
+			activity: availableActivity(settings.activity)
 		}));
 	}
 });

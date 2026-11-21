@@ -62,6 +62,8 @@ from common.models import Photo, User, PhotoRating, UserPublicKey, PhotoAnnotati
 from common.config import get_write_pool
 from common.utc import format_utc
 from common.detections import blurred_only, normalize_detections
+from common.user_comment import user_comment
+from common.capture_pose import capture_pose
 from auth import get_current_active_user, get_current_user_optional_with_query, get_current_user_optional_ssr
 from hidden_content_filters import apply_hidden_content_filters
 from hillview_routes import ALLOWED_LICENSES, legal_rights_to_license, outflow_license
@@ -87,7 +89,7 @@ router = APIRouter(prefix="/api/photos", tags=["photos"])
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "./uploads"))
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-from sqlalchemy import func, and_, or_
+from sqlalchemy import func, and_, or_, text
 
 async def get_ratings_for_photos(db: AsyncSession, photo_ids: list, user_id: str) -> dict:
 	"""Get ratings data for a list of photo IDs.
@@ -287,11 +289,14 @@ async def save_processed_photo(
 		photo.geometry = None
 	if processed_data.compass_angle is not None:
 		photo.compass_angle = processed_data.compass_angle
-	if processed_data.pitch is not None:
-		photo.pitch = processed_data.pitch
 	if processed_data.altitude is not None:
 		photo.altitude = processed_data.altitude
 	photo.exif_data = processed_data.exif_data
+	# Measured from the capture stamp, in GPano conventions (pitch positive up).
+	# processed_data.pitch, the positive-down tilt that rode along with the
+	# bearing, is not assigned: capture_pose reads its copy in exif_data's gps
+	# block only as a last resort, negated, for unstamped portrait photos.
+	photo.pitch, photo.roll = capture_pose(processed_data.exif_data, processed_data.width, processed_data.height)
 	photo.sizes = processed_data.sizes
 	photo.detected_objects = processed_data.detected_objects
 	# The gzipped raw IMU window, if the worker stored one. Assigned
@@ -458,7 +463,7 @@ async def upload_processed_file(
 		# photo's artifact. Bind the destination to the DB photo and owner before
 		# creating directories or opening the file.
 		if not is_photo_artifact_relative_path(
-			relative_path, str(photo.owner_id), str(photo.id)
+			relative_path, str(photo.owner_id), str(photo.id), photo.version
 		):
 			raise HTTPException(
 				status_code=status.HTTP_400_BAD_REQUEST,
@@ -886,6 +891,54 @@ async def list_license_history(
 		"current": outflow_license(photo.legal_rights, photo.panoramax_owner_share),
 		"entries": [serialize_entry(r) for r in rows],
 		"outflow_entries": [serialize_entry(r, outflow=True) for r in outflow_rows],
+	}
+
+
+@router.get("/{photo_id}/panoramax-status")
+async def get_panoramax_status(
+	photo_id: str,
+	current_user: User = Depends(get_current_active_user),
+	db: AsyncSession = Depends(get_db)
+):
+	"""Whether the Panoramax sequencer published this photo, and if not, why.
+
+	For the owner and moderators. Reads what the sequencer recorded on its
+	last pass (panoramax.photo_status, migration 040) rather than evaluating
+	the gates here, so the answer is the outcome that pass actually reached:
+
+	- ``member``: in ``sequence_id`` at ``rank``;
+	- ``suppressed``: eligible, but ``winner_uid`` represents its grid cell
+	  and bearing sector;
+	- ``ineligible``: ``failed_gates`` names the gates it failed (GATES in
+	  panoramax/app/eligibility.py, plus ``coordinates``);
+	- ``pending``: no pass has looked at it yet.
+
+	``decided_at`` is when the outcome was first recorded, ``last_pass_at``
+	when the last pass ran: a change since then shows on the next pass.
+	"""
+	photo = (await db.execute(select(Photo).where(Photo.id == photo_id))).scalars().first()
+	if not photo:
+		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
+	is_moderator = current_user.role in (UserRole.ADMIN, UserRole.MODERATOR)
+	if photo.owner_id != str(current_user.id) and not is_moderator:
+		raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+			detail="Only the owner and moderators can see a photo's Panoramax status")
+
+	row = (await db.execute(text("""
+		SELECT ps.outcome, ps.winner_id, ps.failed_gates, ps.decided_at, sp.sequence_id, sp.rank,
+		       (SELECT max(finished_at) FROM panoramax.sequencer_passes) AS last_pass_at
+		FROM (SELECT CAST(:photo_id AS VARCHAR) AS id) p
+		LEFT JOIN panoramax.photo_status ps ON ps.photo_id = p.id
+		LEFT JOIN panoramax.sequence_photos sp ON sp.photo_id = p.id
+	"""), {'photo_id': photo_id})).mappings().one()
+	return {
+		"outcome": row['outcome'] or 'pending',
+		"sequence_id": str(row['sequence_id']) if row['sequence_id'] else None,
+		"rank": row['rank'],
+		"winner_uid": f"hillview-{row['winner_id']}" if row['winner_id'] else None,
+		"failed_gates": list(row['failed_gates'] or []),
+		"decided_at": format_utc(row['decided_at']),
+		"last_pass_at": format_utc(row['last_pass_at']),
 	}
 
 
@@ -1702,27 +1755,8 @@ def _exif_stacks(data: dict) -> list:
 	return stacks
 
 
-def _user_comment(exif_data: Optional[dict]) -> dict:
-	"""The capture app's provenance JSON (UserComment), or ``{}``.
-
-	Written into ``exif_data['data']['UserComment']`` by two routes that agree on
-	the shape: the Android EXIF writer embeds it in the file, and for everything
-	that cannot write EXIF — browser uploads, the fast-write path — the worker
-	synthesizes the same object from the upload metadata. Anything else that ends
-	up in that tag is some other camera's free text, so a value that is not a JSON
-	object is treated as absent rather than parsed hopefully.
-	"""
-	if not isinstance(exif_data, dict):
-		return {}
-	data = exif_data.get('data')
-	uc = data.get('UserComment') if isinstance(data, dict) else None
-	if not isinstance(uc, str) or not uc.startswith('{'):
-		return {}
-	try:
-		parsed = json.loads(uc)
-	except (json.JSONDecodeError, ValueError):
-		return {}
-	return parsed if isinstance(parsed, dict) else {}
+# The capture app's provenance JSON; see common/user_comment.py.
+_user_comment = user_comment
 
 
 def _location_accuracy_m(exif_data: Optional[dict]) -> Optional[float]:
@@ -2294,6 +2328,9 @@ async def get_public_photo(
 			# subject — so it sits with the position rather than in `exif`,
 			# which is documented as camera settings.
 			"location_accuracy_m": _location_accuracy_m(photo.exif_data),
+			# Camera pose in GPano conventions, distinct from the raw attitude stamp.
+			"pitch": photo.pitch,
+			"roll": photo.roll,
 			# What the DEVICE measured, as opposed to the elected `bearing`
 			# above — heading, pitch, roll and the quality of each. Beside the
 			# position rather than inside `exif`, which is documented as camera

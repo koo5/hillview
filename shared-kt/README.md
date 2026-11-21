@@ -64,11 +64,15 @@ above suggests. Measured 2026-09-27:
 **So a "redundant" warning here may be load-bearing there.** `Response.body` is
 `@Nullable` in okhttp 4.11.0 and `@NotNull` in 5.3.2 — verified twice, by javap on
 both jars and by compiling frontend2 against the forced-down version. frontend2
-therefore reports a dozen "Unnecessary safe call on a non-null receiver of type
-'ResponseBody'" in `PhotoUploadLogic`, `AuthenticationManager`,
-`PanoramaxPhotoLoader` and `StreamPhotoLoader` that are the ONLY form compiling in
-both apps. They stay. Do not "clean them up"; `?.` on a non-null receiver is
+therefore treats the `ResponseBody` checks in `PhotoUploadLogic`,
+`AuthenticationManager`, `PanoramaxPhotoLoader` and `StreamPhotoLoader` as
+unnecessary, although they are required by Tauri. They stay. Do not "clean them up";
+`?.` on a non-null receiver is
 merely redundant, while `.` on a nullable one does not compile.
+
+Each intentional `ResponseBody` check has a local `@Suppress` for that statement's
+`UNNECESSARY_SAFE_CALL` or `UNNECESSARY_NOT_NULL_ASSERTION` diagnostic. These keep
+the compatibility checks without suppressing warnings across a function or file.
 
 The asymmetry is what makes this a trap: only frontend2's build log gets read, so
 a warning that is wrong for the Tauri app is invisible, and a fix that breaks the

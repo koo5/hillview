@@ -232,30 +232,70 @@ private class AndroidPhotoCapture(
 
     // The shutter's voice: the stock click for a healthy capture, a double
     // beep when the position is degraded — audible from a pocket.
+    // Since 2026-11-07 only the click is still used, and only where the law
+    // requires a shutter sound; everything else goes through
+    // CaptureSoundPlayer (see playCaptureTone).
     private val shutterSound by lazy {
         android.media.MediaActionSound().apply {
             load(android.media.MediaActionSound.SHUTTER_CLICK)
         }
     }
-    private val warnTone by lazy {
-        android.media.ToneGenerator(android.media.AudioManager.STREAM_NOTIFICATION, 90)
-    }
+    // Retired 2026-11-07: the warning is CaptureCue.Warning on the chosen stream.
+    // private val warnTone by lazy {
+    //     android.media.ToneGenerator(android.media.AudioManager.STREAM_NOTIFICATION, 90)
+    // }
 
+    // Read once: the platform's answer doesn't change while the app runs.
+    private val shutterSoundRequiredByLaw by lazy { CaptureSoundPlayer.shutterSoundRequiredByLaw() }
+
+    /**
+     * The capture's sound, on the stream the user chose (Settings → Capture
+     * sound). It used to be the two platform players above, each bound to a
+     * stream of its own choosing — the click to the "enforced" stream (ring
+     * volume on one phone, no slider at all on another), the warning to the
+     * notification stream — so what silenced them varied by device
+     * (user-reported, 2026-11-07).
+     *
+     * Where the law requires a shutter sound, the system click still plays
+     * on every photo whatever the settings say, and the warning, if due,
+     * plays as well.
+     */
     private fun playCaptureTone(snapshot: SensorSnapshot) {
         val tone = captureTone(snapshot.locationSource, snapshot.locationAgeMs)
-        Log.d(TAG, "capture tone: $tone (source=${snapshot.locationSource} age=${snapshot.locationAgeMs})")
-        try {
-            when (tone) {
-                CaptureTone.Normal ->
-                    shutterSound.play(android.media.MediaActionSound.SHUTTER_CLICK)
-                CaptureTone.Degraded -> {
-                    warnTone.startTone(android.media.ToneGenerator.TONE_PROP_BEEP2, 250)
-                }
+        val s = uploadSettings.settings.value
+        val cue = captureCue(tone, s.shutterSound, s.warnDegradedPosition)
+        Log.d(TAG, "capture tone: $tone cue=$cue channel=${s.captureSoundChannel.key} " +
+            "volume=${s.captureSoundVolume} (source=${snapshot.locationSource} age=${snapshot.locationAgeMs})")
+        if (shutterSoundRequiredByLaw) {
+            try {
+                shutterSound.play(android.media.MediaActionSound.SHUTTER_CLICK)
+            } catch (e: Exception) {
+                Log.w(TAG, "required shutter sound failed", e)
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "capture tone failed", e)
+            if (cue == CaptureCue.Warning) {
+                CaptureSoundPlayer.shared.play(cue, s.captureSoundChannel, s.captureSoundVolume)
+            }
+            return
         }
+        cue?.let { CaptureSoundPlayer.shared.play(it, s.captureSoundChannel, s.captureSoundVolume) }
     }
+
+    // The previous body, on the platform players:
+    // private fun playCaptureTone(snapshot: SensorSnapshot) {
+    //     val tone = captureTone(snapshot.locationSource, snapshot.locationAgeMs)
+    //     Log.d(TAG, "capture tone: $tone (source=${snapshot.locationSource} age=${snapshot.locationAgeMs})")
+    //     try {
+    //         when (tone) {
+    //             CaptureTone.Normal ->
+    //                 shutterSound.play(android.media.MediaActionSound.SHUTTER_CLICK)
+    //             CaptureTone.Degraded -> {
+    //                 warnTone.startTone(android.media.ToneGenerator.TONE_PROP_BEEP2, 250)
+    //             }
+    //         }
+    //     } catch (e: Exception) {
+    //         Log.w(TAG, "capture tone failed", e)
+    //     }
+    // }
 
     private var camera: Camera? = null
     private var isoRange: android.util.Range<Int>? = null
@@ -530,22 +570,21 @@ private class AndroidPhotoCapture(
             // the same mirroring stampBearing does, and for the same reason: the UI must
             // not reach for a sensor of its own. Pushed by the screen from the one state,
             // so this runs on the main dispatcher like the bearing's.
-            value?.let {
-                state = state.copy(
-                    pitchDeg = it.pitch.toFloat(),
-                    imageRollDeg = it.roll.toFloat(),
-                    branchCorrected = it.branchCorrected,
-                    fieldMagnitudeUt = it.fieldMagnitudeUt?.toFloat(),
-                    fieldDipDeg = it.fieldDipDeg?.toFloat(),
-                    matrixRollDeg = it.matrixRollDeg?.toFloat(),
-                    fieldLooksClean = it.fieldMagnitudeUt?.let { b ->
-                        cz.hillview.plugin.fieldLooksUndisturbed(
-                            b.toFloat(),
-                            it.fieldDipDeg?.toFloat(),
-                        )
-                    },
-                )
-            }
+            state = state.copy(
+                pitchDeg = value?.pitch?.toFloat(),
+                imageRollDeg = value?.roll?.toFloat(),
+                attitudeAtMs = value?.ts,
+                branchCorrected = value?.branchCorrected,
+                fieldMagnitudeUt = value?.fieldMagnitudeUt?.toFloat(),
+                fieldDipDeg = value?.fieldDipDeg?.toFloat(),
+                matrixRollDeg = value?.matrixRollDeg?.toFloat(),
+                fieldLooksClean = value?.fieldMagnitudeUt?.let { b ->
+                    cz.hillview.plugin.fieldLooksUndisturbed(
+                        b.toFloat(),
+                        value.fieldDipDeg?.toFloat(),
+                    )
+                },
+            )
         }
 
     @Volatile override var stampMotion: cz.hillview.map.DeviceMotionSample? = null
@@ -1703,6 +1742,12 @@ private class AndroidPhotoCapture(
     }
 
     init {
+        // Build the capture sounds now, off the main thread, so the first
+        // shot of a run doesn't wait ~300 ms for its track (CaptureSoundPlayer).
+        CaptureSoundPlayer.shared.prewarm(uploadSettings.settings.value.captureSoundChannel)
+    }
+
+    init {
         CaptureStatsLog.platformLines = {
             buildList {
                 // The knobs the timings above were taken under.
@@ -2106,6 +2151,21 @@ private class AndroidPhotoCapture(
                     // capture's finalize coroutine reaches CapturedPhoto below.
                     val pressToExpMs = if (exposedAt != 0L) exposedAt - captureStartMs else null
                     val expToJpegMs = if (exposedAt != 0L) shotAt - exposedAt else null
+                    // Timing is known now. Use this one snapshot for both the file's
+                    // EXIF and the row: adding it only when publishing lastPhoto left
+                    // the JPEG unversioned, so landscape attitude without gravity
+                    // was discarded by the backend even though the row had a version.
+                    val savedSnapshot = snapshot.copy(
+                        captureTiming = CaptureTiming(
+                            capturedAtSource = "press",
+                            pressToExposureMs = pressToExpMs,
+                            exposureToJpegMs = expToJpegMs,
+                            // The capture mode, not the storage target (`mode`).
+                            stillMode = stillMode.key,
+                            build = cz.hillview.BuildInfo.label(),
+                            metadataVersion = METADATA_VERSION,
+                        ),
+                    )
                     if (lastShotAtMs != 0L) {
                         CaptureStatsLog.record("cadence", shotAt - lastShotAtMs, wall)
                     }
@@ -2144,9 +2204,9 @@ private class AndroidPhotoCapture(
                             // a real sensor.
                             if (writeExif) {
                                 if (file != null) {
-                                    PhotoExifWriter.write(file, snapshot)
+                                    PhotoExifWriter.write(file, savedSnapshot)
                                 } else {
-                                    PhotoExifWriter.write(context, uri!!, snapshot)
+                                    PhotoExifWriter.write(context, uri!!, savedSnapshot)
                                 }
                             }
                             // After any EXIF rewrite, so the indexed entry
@@ -2163,25 +2223,7 @@ private class AndroidPhotoCapture(
                                 state = state.copy(
                                     lastPhoto = CapturedPhoto(
                                         locator, filename,
-                                        // The timing joins the snapshot only here: the
-                                        // press-time copy could not have known it, and
-                                        // this is the object the row is built from.
-                                        snapshot.copy(
-                                            captureTiming = CaptureTiming(
-                                                capturedAtSource = "press",
-                                                pressToExposureMs = pressToExpMs,
-                                                exposureToJpegMs = expToJpegMs,
-                                                // The CAPTURE mode, not the
-                                                // storage target: `mode` here is
-                                                // the StorageMode, and passing it
-                                                // sent "public_folder" to the
-                                                // server as a still mode until the
-                                                // uploaded data said so.
-                                                stillMode = stillMode.key,
-                                                build = cz.hillview.BuildInfo.label(),
-                                    metadataVersion = METADATA_VERSION,
-                                            ),
-                                        ),
+                                        savedSnapshot,
                                     ),
                                 )
                             }
@@ -2408,7 +2450,7 @@ private class AndroidPhotoCapture(
         lifecycleOwner.lifecycle.removeObserver(orientationLifecycle)
         try {
             shutterSound.release()
-            warnTone.release()
+            // warnTone.release()
         } catch (e: Exception) {
             // lazy instances may never have been created
         }

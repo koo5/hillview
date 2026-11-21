@@ -10,8 +10,37 @@ import {
 	formatFrames,
 	formatFocalLength,
 	formatCamera,
-	focalLengthTitle
+	focalLengthTitle,
+	formatPoseAngle,
+	fetchPublicInfo
 } from './photoExif';
+import { http } from '$lib/http';
+
+describe('photo pose', () => {
+	it('shows signed angles and keeps a measured zero distinct from an absent value', () => {
+		expect(formatPoseAngle(6.54)).toBe('+6.5°');
+		expect(formatPoseAngle(-4.24)).toBe('-4.2°');
+		expect(formatPoseAngle(0)).toBe('0.0°');
+		expect(formatPoseAngle(-0.001)).toBe('0.0°');
+		for (const value of [null, undefined, NaN, Infinity]) expect(formatPoseAngle(value)).toBeNull();
+	});
+
+	it('keeps the public record pose, including zero, without requiring camera EXIF', async () => {
+		vi.mocked(http.get).mockResolvedValueOnce({
+			ok: true, json: async () => ({ pitch: 0, roll: -4.2, exif: null })
+		} as Response);
+		await expect(fetchPublicInfo('hillview-pose-present')).resolves.toMatchObject({
+			pitch: 0, roll: -4.2, exif: null
+		});
+	});
+
+	it('does not turn missing or invalid pose fields into zero', async () => {
+		vi.mocked(http.get).mockResolvedValueOnce({
+			ok: true, json: async () => ({ pitch: null, roll: '0', exif: null })
+		} as Response);
+		await expect(fetchPublicInfo('hillview-pose-missing')).resolves.toMatchObject({ pitch: null, roll: null });
+	});
+});
 
 describe('formatShutter', () => {
 	it('renders the conventional fraction below a quarter second', () => {

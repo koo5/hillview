@@ -13,6 +13,9 @@
 	import CaptureQueueStatus from './CaptureQueueStatus.svelte';
 	import CaptureQueueIndicator from './CaptureQueueIndicator.svelte';
 	import CameraOverlay from './CameraOverlay.svelte';
+	import CaptureLevelIndicator from './CaptureLevelIndicator.svelte';
+	import {capturePose, startCapturePose, stopCapturePose, stampInertial} from '$lib/capturePose';
+	import {exifOrientationFromGravity} from '$lib/capturePoseMath';
 	import AutoUploadPrompt from './AutoUploadPrompt.svelte';
 	import VerticalSlider from './VerticalSlider.svelte';
 	import {captureQueue} from '$lib/captureQueue';
@@ -120,7 +123,8 @@
 	let switchingCamera = false; // Flag to prevent automatic startup during manual camera switching
 	let isStarting = false; // Reentrancy guard: prevents concurrent getUserMedia() from reactive triggers / retries / permission polling
 	let isBlinking = false; // Flag for camera blink effect
-	let absoluteOrientationSensor: AbsoluteOrientationSensor | null = null;
+	//let absoluteOrientationSensor: AbsoluteOrientationSensor | null = null;
+	let mounted = false;
 	let showCalibrationHint: boolean = false;
 
 	let blinkTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -843,6 +847,9 @@
 	}
 
 	async function handleCapture(event: CustomEvent<{ mode: 'slow' | 'fast' }>) {
+		// First, before anything awaits: the stamp's window ends at the press.
+		const inertial = stampInertial(activeFacing());
+		const orientationCode = get(relativeOrientationExif);
 		if ((!video && !$fakeCamera) || !cameraReady || !locationData ||
 			locationData.latitude === undefined || locationData.longitude === undefined) {
 			console.warn('🢄📍 Cannot capture: camera not ready or no location');
@@ -975,10 +982,11 @@
 				image_data: imageData,
 				location: {...validLocation, alt_location: altLocation},
 				captured_at: timestamp,
+				inertial,
 				...uploadConsent,
 				mode,
 				placeholder_id: sharedId, // Use sharedId as placeholder ID too
-				orientation_code: get(relativeOrientationExif) // Current device orientation
+				orientation_code: orientationCode // The orientation shown when the shutter was pressed.
 			});
 
 			// Trigger auto-upload prompt check
@@ -1183,6 +1191,25 @@
 		retryCount = 0;
 	}
 
+	// The device pose (capturePose.ts) is sensed only while the camera is shown.
+	// The Tauri app keeps its plugin's device-orientation events (onMount).
+	$: if (mounted && !TAURI) {
+		if (show) startCapturePose();
+		else stopCapturePose();
+	}
+	// Reuse the web's one sensor stream for the quarter-turn record too. Both
+	// the capture icon and the saved photo read this same orientation store.
+	$: if (mounted && show && !TAURI && $capturePose) {
+		const orientation = exifOrientationFromGravity($capturePose.gravity);
+		if (orientation !== null) updateDeviceOrientationExif(orientation);
+	}
+
+	// Which way the active camera faces: a camera facing the user stamps no gravity.
+	function activeFacing(): string | null {
+		return videoTrack?.getSettings?.().facingMode ?? null;
+	}
+	$: cameraFacing = videoTrack ? activeFacing() : null;
+
 	// Subscribe to bearingState and spatialState to update locationData
 	$: if ($bearingState && $spatialState) {
 		locationData = {
@@ -1316,7 +1343,14 @@
 			} catch (error) {
 				console.warn("🢄[CAMERA] device-orientation error:", error);
 			}
-		} else if ('AbsoluteOrientationSensor' in window) {
+		} else {
+			// The web's device pose: gravity for the shutter stamp and the level
+			// indicator (capturePose.ts), started by the reactive block above now
+			// that the component is mounted. It replaces this sensor, whose
+			// readings were only ever logged.
+			mounted = true;
+		}
+		/*} else if ('AbsoluteOrientationSensor' in window) {
 			try {
 				console.log('🢄[CAMERA] Initializing AbsoluteOrientationSensor for device orientation...');
 				absoluteOrientationSensor = new window.AbsoluteOrientationSensor({
@@ -1337,7 +1371,7 @@
 			}
 		} else {
 			console.log('🢄[CAMERA] AbsoluteOrientationSensor not available in this browser');
-		}
+		}*/
 
 
 		// Listen for native camera permission granted event
@@ -1387,9 +1421,11 @@
 			invoke('plugin:hillview|cmd', {command: 'stop_device_orientation_sensor'})
 				.catch(err => console.warn('🢄[CAMERA] Failed to stop device orientation sensor:', err));
 		}
-		if (absoluteOrientationSensor) {
+		/*if (absoluteOrientationSensor) {
 			absoluteOrientationSensor.stop();
-		}
+		}*/
+		mounted = false;
+		stopCapturePose();
 		stopStream();
 		stopMockCamera();
 		if (permissionCheckInterval) {
@@ -1542,6 +1578,11 @@
 					</div>
 				{/if}
 
+				<!-- Level indicator: will this shot pass the Panoramax pitch/roll gates -->
+				{#if !cameraError}
+					<CaptureLevelIndicator facing={cameraFacing}/>
+				{/if}
+
 				<!-- Location overlay -->
 				{#if !cameraError}
 					<CameraOverlay
@@ -1674,7 +1715,6 @@
 								if (grant) autoUploadLicense.set(grant);
 								capturePanoramaxShare.set(sharing);
 							}} />
-						<a href="/settings/panoramax" class="panoramax-help" aria-label="About Panoramax sharing" data-testid="capture-panoramax-help">?</a>
 					</div>
 				{/if}
 				<button
@@ -1946,7 +1986,6 @@
 		transform: translateX(-50%);
 	}
 	.capture-sharing-controls { display: flex; align-items: center; gap: 4px; }
-	.panoramax-help { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 50%; border: 1px solid #ffffff70; background: #000b; color: white; font-size: 1.1rem; text-decoration: none; cursor: pointer; }
 
 	.camera-selector-button {
 		background: rgba(255, 255, 255, 0.2);

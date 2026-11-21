@@ -60,6 +60,16 @@ inside `process_uploaded_photo` (written `:1750`, read back `:1891`), and 12 995
 rows show zero cases where it carries anything the `photos.pitch` column lacks. The
 full audit is in `recon-capture-metadata.md`, "Removing `gps.pitch`".
 
+**UPDATE 2026-11-16: something reads it now.** `common/capture_pose.py` uses it as the last
+source for `photos.pitch`, negated, on unstamped portrait photos. That is 21,606
+frontend2 photos from 2026-08-27 to 2026-09-24, and it is their only pitch (see
+`docs/todo/photo-pose-and-level-gates.md`). The one-time backfill copies it into the
+column, so dropping it afterwards loses nothing stored. The exception is a reprocess of
+one of those photos: `capture_pose` runs on every processed write and would then find
+nothing. So either carry it for old rows and have `capture_pose` read it there, or accept
+that a reprocess clears their pitch. Dropping it for new uploads is fine: every current
+capture stamps `attitude` and `inertial`.
+
 `gps.bearing` is NOT in the same position and must survive: fallback check at
 `:1838`, feeds `compass_angle` at `:1890`, and `GPSImgDirection` is a real EXIF
 source for it.

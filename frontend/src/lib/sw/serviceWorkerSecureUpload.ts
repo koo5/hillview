@@ -7,6 +7,7 @@ import { authStorage } from '$lib/browser/authStorage';
 import { readSettings } from '$lib/browser/settingsIndexedDb';
 import { photoUploadConsent } from '$lib/licenses';
 import {
+	buildUploadMetadata,
 	calculateFileHash,
 	generateClientSignature,
 	requestUploadAuthorization,
@@ -36,7 +37,8 @@ export const swAuthFetch: AuthFetch = async (url: string, init: RequestInit): Pr
 };
 
 export class ServiceWorkerSecureUploader {
-	async uploadPhoto(photo: StoredPhoto): Promise<{ success: boolean; photoId?: string; error?: string; busy?: boolean }> {
+	async uploadPhoto(photo: StoredPhoto): Promise<{ success: boolean; photoId?: string; error?: string; busy?: boolean;
+		consent?: { license: string; panoramax_share: boolean } }> {
 		console.log(`${LOG_PREFIX} Starting secure upload for photo ${photo.id}`);
 
 		try {
@@ -80,18 +82,9 @@ export class ServiceWorkerSecureUploader {
 				authResponse.upload_authorized_at
 			);
 
-			// Step 4: Upload to worker with metadata
-			const metadata = {
-				latitude: photo.metadata.location.latitude,
-				longitude: photo.metadata.location.longitude,
-				altitude: photo.metadata.location.altitude,
-				bearing: photo.metadata.location.bearing,
-				captured_at: photo.metadata.captured_at,
-				orientation_code: photo.metadata.orientation_code,
-				location_source: photo.metadata.location.location_source,
-				bearing_source: photo.metadata.location.bearing_source,
-				accuracy: photo.metadata.location.accuracy
-			};
+			// Step 4: Upload to worker with metadata, from the same builder as the
+			// foreground uploader (this one's own list used to drop alt_location)
+			const metadata = buildUploadMetadata(photo);
 
 			const result = await uploadToWorker(
 				file,
@@ -104,7 +97,7 @@ export class ServiceWorkerSecureUploader {
 
 			if (result.success) {
 				console.log(`${LOG_PREFIX} Photo ${photo.id} uploaded successfully as ${authResponse.photo_id}`);
-				return { success: true, photoId: authResponse.photo_id };
+				return { success: true, photoId: authResponse.photo_id, consent };
 			} else {
 				return { success: false, error: result.error || result.message };
 			}
