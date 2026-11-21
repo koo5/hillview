@@ -90,8 +90,11 @@ test.describe('Source Buttons Toggle', () => {
     // Wait longer for Mapillary photos to potentially load
     await page.waitForTimeout(10000);
 
-    // Look for the main photo element with data attribute
-    const mainPhoto = page.locator('[data-testid="main-photo"]');
+    // Look for the main photo element with data attribute. Scope to the front
+    // one: with real Mapillary data at Times Square the gallery also renders
+    // left/right neighbours, and the bare testid is a strict-mode violation
+    // on 3 elements (chromium, 2026-11-20).
+    const mainPhoto = page.locator('[data-testid="main-photo"].front');
 
     // Check if a photo is displayed and has Mapillary data
     if (await mainPhoto.isVisible()) {

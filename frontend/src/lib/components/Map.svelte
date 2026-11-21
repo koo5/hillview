@@ -2021,8 +2021,11 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 </script>
 
 
-<!-- The map container -->
-<div bind:clientHeight={height} bind:clientWidth={width} class="map" data-testid="map-container">
+<!-- The map container. `data-map-ready` mirrors mapReady: afterInit has applied
+     the URL's lat/lon/zoom. Before that, a test's setView is overwritten by
+     the URL position (a reload keeps the params the URL sync wrote). Nothing
+     in the app reads it; tests wait on it (setMapLocation in helpers/mapSetup). -->
+<div bind:clientHeight={height} bind:clientWidth={width} class="map" data-testid="map-container" data-map-ready={$mapReady ? '' : undefined}>
 	<LeafletMap
 			bind:this={elMap}
 			events={
