@@ -163,3 +163,108 @@ with patch.object(pyvips, 'operation_block_set', side_effect=AssertionError('glo
     for enabled in ('0', '1'):
         env = {**os.environ, 'PYTHONPATH': str(WORKER), 'HILLVIEW_AUX': enabled}
         subprocess.run([sys.executable, '-c', script], env=env, check=True, timeout=20)
+
+
+# (aux, allow_bodies, name, header, local_source, accepted)
+SOURCE_CASES = [
+    # Aux worker, default: a body must be public JPEG; a local path may be anything supported.
+    ('1', None, 'photo.jpg', b'\xff\xd8\xff', False, True),
+    ('1', None, 'pano.exr', b'\x76\x2f\x31\x01', False, False),
+    ('1', None, 'renamed.jpg', b'\x76\x2f\x31\x01', False, False),
+    ('1', None, 'scan.tiff', b'II*\x00', False, False),
+    ('1', None, 'photo.png', b'\x89PNG\r\n\x1a\n', False, False),
+    # JPEG magic is not enough for a body: the suffix picks dcraw/identify readers.
+    ('1', None, 'input.cr2', b'\xff\xd8\xff', False, False),
+    ('1', None, 'input.exr', b'\xff\xd8\xff', False, False),
+    ('1', None, 'pano.exr', b'\x76\x2f\x31\x01', True, True),
+    ('1', None, 'scan.tiff', b'II*\x00', True, True),
+    ('1', None, 'input.cr2', b'II*\x00', True, True),
+    # The opt-out restores the old aux behaviour for bodies.
+    ('1', '1', 'pano.exr', b'\x76\x2f\x31\x01', False, True),
+    ('1', '0', 'pano.exr', b'\x76\x2f\x31\x01', False, False),
+    # A local path never bypasses the process-wide policy, nor does the opt-out.
+    ('0', None, 'pano.exr', b'\x76\x2f\x31\x01', True, False),
+    ('0', '1', 'pano.exr', b'\x76\x2f\x31\x01', False, False),
+    ('0', None, 'photo.jpg', b'\xff\xd8\xff', False, True),
+    # BMP stays refused everywhere.
+    ('1', '1', 'renamed.jpg', b'BM', True, False),
+]
+
+
+@pytest.mark.parametrize('aux,allow_bodies,name,header,local_source,accepted', SOURCE_CASES)
+def test_source_policy(tmp_path, aux, allow_bodies, name, header, local_source, accepted):
+    path = tmp_path / name
+    path.write_bytes(header)
+    script = '''
+import sys
+from image_formats import require_supported_source
+local_source = sys.argv[2] == 'local'
+try:
+    require_supported_source(sys.argv[1], local_source=local_source)
+except ValueError:
+    accepted = False
+else:
+    accepted = True
+assert accepted == (sys.argv[3] == 'accept'), f'accepted={accepted}'
+'''
+    env = {**os.environ, 'PYTHONPATH': str(WORKER), 'HILLVIEW_AUX': aux}
+    env.pop('ALLOW_AUX_FORMATS_IN_UPLOADS', None)
+    if allow_bodies is not None:
+        env['ALLOW_AUX_FORMATS_IN_UPLOADS'] = allow_bodies
+    subprocess.run([sys.executable, '-c', script, str(path),
+                    'local' if local_source else 'body', 'accept' if accepted else 'reject'],
+                   env=env, check=True, timeout=20)
+
+
+def test_aux_upload_body_rejected_before_any_parser(tmp_path):
+    # The job entry point, not just the policy function: an EXR body on an aux
+    # worker must fail before exiftool, dcraw or any decoder runs, and a caller
+    # that does not say where the file came from must get the closed default.
+    path = tmp_path / 'pano.exr'
+    path.write_bytes(b'\x76\x2f\x31\x01' + b'\x00' * 64)
+    script = '''
+import asyncio, sys
+from unittest.mock import patch
+import pyvips
+import photo_processor
+processor = photo_processor.PhotoProcessor()
+blocked = AssertionError('parser reached')
+with patch.object(photo_processor.subprocess, 'run', side_effect=blocked), \\
+     patch.object(photo_processor.subprocess, 'check_output', side_effect=blocked), \\
+     patch.object(pyvips.Image, 'new_from_file', side_effect=blocked), \\
+     patch.object(processor, 'extract_exif_data', side_effect=blocked):
+    for kwargs in ({}, {'local_source': False}):
+        try:
+            asyncio.run(processor.process_uploaded_photo(sys.argv[1], 'pano.exr',
+                user_id='11111111-1111-4111-8111-111111111111', photo_id='probe', **kwargs))
+        except ValueError as error:
+            assert 'local_photo_path' in str(error), str(error)
+        else:
+            raise AssertionError(f'EXR body accepted with {kwargs}')
+'''
+    env = {**os.environ, 'PYTHONPATH': f'{WORKER}:{WORKER.parent}:{WORKER.parent}/common',
+           'HILLVIEW_AUX': '1'}
+    env.pop('ALLOW_AUX_FORMATS_IN_UPLOADS', None)
+    subprocess.run([sys.executable, '-c', script, str(path)], env=env, check=True, timeout=30)
+
+
+def test_job_runner_forwards_local_source():
+    # app.process -> worker_processing -> process_uploaded_photo: the flag must
+    # survive the pool hop, or every local EXR would be refused as a body.
+    script = '''
+from unittest.mock import patch
+import photo_processor
+import worker_processing
+seen = []
+async def fake(**kwargs):
+    seen.append(kwargs.get('local_source'))
+    return {}
+with patch.object(photo_processor.photo_processor, 'process_uploaded_photo', side_effect=fake):
+    for flag in (True, False):
+        worker_processing._run_photo_processing('/x.exr', 'x.exr', 'u', 'p', None, local_source=flag)
+    worker_processing._run_photo_processing('/x.jpg', 'x.jpg', 'u', 'p', None)
+assert seen == [True, False, False], seen
+'''
+    env = {**os.environ, 'PYTHONPATH': f'{WORKER}:{WORKER.parent}:{WORKER.parent}/common',
+           'HILLVIEW_AUX': '1'}
+    subprocess.run([sys.executable, '-c', script], env=env, check=True, timeout=30)

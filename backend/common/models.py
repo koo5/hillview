@@ -4,7 +4,7 @@ from typing import Optional, List, Any
 import uuid
 import enum
 
-from sqlalchemy import String, Float, Integer, Boolean, DateTime, Text, JSON, Enum, ForeignKey, CheckConstraint, ARRAY, Index, text
+from sqlalchemy import String, Float, Integer, Boolean, DateTime, Text, JSON, Enum, ForeignKey, CheckConstraint, ARRAY, Index, Computed, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -68,6 +68,8 @@ class Photo(Base):
 	__table_args__ = (
 		Index('ix_photos_owner_effective_at_filename_id', 'owner_id', 'effective_at',
 			func.coalesce(text('original_filename'), ''), 'id'),
+		# Migration 043: the DEV "blurry" filter view; "not blurry" is most rows.
+		Index('ix_photos_blurry', 'id', postgresql_where=text('blurry')),
 	)
 
 	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
@@ -82,9 +84,19 @@ class Photo(Base):
 	# Elevation the shot was taken at, degrees: positive up. Bearing says
 	# which way the camera faced, this says how far it was tilted, and the
 	# viewer needs both to offer "the photo above this one" — see
-	# docs/tauri-viewer-ui-contract.md. Null on everything uploaded before
-	# clients began sending it, which is every photo so far.
+	# docs/tauri-viewer-ui-contract.md. Null when the capture stamp measured
+	# none. Derived with roll by common/capture_pose.py, in GPano conventions
+	# (migration 045); written on processing and by scripts/pose_backfill.py.
 	pitch: Mapped[Optional[float]] = mapped_column(Float)
+	# How far the horizon leans in the image, degrees from the nearest quarter
+	# turn, in (-45, 45]: GPano PoseRollDegrees, positive when the horizon is
+	# turned counterclockwise. Null when unmeasured, or within ~15° of flat.
+	roll: Mapped[Optional[float]] = mapped_column(Float)
+	# The capture stamp's bearing_source, read out of exif_data's UserComment by
+	# the database so SQL can test it: 'gps-kalman' is car mode, which the
+	# Panoramax level gates exempt. Migration 045.
+	bearing_source: Mapped[Optional[str]] = mapped_column(
+		Text, Computed('photo_bearing_source(exif_data)', persisted=True))
 
 	# Image dimensions
 	width: Mapped[Optional[int]] = mapped_column(Integer)
@@ -126,6 +138,12 @@ class Photo(Base):
 	error: Mapped[Optional[str]] = mapped_column(Text)  # Detailed error message if any operation fails
 	retry_after_minutes: Mapped[Optional[int]] = mapped_column(Integer)  # Retry hint for a failed processing: None = permanent (don't retry), >0 = retry after N minutes
 	exif_data: Mapped[Optional[dict]] = mapped_column(JSON)
+	# The capture fix's horizontal accuracy radius in metres, read out of
+	# exif_data's UserComment by the database so SQL can gate on it (Panoramax
+	# eligibility). NULL when unknown, which is every photo before 2026-09-13.
+	# Migration 039.
+	location_accuracy_m: Mapped[Optional[float]] = mapped_column(
+		Float, Computed('photo_location_accuracy_m(exif_data)', persisted=True))
 	detected_objects: Mapped[Optional[dict]] = mapped_column(JSON)
 	sizes: Mapped[Optional[dict]] = mapped_column(JSON)
 	# URL of the gzipped raw IMU window (accelerometer + gyroscope) captured
@@ -137,6 +155,13 @@ class Photo(Base):
 	# docs/recon-capture-metadata.md, Phase 5.
 	imu_samples_url: Mapped[Optional[str]] = mapped_column(Text)
 	analysis: Mapped[Optional[dict]] = mapped_column(JSONB)  # AI-generated photo analysis (indexed)
+	# Deterministic measurements of the stored pixels, one versioned key per
+	# metric family: {"sharpness": {"version": 1, ...}} (worker/sharpness.py).
+	# Kept apart from analysis, whose version stamp the LLM analyzer owns.
+	image_metrics: Mapped[Optional[dict]] = mapped_column(JSONB)
+	# Blur verdict derived from image_metrics by common/image_quality.py
+	# is_blurry; NULL = not judged. Partial index ix_photos_blurry (WHERE blurry).
+	blurry: Mapped[Optional[bool]] = mapped_column(Boolean)
 	# Terrain overlay graduated from the enrichment workbench: fitted horizon
 	# line + visible peak labels, baked to vectors (no depth buffer). Tens of
 	# KB — served only by GET /photos/{id}/terrain-overlay, never inlined.
@@ -187,6 +212,23 @@ class SiteState(Base):
 	updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
+class AnalyzerBatch(Base):
+	"""Durable Claude submission/collection state; payloads and answers live on disk."""
+	__tablename__ = "analyzer_batches"
+
+	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
+	provider_batch_id: Mapped[Optional[str]] = mapped_column(String, unique=True)
+	status: Mapped[str] = mapped_column(String, nullable=False, index=True)
+	model: Mapped[str] = mapped_column(String, nullable=False)
+	budget_period: Mapped[str] = mapped_column(String, nullable=False, index=True)
+	reserved_usd: Mapped[float] = mapped_column(Float, nullable=False, server_default="0")
+	actual_usd: Mapped[Optional[float]] = mapped_column(Float)
+	manifest: Mapped[dict] = mapped_column(JSONB, nullable=False)
+	error: Mapped[Optional[str]] = mapped_column(Text)
+	created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+	updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
 class PhotoAnalysisQueue(Base):
 	"""Work queue of the LLM photo analyzer (backend/analyzer).
 
@@ -207,6 +249,11 @@ class PhotoAnalysisQueue(Base):
 	and docs/db-session-cancellation.md says why no transaction may span a
 	network call.
 
+	A non-null ``batch_id`` reserves the photo for a durable Claude batch,
+	regardless of next_retry or analyzer version. The batch state machine, not
+	lease expiry, releases that ownership. ``request_id`` points to the exact
+	immutable request/response; ``claude_attempts`` bounds repeated paid attempts.
+
 	``last_attempted_version`` is the ANALYZER_VERSION of the last claim on the
 	photo (NULL = queued, never claimed); ``next_retry`` only means anything
 	under that version: a future time = a lease or a backoff, ``infinity`` =
@@ -219,6 +266,10 @@ class PhotoAnalysisQueue(Base):
 
 	photo_id: Mapped[str] = mapped_column(String, ForeignKey("photos.id", ondelete="CASCADE"), primary_key=True)
 	last_attempted_version: Mapped[Optional[int]] = mapped_column(Integer)
+	provider: Mapped[Optional[str]] = mapped_column(String)
+	batch_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("analyzer_batches.id"), index=True)
+	request_id: Mapped[Optional[str]] = mapped_column(String)
+	claude_attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 	next_retry: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("'epoch'"))
 
 

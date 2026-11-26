@@ -7,7 +7,7 @@
     export let shareStore: Writable<boolean> = writable(false);
     export let disabled = false;
     export let groupName = 'capture-upload-license';
-    export let context = 'Future camera photos. Existing photos keep their choices.';
+    export let context = 'Existing photos keep their choices.';
     export let note = 'This does not start an upload.';
     function apply(license: string) {
         licenseStore.set(license);

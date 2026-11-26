@@ -213,9 +213,9 @@ data class SensorSnapshot(
     /** Which sensor produced the heading — EXIF provenance (bearing_source). */
     val bearingSource: String? = null,
     /**
-     * Camera ELEVATION at the shutter, degrees, positive up — how far the
-     * phone was tilted, where [trueBearingDeg] says which way it faced. The
-     * viewer needs both to offer "the photo above this one".
+     * The elected bearing's elevation, positive up, when that source supplied
+     * one. It can predate the shutter when only tilt changed. Local navigation
+     * uses [measuredPitchDeg] from this snapshot's device pose instead.
      *
      * Nullable and never defaulted to 0: the viewer's up/down rule is
      * strictly-higher and strictly-lower, so "level" and "unknown" must stay
@@ -562,7 +562,7 @@ data class CaptureState(
     val bearingDeg: Float? = null,
     /**
      * The other two axes of the same reading, for the overlay — the optical axis's tilt
-     * (POSITIVE LOOKING DOWN) and the image's rotation about it.
+     * (positive UP) and the image's rotation about it.
      *
      * Mirrored out of the attitude the screen pushes in, exactly as [bearingDeg] is
      * mirrored out of the bearing: the capture never reads a sensor for these. Nothing
@@ -571,6 +571,8 @@ data class CaptureState(
      */
     val pitchDeg: Float? = null,
     val imageRollDeg: Float? = null,
+    /** Wall-clock time of the attitude sample; freshness is derived by the reader. */
+    val attitudeAtMs: Long? = null,
     /**
      * THE SAME ROLL, OUT OF GRAVITY — `atan2(g_x, g_y)`, the identity [imageRollDeg] is
      * meant to satisfy by construction.
@@ -1261,7 +1263,12 @@ fun attitudeProvenanceJson(s: SensorSnapshot): String? {
         a?.let {
             add("\"heading_true_deg\":${it.trueDeg}")
             add("\"heading_magnetic_deg\":${it.magneticDeg}")
-            add("\"pitch_deg\":${it.pitch}")
+            // Back to the sensor's convention. The one state holds pitch
+            // positive UP; the stamp is positive DOWN and stays that way,
+            // because `capture_pose` negates `pitch_deg` for every
+            // metadata_version from 1 up and has no v4 branch — a flipped
+            // stamp would be stored inverted. See sensorPitchFromState.
+            add("\"pitch_deg\":${cz.hillview.map.sensorPitchFromState(it.pitch)}")
             add("\"roll_deg\":${it.roll}")
             it.magnetometerCalibration?.let { add("\"magnetometer_calibration\":$it") }
             it.fusedSensorAccuracy?.let { add("\"fused_sensor_accuracy\":$it") }

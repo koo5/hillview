@@ -26,7 +26,8 @@ const serviceWorkerUploader: PhotoUploader = async (photo: StoredPhoto): Promise
         success: result.success,
         photo_id: result.photoId,
         error: result.error,
-        busy: result.busy
+        busy: result.busy,
+        consent: result.consent
     };
 };
 

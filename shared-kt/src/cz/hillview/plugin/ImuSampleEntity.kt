@@ -33,7 +33,8 @@ import androidx.room.Query
  *
  * NOTE ON RETENTION: like `bearings` and `locations`, these rows are cleared
  * five minutes back on every dump. That is safe for an APP photo, whose window
- * is copied onto its own row (`PhotoEntity.imuSamplesJson`) as soon as it
+ * is copied to its own row (`photo_imu_samples`, PhotoImuSamplesEntity — until v32
+ * the `PhotoEntity.imuSamplesJson` column) as soon as it
  * closes and then uploaded — this table is a staging buffer for it, not its
  * home.
  *

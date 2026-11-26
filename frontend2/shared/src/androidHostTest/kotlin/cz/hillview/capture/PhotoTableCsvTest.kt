@@ -70,7 +70,7 @@ class PhotoTableCsvTest {
     fun absentValuesAreEmptyCells() {
         val cells = lines(photoTableCsv(listOf(photo())))[1].split(",")
         val by = { name: String -> cells[PHOTO_DUMP_COLUMNS.indexOf(name)] }
-        assertEquals("", by("pitch"))
+        assertEquals("", by("pitch_up_deg"))
         assertEquals("", by("serverPhotoId"))
         assertEquals("", by("license"))
         assertEquals("", by("altLocationJson"))

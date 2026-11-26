@@ -469,6 +469,28 @@ class TestBrowserMetadataAcceptsProvenance:
         assert parsed["attitude"]["roll_deg"] == -1.5
         assert parsed["attitude"]["fused_sensor_accuracy"] == 2
 
+    def test_the_web_inertial_stamp_reaches_the_usercomment_whole(self):
+        # The web app's stamp: `inertial` alone, with keys frontend2 does not
+        # send (which source, how many samples, over what window, how far they
+        # spread). A canvas JPEG has no UserComment of its own, so this hop is
+        # the only one. The keys are nested in a declared dict, so nothing
+        # here names them: this asserts no layer flattens or filters them.
+        BrowserMetadata = self._browser_metadata()
+        from photo_processor import synthesize_provenance
+
+        inertial = {"gravity": [0.68147, 9.745536, 0.854699], "age_ms": 40,
+                    "gravity_source": "deviceorientation", "sample_count": 18,
+                    "window_ms": 300, "gravity_spread_deg": 0.8}
+        parsed = BrowserMetadata.model_validate_json(json.dumps({
+            "latitude": 50.1, "longitude": 14.4, "bearing": 141.0,
+            "location_source": "map", "bearing_source": "map", "accuracy": 1,
+            "inertial": inertial,
+        })).model_dump(exclude_none=True)
+        out = json.loads(synthesize_provenance(parsed))
+
+        assert out["inertial"] == inertial
+        assert "attitude" not in out and "capture_timing" not in out
+
     def test_every_provenance_key_can_get_through(self):
         # Guards the two halves against drifting apart: photo_processor
         # copies PROVENANCE_KEYS out of the parsed metadata, so a key it

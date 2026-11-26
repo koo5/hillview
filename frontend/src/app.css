@@ -1,3 +1,14 @@
+/* One face for the whole app. Without it, text falls back to the browser's
+   serif, and form controls to the browser's own sans: they never inherit a
+   page font unless told to. Components that want another face still set it. */
+body {
+	font-family: system-ui, sans-serif;
+}
+
+button, input, select, textarea {
+	font-family: inherit;
+}
+
 /* Shared button styles */
 .action-button {
 	display: flex;

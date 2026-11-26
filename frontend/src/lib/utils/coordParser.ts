@@ -108,6 +108,33 @@ export function isCoordsOnly(text: string): boolean {
 	return COORD_RE_FULL.test(text) || DMS_RE_FULL.test(text);
 }
 
+/**
+ * An explicit search may use integers or fewer decimal places than annotation
+ * prose. Reuse the annotation parser's conversions and DMS pattern, but require
+ * the WHOLE query to be coordinates and validate before moving the map.
+ */
+export function parseCoordinateQuery(text: string): CoordMatch | null {
+	const query = text.trim();
+	const decimal = query.match(/^([+-]?\d{1,2}(?:[.,]\d+)?)\s*([NnSs])?[,;\s]+([+-]?\d{1,3}(?:[.,]\d+)?)\s*([EeWw])?$/);
+	let coords: CoordMatch;
+	if (decimal) {
+		coords = toCoordMatch(decimal);
+	} else {
+		const dms = query.match(DMS_RE_FULL);
+		if (!dms) return null;
+		// Minutes and seconds cannot carry into the next degree. Nor can a
+		// decimal-minute part also carry seconds in a valid DMS expression.
+		for (const [min, sec] of [[dms[2], dms[3]], [dms[6], dms[7]]]) {
+			if (coordFloat(min) >= 60 || (sec !== undefined &&
+				(coordFloat(sec) >= 60 || /[.,]/.test(min)))) return null;
+		}
+		coords = toDmsMatch(dms);
+	}
+	if (!Number.isFinite(coords.lat) || !Number.isFinite(coords.lon) ||
+		Math.abs(coords.lat) > 90 || Math.abs(coords.lon) > 180) return null;
+	return coords;
+}
+
 export type CoordRun =
 	| { type: 'text'; value: string }
 	| ({ type: 'coords' } & CoordMatch);

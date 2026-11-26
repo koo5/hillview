@@ -75,6 +75,8 @@ test.describe('Photo info window (i key)', () => {
         json: {
           width: 66897,
           height: 5133,
+          pitch: 6.5,
+          roll: -4.2,
           exif: {
             focal_length: 24,
             focal_length_35mm: 36,
@@ -117,6 +119,8 @@ test.describe('Photo info window (i key)', () => {
     await expect(mapWin).toContainText('66897 × 5133');
     // Base metadata comes off the local photo object (no fetch needed).
     await expect(mapWin).toContainText('Bearing');
+    await expect(mapWin.getByTestId('photo-info-pitch')).toHaveText('+6.5°');
+    await expect(mapWin.getByTestId('photo-info-roll')).toHaveText('-4.2°');
 
     // The same store must also render a corner window inside the zoom view.
     await mainPhoto.click();
@@ -125,6 +129,8 @@ test.describe('Photo info window (i key)', () => {
     const zoomWin = osd.locator(INFO_WINDOW);
     await expect(zoomWin).toBeVisible({ timeout: T(5000) });
     await expect(zoomWin).toContainText('24 mm (36 mm eq.)');
+    await expect(zoomWin.getByTestId('photo-info-pitch')).toHaveText('+6.5°');
+    await expect(zoomWin.getByTestId('photo-info-roll')).toHaveText('-4.2°');
 
     // The 'x' on the zoom-view window closes the shared store (both windows).
     await zoomWin.locator('[data-testid="photo-info-close"]').click();

@@ -226,8 +226,8 @@ const LICENSE_LABELS: Record<string, string> = {
 	'CC-BY-4.0': 'CC BY 4.0',
 	'CC0-1.0': 'CC0 1.0 (public domain)',
 	'full1': 'Full rights to Hillview',
-	'panoramax_in': 'Panoramax contribution grant',
-	'panoramax': 'Panoramax (license wording pending)',
+	'panoramax_in': 'CC BY-SA 4.0 + LO derivatives',
+	'panoramax': 'CC BY-SA 4.0 + LO derivatives',
 };
 
 export function getLicenseId(photo: PhotoData | null): string | null {
@@ -266,6 +266,24 @@ export function getLicenseUrl(photo: PhotoData | null): string | null {
 	const id = getLicenseId(photo);
 	if (!id) return null;
 	return EXTERNAL_LICENSE_URLS[id] ?? null;
+}
+
+// Hillview's own ids, both intake grants and published licences, each have a
+// section of /licensing that explains them.
+const LICENSING_ANCHORS: Record<string, string> = {
+	'arr': 'arr-osm',
+	'full1': 'full1',
+	'ccbysa4+osm': 'cc-osm',
+	'panoramax_in': 'lo-derivatives',
+	'panoramax': 'lo-derivatives',
+};
+
+/** Where a license id is explained: the canonical text of a third-party
+ * license, else its section of /licensing, else the page itself. */
+export function licenseUrlFor(id: string | null | undefined): string {
+	if (id && EXTERNAL_LICENSE_URLS[id]) return EXTERNAL_LICENSE_URLS[id];
+	const anchor = id ? LICENSING_ANCHORS[id] : undefined;
+	return anchor ? `/licensing#${anchor}` : '/licensing';
 }
 
 /**

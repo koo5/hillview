@@ -8,3 +8,6 @@ from pathlib import Path
 os.environ.setdefault("ALEMBIC_SYNC_MODE", "1")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+# Batch scheduler imports the shared models directly, before analyzer.py.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))

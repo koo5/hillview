@@ -36,10 +36,11 @@ class RasterSource:
 	"""The decoded (and possibly anonymized) full raster as a variant source —
 	the same interface as PyramidSource so consumers have one code path."""
 
-	def __init__(self, image: np.ndarray, source_path: str, encoding: Optional[str]):
+	def __init__(self, image: np.ndarray, source_path: str, encoding: Optional[str], orientation_override=None):
 		self.image = image
 		self.source_path = source_path
 		self.encoding = encoding
+		self.orientation_override = orientation_override
 
 	def for_width(self, target_w: int) -> np.ndarray:
 		return self.image
@@ -51,7 +52,10 @@ class RasterSource:
 		"""Unblurred pixels, safe to mutate: the raster was anonymized in place,
 		so this re-decodes the source."""
 		from blur import read_image
-		return read_image(self.source_path, encoding=self.encoding)
+		options = {'encoding': self.encoding}
+		if self.orientation_override is not None:
+			options['orientation_override'] = self.orientation_override
+		return read_image(self.source_path, **options)
 
 
 class PyramidSource:

@@ -10,8 +10,8 @@
 		<h1>Contributing to Panoramax</h1>
 		<h2>Your grant and the published license</h2>
 		<p>The upload license is the grant you give Hillview. The public license governs reuse of the published photo. <a href="/licensing">Read about each license</a>.</p>
-		<p>Full rights to Hillview and the Panoramax contribution grant allow sharing. CC BY-SA 4.0 + OSM alone does not cover the federation’s derived-data uses.</p>
-		<p>Full rights photos are published as Panoramax when sharing is on, otherwise as all rights reserved with the OSM mapping grant. The Panoramax contribution grant always publishes as Panoramax, with sharing on or off. The final Panoramax license wording is pending.</p>
+		<p>Full rights to Hillview and CC BY-SA 4.0 + LO derivatives allow sharing. CC BY-SA 4.0 + OSM alone does not cover the federation’s derived-data uses.</p>
+		<p>Full rights photos are published under CC BY-SA 4.0 + LO derivatives when sharing is on, otherwise as all rights reserved with the OSM mapping grant. A photo uploaded under CC BY-SA 4.0 + LO derivatives is published under it with sharing on or off. <a href="/licensing#lo-derivatives">What LO derivatives mean</a>.</p>
 		<h2>Choose which photos to offer</h2>
 		<p>The P button above camera settings changes the default for future browser captures. Settings uses the same default. File uploads have a separate sharing choice for the next batch. Neither control changes an existing photo, chooses a license, signs you in or enables uploads.</p>
 		<p>Every capture keeps its sharing choice and its selected upload grant. A photo captured before you choose a license adopts your upload license when it uploads. You can change an existing photo’s sharing choice on its photo page.</p>

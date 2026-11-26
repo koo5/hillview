@@ -23,6 +23,28 @@ export interface ShareResult {
 	error: boolean;
 }
 
+/** Share an already-built link using the native sheet or the browser clipboard. Failures reach the caller. */
+export async function shareLink(url: string, title: string, text: string): Promise<void> {
+	if (TAURI) {
+		const result = await invoke('plugin:hillview|share_photo', { title, text, url }) as { success: boolean; error?: string };
+		if (!result.success) throw new Error(result.error || 'Share failed');
+		return;
+	}
+	if (navigator.clipboard) {
+		await navigator.clipboard.writeText(url);
+		return;
+	}
+	const textarea = document.createElement('textarea');
+	textarea.value = url;
+	document.body.appendChild(textarea);
+	try {
+		textarea.select();
+		if (!document.execCommand('copy')) throw new Error('Clipboard unavailable');
+	} finally {
+		textarea.remove();
+	}
+}
+
 /**
  * Mint a short /shared/{slug} link on the backend. Returns null on any failure
  * so callers fall back to the long constructShareUrl() form.
@@ -92,31 +114,9 @@ export async function sharePhoto(photo: PhotoData | any, zoomViewBounds?: { x1: 
 		const shareUrl = await buildShareUrl(photo, zoomViewBounds);
 		const shareText = `Check out this photo on Hillview${getUserName(photo) ? ` by @${getUserName(photo)}` : ''}`;
 
-		if (TAURI) {
-			const result = await invoke('plugin:hillview|share_photo', {
-				title: 'Photo on Hillview',
-				text: shareText,
-				url: shareUrl
-			}) as { success: boolean; error?: string; message?: string };
-
-			if (!result.success) {
-				throw new Error(result.error || 'Share failed');
-			}
-			return { message: '', error: false };
-		} else {
-			const fullShareText = shareUrl//`${shareText}\n${shareUrl}`;
-			if (navigator.clipboard) {
-				await navigator.clipboard.writeText(fullShareText);
-			} else {
-				const textarea = document.createElement('textarea');
-				textarea.value = fullShareText;
-				document.body.appendChild(textarea);
-				textarea.select();
-				document.execCommand('copy');
-				document.body.removeChild(textarea);
-			}
-			return { message: 'Share link copied to clipboard!', error: false };
-		}
+		const fullShareText = shareUrl//`${shareText}\n${shareUrl}`;
+		await shareLink(fullShareText, 'Photo on Hillview', shareText);
+		return { message: TAURI ? '' : 'Share link copied to clipboard!', error: false };
 	} catch (error) {
 		console.error('Error sharing photo:', error);
 		return { message: 'Failed to share photo', error: true };

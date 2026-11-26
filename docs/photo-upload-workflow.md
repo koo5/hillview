@@ -288,7 +288,7 @@ Failed uploads retry with increasing delays:
 
 Query for next upload considers uploads "stale" if:
 - Status is `uploading` AND `lastUploadAttempt < uploadingStaleThreshold` (10 minutes)
-- Status is `processing` AND `lastUploadAttempt < processingStaleThreshold` (1 hour)
+- Status is `processing` AND `lastUploadAttempt < processingStaleThreshold` (8 hours, `PROCESSING_STALE_MS`, since 2026-11-06; 1 hour while upload bugs were being hunted)
 
 Both thresholds are calculated as `System.currentTimeMillis() - duration` at query time.
 
@@ -372,14 +372,14 @@ POST /api/worker_pending_background_tasks_ping
 **Cause:** Worker crashes after receiving file but before calling `/photos/processed`.
 
 **Recovery:** Stale detection + server-side cleanup handles this automatically:
-1. After 1 hour, `getNextPhotoForUpload` returns the stale photo
+1. After 8 hours, `getNextPhotoForUpload` returns the stale photo
 2. Client calls `authorize-upload` with same MD5 hash
 3. Server sees existing `authorized` photo → deletes old record → creates fresh authorization
 4. Client uploads to worker again
 5. Photo gets processed normally
 
 **Safeguards:**
-- `processingStaleThreshold` set to 1 hour in `getNextPhotoForUpload` query
+- `processingStaleThreshold` set to 8 hours (`PROCESSING_STALE_MS`) in `getNextPhotoForUpload` query
 - Server's duplicate handling cleans up stale `authorized` records automatically
 - No manual intervention required
 
@@ -388,7 +388,7 @@ POST /api/worker_pending_background_tasks_ping
 **Note:** This scenario is not currently possible. Keys are created with `is_active=True` and there's no mechanism to deactivate or rotate them. The `is_active` check in signature verification is defensive coding for potential future key management features.
 
 **If key management is added in the future:**
-- Recovery would work via stale detection - after 1 hour, re-upload with fresh authorization using current active key
+- Recovery would work via stale detection - after 8 hours, re-upload with fresh authorization using current active key
 - The server's duplicate handling would clean up the old `authorized` record
 
 ### 4. Duplicate Race Condition

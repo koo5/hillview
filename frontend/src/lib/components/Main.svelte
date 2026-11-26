@@ -7,6 +7,7 @@
 	import Map from './Map.svelte';
 	import {
 		Camera,
+		Search,
 		Menu,
 		Bug,
 		Maximize2,
@@ -21,14 +22,16 @@
 		showCalibrationView,
 		showPhotoInfoWindow,
 		togglePhotoInfoWindow,
-		onAppActivityChange
+		onAppActivityChange,
+		parseActivityParam
 	} from "$lib/data.svelte.js";
 	import {resizableSplit} from '$lib/actions/resizableSplit';
 	import {
 		bearingState,
 		spatialState,
 		updateBearingByDiff,
-		photoInFront
+		photoInFront,
+		mapReady
 	} from "$lib/mapState";
 	import {replaceState} from "$app/navigation";
 	import {derived, get} from "svelte/store";
@@ -38,7 +41,11 @@
 	import DebugOverlay from './DebugOverlay.svelte';
 	import CompassCalibration from './CompassCalibration.svelte';
 	import Lines from './Lines.svelte';
+	import SearchPane from './SearchPane.svelte';
 	import TerrainPane from './TerrainPane.svelte';
+	import WorldPane from './WorldPane.svelte';
+	import { worldModeAvailable } from '$lib/world';
+	import { worldView } from '$lib/worldViewState';
 	import { terrainModeAvailable, terrainViewRect } from '$lib/terrain.svelte';
 import TimelinePanel from './TimelinePanel.svelte';
 	import PhotoInfoWindow from './PhotoInfoWindow.svelte';
@@ -58,6 +65,20 @@ import TimelinePanel from './TimelinePanel.svelte';
 	import {toggleCamera} from '$lib/appActions';
 	import {track} from '$lib/analytics';
 	import InsetGradients from "$lib/components/InsetGradients.svelte";
+	import { parsePhotoUid } from '$lib/urlUtilsServer';
+
+	// Choose the initial activity before rendering any activity controls or
+	// panes. Delaying this until Leaflet finishes initializing can overwrite
+	// a choice the user has already made in the toolbar.
+	if (browser) {
+		const params = new URLSearchParams(window.location.search);
+		const activity = parseActivityParam(params.get('activity')) ??
+			(parsePhotoUid(params.get('photo')) ? 'view' : null);
+		if (activity !== null && activity !== get(app).activity) {
+			onAppActivityChange(activity);
+			app.update(a => ({...a, activity}));
+		}
+	}
 
 	let map: any = null;
 	let mapComponent: any = null;
@@ -70,6 +91,21 @@ import TimelinePanel from './TimelinePanel.svelte';
 	$: showCameraView = $app.activity === 'capture';
 	$: showLinesEditor = $app.activity === 'lines';
 	$: showTerrainPane = $app.activity === 'terrain';
+	$: showWorldPane = $app.activity === '3d';
+	$: showSearchPane = $app.activity === 'search';
+
+	function toggleSearch() {
+		const mode = showSearchPane ? 'view' : 'search';
+		track(mode === 'search' ? 'activitySearch' : 'activityView');
+		onAppActivityChange(mode);
+		app.update(a => ({...a, activity: mode}));
+	}
+
+	function toggleWorld() {
+		const mode = showWorldPane ? 'view' : '3d';
+		track(mode === '3d' ? 'activityWorld' : 'activityView');
+		app.update(a => ({...a, activity: mode}));
+	}
 
 	function toggleTerrain() {
 		const mode = showTerrainPane ? 'view' : 'terrain';
@@ -92,6 +128,20 @@ import TimelinePanel from './TimelinePanel.svelte';
 		updateUrlParams({ photo: photo.uid });
 	}
 
+	$: if (update_url) {
+		updateUrlParams({ activity: $app.activity });
+	}
+	$: if (update_url && $app.activity !== '3d') {
+		updateUrlParams({ altitude: null, pitch: null, fov: null });
+	}
+	$: if (update_url && $app.activity === '3d' && $worldView) {
+		updateUrlParams({
+			altitude: $worldView.altitude.toFixed(2),
+			pitch: $worldView.pitch.toFixed(4),
+			fov: $worldView.fov.toFixed(4)
+		});
+	}
+
 	// When update_url becomes true, flush current photo state that may have
 	// been missed (photoInFront can fire before update_url is enabled).
 	$: if (update_url && $app.activity !== 'terrain') {
@@ -99,6 +149,10 @@ import TimelinePanel from './TimelinePanel.svelte';
 	}
 
 	$: if (update_url) {
+		// A user can move or turn after mapReady but before URL syncing starts.
+		// Replay both stores when the gate opens, just as for photo/zoom state.
+		onSpatialStateChange(get(spatialState));
+		onBearingStateChange(get(bearingState));
 		flushPhotoToUrl(get(photoInFront));
 		// Reconcile zoom params too: the pending overlay can be dismissed (or its
 		// photo can fail to load) during the ~100ms window before update_url flips
@@ -356,6 +410,11 @@ import TimelinePanel from './TimelinePanel.svelte';
 		if (e.ctrlKey || e.altKey || e.metaKey) {
 			return;
 		}
+		// A key the focused element already used is its own: the 3D view's flight keys (W A S D ...), its zoom
+		// (+/-) and Escape to land must not also toggle sources, debug or the bearing (hillview_common WorldScene)
+		if (e.defaultPrevented) {
+			return;
+		}
 
 		// Check if we're currently typing in an input field
 		const activeElement = document.activeElement as HTMLElement;
@@ -546,6 +605,19 @@ import TimelinePanel from './TimelinePanel.svelte';
 	<Camera size={24} class="camera-button-icon" />
 </button>
 
+{#if worldModeAvailable}
+<button
+	class="world-button {showWorldPane ? 'active' : ''}"
+	on:click={toggleWorld}
+	on:keydown={(e) => e.key === 'Enter' && toggleWorld()}
+	aria-label="{showWorldPane ? 'Close 3D world' : 'Show 3D world'}"
+	title="{showWorldPane ? 'Close 3D world' : 'Show 3D world'}"
+	data-testid="world-button"
+>
+	<span class="world-button-label">3D</span>
+</button>
+{/if}
+
 <button
 	class="lines-button {showLinesEditor ? 'active' : ''}"
 	on:click={toggleLines}
@@ -590,6 +662,18 @@ import TimelinePanel from './TimelinePanel.svelte';
 		{/if}
 	</button>
 {/if}-->
+
+<button
+	class="search-button"
+	class:active={showSearchPane}
+	on:click={toggleSearch}
+	aria-label={showSearchPane ? 'Close place search' : 'Search places'}
+	aria-pressed={showSearchPane}
+	title={showSearchPane ? 'Close place search' : 'Search places'}
+	data-testid="search-button"
+>
+	<Search size={24} />
+</button>
 
 <!-- Alert area for main page -->
 <div class="main-page-alert-area">
@@ -640,8 +724,12 @@ import TimelinePanel from './TimelinePanel.svelte';
 			/>
 		{:else if showLinesEditor}
 			<Lines />
+		{:else if showSearchPane}
+			<SearchPane canSelect={$mapReady} onSelect={(place) => mapComponent?.showPlace(place)} />
 		{:else if showTerrainPane}
 			<TerrainPane />
+		{:else if showWorldPane}
+			{#if $mapReady}<WorldPane />{/if}
 		{:else}
 			<PhotoGallery/>
 		{/if}
@@ -767,7 +855,7 @@ import TimelinePanel from './TimelinePanel.svelte';
 	.lines-button {
 		position: absolute;
 		top: calc(0px + var(--safe-area-inset-top, 10px));
-		left: calc(100px + var(--safe-area-inset-left, 10px));
+		left: calc(150px + var(--safe-area-inset-left, 10px));
 		z-index: 30001;
 		background: white;
 		border-radius: 50%;
@@ -782,6 +870,27 @@ import TimelinePanel from './TimelinePanel.svelte';
 		padding: 0;
 		transition: all 0.2s ease;
 	}
+
+	.search-button {
+		position: absolute;
+		top: calc(0px + var(--safe-area-inset-top, 10px));
+		left: calc(250px + var(--safe-area-inset-left, 10px));
+		z-index: 30001;
+		background: white;
+		border-radius: 50%;
+		width: 40px;
+		height: 40px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+		cursor: pointer;
+		border: none;
+		padding: 0;
+	}
+
+	.search-button.active { background: #4a90e2; color: white; }
+	.search-button:hover { transform: scale(1.05); }
 
 	.debug-toggle {
 		position: absolute;
@@ -821,7 +930,7 @@ import TimelinePanel from './TimelinePanel.svelte';
 	.terrain-button {
 		position: absolute;
 		top: calc(0px + var(--safe-area-inset-top, 10px));
-		left: calc(150px + var(--safe-area-inset-left, 10px));
+		left: calc(200px + var(--safe-area-inset-left, 10px));
 		z-index: 30001;
 		background: white;
 		border-radius: 50%;
@@ -835,15 +944,50 @@ import TimelinePanel from './TimelinePanel.svelte';
 		border: none;
 		padding: 0;
 		transition: all 0.2s ease;
-		color: #3a7d44;
 	}
 
 	.terrain-button.active {
-		background: #3a7d44;
+		background: #4a90e2;
 		color: white;
 	}
 
 	.terrain-button:hover {
+		transform: scale(1.05);
+	}
+
+	.world-button {
+		position: absolute;
+		top: calc(0px + var(--safe-area-inset-top, 10px));
+		left: calc(100px + var(--safe-area-inset-left, 10px));
+		z-index: 30001;
+		background: white;
+		border-radius: 50%;
+		width: 40px;
+		height: 40px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+		cursor: pointer;
+		border: none;
+		padding: 0;
+		transition: all 0.2s ease;
+	}
+
+	.world-button.active {
+		background: #4a90e2;
+		color: white;
+	}
+
+	.world-button-label {
+		font-size: 14px;
+		font-weight: 700;
+		line-height: 1;
+		letter-spacing: 0.02em;
+		user-select: none;
+	}
+
+	.world-button:hover {
 		transform: scale(1.05);
 	}
 

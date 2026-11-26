@@ -17,7 +17,7 @@ import httpx
 
 # OpenRouter API configuration
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-DEFAULT_MODEL = "qwen/qwen3-vl-30b-a3b-thinking"
+DEFAULT_MODEL = "dots-studio/dots-3-note-preview:free"
 MAX_TOKENS = 6666
 TEMPERATURE = 0
 
@@ -230,6 +230,69 @@ def build_schema(distances: bool = True, features: bool = True) -> dict:
 	return {"type": "object", "properties": properties, "required": required}
 
 
+def response_format_for(model: str, *, distances: bool, features: bool) -> dict:
+	"""Schema enforcement defaults to Dots, independently of trust."""
+	models = {name.strip() for name in os.environ.get("ANALYZER_STRUCTURED_MODELS", DEFAULT_MODEL).split(",")}
+	if model not in models:
+		return {"type": "json_object"}
+	schema = copy.deepcopy(build_schema(distances=distances, features=features))
+	def strict(node):
+		if node.get("type") == "object":
+			node["additionalProperties"] = False
+			node["required"] = list(node["properties"])
+			for child in node["properties"].values():
+				strict(child)
+		elif node.get("type") == "array":
+			strict(node["items"])
+	strict(schema)
+	return {"type": "json_schema", "json_schema": {
+		"name": "hillview_" + ("distances" if distances else "features") + "_v1",
+		"strict": True, "schema": schema,
+	}}
+
+
+def validate_analysis(value, schema: dict, path: str = "answer") -> list[str]:
+	"""Validate the JSON Schema subset used by build_schema, without extra deps."""
+	if "anyOf" in schema:
+		if any(not validate_analysis(value, branch, path) for branch in schema["anyOf"]):
+			return []
+		return [f"{path}: does not match any allowed shape"]
+	type_ = schema.get("type")
+	if isinstance(type_, list):
+		if any(not validate_analysis(value, {**schema, "type": branch}, path) for branch in type_):
+			return []
+		return [f"{path}: expected one of {type_}"]
+	if type_ == "null":
+		return [] if value is None else [f"{path}: expected null"]
+	if type_ == "number":
+		import math
+		if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+			return [f"{path}: expected finite number"]
+	expected = {"object": dict, "array": list, "string": str, "boolean": bool, "integer": int}.get(type_)
+	if expected and (not isinstance(value, expected) or type_ == "integer" and isinstance(value, bool)):
+		return [f"{path}: expected {type_}"]
+	errors = []
+	if "enum" in schema and value not in schema["enum"]:
+		errors.append(f"{path}: invalid enum value")
+	if type_ == "object":
+		for key in schema.get("required", []):
+			if key not in value:
+				errors.append(f"{path}.{key}: missing")
+		if schema.get("additionalProperties") is False:
+			for key in value.keys() - schema.get("properties", {}).keys():
+				errors.append(f"{path}.{key}: unexpected field")
+		for key, child in schema.get("properties", {}).items():
+			if key in value:
+				errors.extend(validate_analysis(value[key], child, f"{path}.{key}"))
+	elif type_ == "array":
+		for i, child in enumerate(value):
+			errors.extend(validate_analysis(child, schema["items"], f"{path}[{i}]"))
+	elif type_ == "integer":
+		if value < schema.get("minimum", value) or value > schema.get("maximum", value):
+			errors.append(f"{path}: outside allowed range")
+	return errors
+
+
 def build_prompt_template(distances: bool = True, features: bool = True) -> str:
 	"""Build prompt template from components."""
 	parts = [PROMPT_TEMPLATE_START]
@@ -425,6 +488,7 @@ def run_analysis(
 	*,
 	max_tokens: int | None = None,
 	temperature: float | None = None,
+	response_format: dict | None = None,
 ) -> dict:
 	"""
 	Run analysis on a photo and return the session result.
@@ -456,9 +520,11 @@ def run_analysis(
 		],
 		"max_tokens": MAX_TOKENS if max_tokens is None else max_tokens,
 		"temperature": TEMPERATURE if temperature is None else temperature,
-		"response_format": {"type": "json_object"},
+		"response_format": copy.deepcopy(response_format or {"type": "json_object"}),
 		"provider": {"sort": "price"}
 	}
+	if payload["response_format"]["type"] == "json_schema":
+		payload["provider"]["require_parameters"] = True
 
 	# Deep copy and replace image data with hash for storage
 	request_for_output = copy.deepcopy(payload)
@@ -478,6 +544,8 @@ def run_analysis(
 		},
 		"request": request_for_output,
 	}
+	if os.environ.get("ANALYZER_RUN_ID"):
+		session["metadata"]["run_id"] = os.environ["ANALYZER_RUN_ID"]
 
 	# Call API
 	try:
@@ -493,12 +561,44 @@ def run_analysis(
 				session["result"]["provider_error"] = error.response.json()
 			except ValueError:
 				session["result"]["provider_error"] = error.response.text[:2000]
-		print(f"OpenRouter request failed: {session['result']}")
+			body = session["result"]["provider_error"]
+			api_error = body.get("error") if isinstance(body, dict) else None
+			meta = api_error.get("metadata") if isinstance(api_error, dict) else None
+			meta = meta if isinstance(meta, dict) else {}
+			if meta.get("limit_source") == "openrouter_free_tier_daily":
+				provided_headers = meta.get("headers") or {}
+				headers = {key.lower(): value for key, value in provided_headers.items()} if isinstance(provided_headers, dict) else {}
+				reset = headers.get("x-ratelimit-reset") or error.response.headers.get("x-ratelimit-reset")
+				try:
+					session["result"]["quota_reset_at"] = datetime.fromtimestamp(float(reset) / 1000, timezone.utc).isoformat()
+				except (TypeError, ValueError, OverflowError):
+					pass
+		session['result']['failure_kind'] = 'provider_rejection' if isinstance(error, httpx.HTTPStatusError) else 'transport_error'
+		provider_error = session['result'].get('provider_error', {})
+		api_error = provider_error.get('error', {}) if isinstance(provider_error, dict) else {}
+		meta = api_error.get('metadata', {}) if isinstance(api_error, dict) else {}
+		meta = meta if isinstance(meta, dict) else {}
+		raw = meta.get('raw')
+		try:raw = json.loads(raw) if isinstance(raw, str) else raw
+		except ValueError:pass
+		detail = (raw.get('msg') or raw.get('message')) if isinstance(raw, dict) else None
+		detail = detail or (api_error.get('message') if isinstance(api_error, dict) else None) or str(error)
+		if session['result'].get('http_status') == 404 and any(phrase in str(detail).lower()
+				for phrase in ('no longer available', 'no provider serves this model', 'not a valid model id',
+				               'no endpoints found that support image')):
+			session['result']['failure_kind'] = 'model_unavailable'
+		session['result']['provider_name'] = meta.get('provider_name')
+		print(f"OpenRouter request failed; no model answer: HTTP {session['result'].get('http_status', 'n/a')}; "
+		      f"provider={meta.get('provider_name') or 'OpenRouter/unknown'}; "
+		      f"{' '.join(str(detail).split())[:500]}. Full error saved in session history.")
 		return session
 	end_time = datetime.now(timezone.utc)
 
 	# Parse response
 	analysis, parse_error = parse_json_response(content)
+	validation_errors = []
+	if not parse_error and payload["response_format"]["type"] == "json_schema":
+		validation_errors = validate_analysis(analysis, payload["response_format"]["json_schema"]["schema"])
 	if parse_error:
 		print(f"Parse error: <Raw response>{content}</Raw response>\n")
 		session["raw_response"] = content
@@ -510,8 +610,10 @@ def run_analysis(
 		"prompt_tokens": usage.get("prompt_tokens"),
 		"completion_tokens": usage.get("completion_tokens"),
 		"total_tokens": usage.get("total_tokens"),
-		"parse_error": parse_error
+		"parse_error": parse_error or bool(validation_errors)
 	}
+	if payload["response_format"]["type"] == "json_schema":
+		session["result"].update(schema_error=bool(validation_errors), validation_errors=validation_errors)
 	session["raw_response"] = content
 	session["result"].update({
 		"usage": usage,

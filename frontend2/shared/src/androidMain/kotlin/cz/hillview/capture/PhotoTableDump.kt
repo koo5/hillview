@@ -919,7 +919,11 @@ private fun StringBuilder.cell(value: String?, last: Boolean = false) {
  */
 internal val PHOTO_DUMP_COLUMNS = listOf(
     "id", "filename", "path",
-    "latitude", "longitude", "altitude", "bearing", "pitch",
+    // `pitch_up_deg`, not `pitch`, from 2026-11-17: the column changed MEANING
+    // that day (positive down to positive up, MIGRATION_32_33), and a header
+    // that stayed the same would leave two exports with one name and opposite
+    // signs. A reader that does not know the date can at least see the rename.
+    "latitude", "longitude", "altitude", "bearing", "pitch_up_deg",
     "capturedAt", "capturedAtUtc", "accuracy",
     "width", "height", "fileSize", "createdAt",
     "uploadStatus", "uploadedAt", "retryCount", "lastUploadAttempt", "uploadError",

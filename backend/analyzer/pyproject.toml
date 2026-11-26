@@ -21,6 +21,14 @@ py-modules = [
     "analyzer",
     "analyze_photo",
     "distill",
+    "aaa_source",
+    "aaa_provenance",
+    "redistill",
+    "batch_scheduler",
+    "response_store",
+    "compiled_schema",
+    "claude_query",
+    "claude_pricing",
 ]
 
 [tool.uv]

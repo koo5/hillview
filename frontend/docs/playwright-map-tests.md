@@ -49,14 +49,16 @@ never passes Playwright's stability gate. `clickMarker` uses `dispatchEvent('cli
 which only needs the element *attached* and fires the exact event the map's delegated
 handler consumes (`target.closest('.marker-container[data-photo-id]')`).
 
-## The walk can anchor on the wrong photo — retry, don't fight it
+## Keep selection targets in range
 
-Pressing `t` anchors the walk on whatever `photoInFront` is at that instant. When seeded
-photos sit at the same spot / share a bearing, the front photo can flicker to a sibling
-under stream churn, and the walk anchors there. Don't try to fix it by re-opening the panel
-(toggling it detaches the markers your next step needs). The describe blocks set
-`retries: 2`; the rare mis-anchor is absorbed by a retry (a serial group re-runs its setup,
-so the photo ids are re-seeded cleanly).
+Pressing `t` anchors the walk on the selected/front photo. Give separate photos distinct
+bearings so a bearing tie cannot choose a sibling while the stream updates.
+
+A visible marker is not necessarily inside the map's 70px navigation range circle.
+Selecting a marker outside that circle pans the map to it, which can cull the next marker
+before the test clicks it. `openMap` accepts a zoom after the optional bearing; the refresh
+tests use `openMap(page, CENTER, ids, 30, 16)` to keep their three targets in range. Keep a
+closer zoom when intentionally testing movement to out-of-range photos.
 
 ## Telling co-located photos apart
 

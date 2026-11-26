@@ -1,5 +1,11 @@
 # Backfill photos.pitch from UserComment
 
+> **Superseded 2026-11-15 by [photo-pose-and-level-gates.md](photo-pose-and-level-gates.md).**
+> The roll question below is decided there (a `roll` column, GPano conventions), and the
+> backfill proposed here is not used. The top-level `{"pitch", "roll"}` shape it reads holds
+> the old landscape-faulted values, and `photos.pitch` itself turned out to be positive
+> down. Kept for the history of the two populations.
+
 ## Current state
 
 `photos.pitch` (double precision, alembic 032) is populated on **12,995** of 77,877 live

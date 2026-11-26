@@ -7,6 +7,10 @@
 	export let latitude: number | null = null;
 	export let longitude: number | null = null;
 	export let canonicalUrl: string | null = null;
+
+	// General site pages already supply a canonical URL. It is also the OG
+	// identity unless a share URL (including its view state) overrides it.
+	$: resolvedOgUrl = ogUrl ?? canonicalUrl;
 </script>
 
 <svelte:head>
@@ -16,8 +20,8 @@
 	<meta property="og:title" content={title} />
 	<meta property="og:description" content={description} />
 	<meta property="og:type" content={ogType} />
-	{#if ogUrl}
-		<meta property="og:url" content={ogUrl} />
+	{#if resolvedOgUrl}
+		<meta property="og:url" content={resolvedOgUrl} />
 	{/if}
 	{#if ogImage}
 		<meta property="og:image" content={ogImage.url} />

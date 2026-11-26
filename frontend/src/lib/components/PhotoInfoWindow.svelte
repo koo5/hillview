@@ -20,6 +20,7 @@
 		formatShutter,
 		formatCamera,
 		formatFrames,
+		formatPoseAngle,
 		type PhotoExif,
 		type PublicPhotoInfo
 	} from '$lib/photoExif';
@@ -91,6 +92,8 @@
 	let showCapturedDetails = false;
 	$: coordStr = photo?.coord ? `${photo.coord.lat?.toFixed(6)}, ${photo.coord.lng?.toFixed(6)}` : null;
 	$: bearingStr = photo?.bearing != null ? `${photo.bearing.toFixed(1)}°` : null;
+	$: pitchStr = formatPoseAngle(info?.pitch ?? photo?.pitch);
+	$: rollStr = formatPoseAngle(info?.roll ?? photo?.roll);
 	$: altitudeStr = photo?.altitude != null ? `${photo.altitude.toFixed(0)} m` : null;
 	// Real pixel size. For hillview photos `sizes.full` is just the largest
 	// rendition (a gigapixel pano is downsized there), so the dimensions come
@@ -177,6 +180,8 @@
 			{/if}
 			{#if coordStr}<dt>Coords</dt><dd>{coordStr}</dd>{/if}
 			{#if bearingStr}<dt>Bearing</dt><dd>{bearingStr}</dd>{/if}
+			<dt>Pitch</dt><dd data-testid="photo-info-pitch" title="Camera elevation above the horizon; positive is up">{pitchStr ?? (exifLoading ? 'Loading…' : 'Not recorded')}</dd>
+			<dt>Roll</dt><dd data-testid="photo-info-roll" title="Horizon rotation in the image; positive is counterclockwise">{rollStr ?? (exifLoading ? 'Loading…' : 'Not recorded')}</dd>
 			{#if altitudeStr}<dt>Altitude</dt><dd>{altitudeStr}</dd>{/if}
 			{#if dims}<dt>Dimensions</dt><dd>{dims}</dd>{/if}
 			{#if sourceName}<dt>Source</dt><dd>{sourceName}</dd>{/if}

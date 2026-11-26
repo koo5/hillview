@@ -13,11 +13,43 @@ import android.util.Log
 // this file compiles in both apps (shared-kt).
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 private val TAG = hvTag("Geo")
+
+/**
+ * How much memory tracking writes may hold while they wait for the database
+ * (user, 2026-11-06: "you really dont want those values to drop when you're out
+ * shooting"). Generous on purpose: 32 MiB is an eighth of the 256 MB heap, and at the
+ * sizes below it is hours of bearings, or about twelve minutes of an interval run's
+ * ~720 IMU rows/s with the database stalled outright. Past it, dropping rows is what
+ * keeps the process — and the photos being taken — alive.
+ */
+private const val WRITE_QUEUE_BUDGET_BYTES = 32L * 1024 * 1024
+
+/**
+ * What one queued row costs, ESTIMATED for 64-bit ART with compressed references —
+ * the budget is approximate by design, a ceiling and not an accounting. A bearing or
+ * location row: the entity or the sample it is built from (~50 B), its boxed nullable
+ * fields (~16 B each), a `detail` string (~100 B), the queued closures (~60 B) and the
+ * queue node: about 300–400 B, so 400. An IMU sample: ~50 B and its list slot; its
+ * `kind` is a shared literal.
+ */
+private const val QUEUED_ROW_BYTES = 400L
+private const val QUEUED_IMU_SAMPLE_BYTES = 64L
+
+/** One queued write and what it was charged against the budget. */
+private class QueuedWrite(val bytes: Long, val write: suspend () -> Unit)
 
 /**
  * What one `dumpAndClear` cost, for the readout that answers "can the dump keep up
@@ -189,6 +221,22 @@ class GeoTrackingManager(private val context: Context) {
 		@Volatile
 		private var INSTANCE: GeoTrackingManager? = null
 
+		/** The singleton's queue depth, or null when nothing has made it yet — a probe that must not construct it. */
+		fun pendingWritesIfRunning(): Int? = INSTANCE?.pendingWrites
+
+		/** The same probe for the queue's estimated bytes. */
+		fun pendingWriteBytesIfRunning(): Long? = INSTANCE?.pendingWriteBytes
+
+		private val _droppedRows = MutableStateFlow(0L)
+
+		/**
+		 * Tracking rows dropped this PROCESS because the write queue was past its
+		 * budget — 0 until the first. Process-wide rather than per instance, so the
+		 * UI can watch it without constructing a manager (and the Tauri app's own
+		 * instance counts into the same number).
+		 */
+		val droppedRows: StateFlow<Long> = _droppedRows.asStateFlow()
+
 		/**
 		 * hillview_tracking_prefs key holding the user-picked SAF tree URI
 		 * that CSV exports are created in; absent = the app-private
@@ -246,6 +294,136 @@ class GeoTrackingManager(private val context: Context) {
 	private val orientationGate = SourceRateGate(databaseStorageIntervalMs)
 	private val locationGate = SourceRateGate(databaseStorageIntervalMs)
 
+	// THE WRITE QUEUE (2026-11-06). Every tracking row used to get its own
+	// CoroutineScope(Dispatchers.IO).launch — the sensor path two of them, the
+	// first BEFORE the rate gate — so nothing bounded how many waited when the
+	// inserts fell behind (flash busy with a capture run's JPEGs, a dump holding
+	// the database). Each waiting launch held its row, and nothing capped the
+	// backlog. Two OutOfMemoryErrors in two days surfaced on whoever allocated
+	// next (GeomagneticField on hillview-geo, a CSV cell in the photo dump); an
+	// unbounded queue at sensor rate is the shape that fills a heap that way.
+	//
+	// Now one writer drains one queue, in arrival order (which also orders an IMU
+	// burst before its claim across calls, not only within one), bounded by the
+	// MEMORY its rows hold: [WRITE_QUEUE_BUDGET_BYTES], charged per row at the
+	// estimates beside it. Past the budget a new write is DROPPED and its rows
+	// counted: losing tracking rows under a stall is the honest cost, losing the
+	// process is not. The event log says so once when dropping starts and with the
+	// count once the writer has caught up; the app is told through [droppedRows]
+	// (frontend2 shows one warning per session).
+	private val writeQueue = Channel<QueuedWrite>(Channel.UNLIMITED)
+	private val queuedWrites = AtomicInteger(0)
+	private val queuedBytes = AtomicLong(0)
+	private val droppedSinceCaughtUp = AtomicLong(0)
+
+	init {
+		CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+			for (queued in writeQueue) {
+				try {
+					queued.write()
+				} catch (e: Exception) {
+					// One bad row must not stop the writer: everything after it
+					// would queue, then drop, for the rest of the process.
+					Log.e(TAG, "tracking write failed: ${e.message}", e)
+				}
+				queuedBytes.addAndGet(-queued.bytes)
+				if (queuedWrites.decrementAndGet() == 0) {
+					val dropped = droppedSinceCaughtUp.getAndSet(0)
+					if (dropped > 0) {
+						EventLog.record("geo", "tracking writes caught up — $dropped rows were dropped while they were backed up")
+					}
+				}
+			}
+		}
+	}
+
+	/** Writes waiting for the database now — read by frontend2's HeapLog beside the heap. */
+	val pendingWrites: Int get() = queuedWrites.get()
+
+	/** What they are charged against [WRITE_QUEUE_BUDGET_BYTES], estimated. */
+	val pendingWriteBytes: Long get() = queuedBytes.get()
+
+	/**
+	 * Queue one write of [rows] rows for the writer, charged [bytes]; or drop it when
+	 * that would take the queue past [WRITE_QUEUE_BUDGET_BYTES].
+	 *
+	 * Reserve-then-check, so two callers racing for the last of the budget cannot both
+	 * take it; the loser gives its reservation back.
+	 */
+	private fun enqueueWrite(what: String, rows: Int, bytes: Long, write: suspend () -> Unit) {
+		if (queuedBytes.addAndGet(bytes) <= WRITE_QUEUE_BUDGET_BYTES) {
+			queuedWrites.incrementAndGet()
+			// UNLIMITED never refuses while open, and the queue is never closed.
+			writeQueue.trySend(QueuedWrite(bytes, write))
+			return
+		}
+		queuedBytes.addAndGet(-bytes)
+		if (droppedSinceCaughtUp.getAndAdd(rows.toLong()) == 0L) {
+			Log.w(TAG, "tracking write queue past ${WRITE_QUEUE_BUDGET_BYTES / (1024 * 1024)} MB: dropping, first was $what")
+			EventLog.record(
+				"geo",
+				"tracking writes backed up (${queuedWrites.get()} waiting, " +
+					"${WRITE_QUEUE_BUDGET_BYTES / (1024 * 1024)} MB) — dropping rows until the database catches up",
+			)
+		}
+		_droppedRows.update { it + rows }
+	}
+
+	/** A single bearing or location row — see [QUEUED_ROW_BYTES]. */
+	private fun enqueueRow(what: String, write: suspend () -> Unit) =
+		enqueueWrite(what, rows = 1, bytes = QUEUED_ROW_BYTES, write = write)
+
+	/**
+	 * Gate, then queue, a row whose source is known by NAME.
+	 *
+	 * The gate runs HERE, on the caller's thread, so it judges each sample by when it
+	 * arrived; gated on the writer, a backlog drained in a burst would see every row
+	 * "10 ms after the last" and reject what should pass. That needs the source's id,
+	 * which [sourceIdCache] has for every source past its first row — and for that
+	 * first row the writer resolves the id and gates it there instead. Either way the
+	 * gate is asked exactly once, since asking claims the slot.
+	 *
+	 * The election is read here too, at arrival: a row is stamped with the election
+	 * of its own moment, not of the moment a backlog reached it.
+	 */
+	private fun queueBearing(sourceName: String, what: String, build: (sourceId: Int) -> BearingEntity) {
+		val admitted = sourceIdCache[sourceName]?.let { orientationGate.allow(it) }
+		if (admitted == false) return
+		val elected = electedBearingSource
+		enqueueRow(what) {
+			val sourceId = getOrCreateSourceId(sourceName)
+			if (admitted == null && !orientationGate.allow(sourceId)) return@enqueueRow
+			insertBearing(build(sourceId), elected)
+		}
+	}
+
+	/** The location twin of [queueBearing]. */
+	private fun queueLocation(sourceName: String, what: String, build: (sourceId: Int) -> LocationEntity) {
+		val admitted = sourceIdCache[sourceName]?.let { locationGate.allow(it) }
+		if (admitted == false) return
+		val elected = electedLocationSource
+		enqueueRow(what) {
+			val sourceId = getOrCreateSourceId(sourceName)
+			if (admitted == null && !locationGate.allow(sourceId)) return@enqueueRow
+			insertLocation(build(sourceId), elected)
+		}
+	}
+
+	/**
+	 * On the writer. Every bearing write funnels through here, so the election is
+	 * stamped in exactly one place and no caller can forget it.
+	 */
+	private suspend fun insertBearing(entity: BearingEntity, electedName: String?) {
+		val elected = electedName?.let { getOrCreateSourceId(it) }
+		database.bearingDao().insertBearing(entity.copy(electedSourceId = elected))
+	}
+
+	/** On the writer. Single stamping point — see [insertBearing]. */
+	private suspend fun insertLocation(entity: LocationEntity, electedName: String?) {
+		val elected = electedName?.let { getOrCreateSourceId(it) }
+		database.locationDao().insertLocation(entity.copy(electedSourceId = elected))
+	}
+
 	// The elected (primary) source for each table, held as a NAME and resolved to
 	// an id at insert time, where sourceIdCache makes the lookup free.
 	//
@@ -261,7 +439,9 @@ class GeoTrackingManager(private val context: Context) {
 	// encoded the same fact by mangling the name.
 	//
 	// Rows written in the few milliseconds either side of a switch may carry
-	// either era: the writers are independent coroutines reading a volatile.
+	// either era: the callers are independent threads reading a volatile. (Since
+	// the write queue, 2026-11-06, each row reads it on ARRIVAL, so a backlog no
+	// longer widens that window to however long the row waited.)
 	// Post-hoc re-election does not care about a boundary that fuzzy — and the
 	// frontend hands the election to the command that writes a row alongside it,
 	// so the row that *causes* an election is never mislabelled.
@@ -295,21 +475,14 @@ class GeoTrackingManager(private val context: Context) {
 		source: String,
 		detail: String? = null,
 	) {
-		CoroutineScope(Dispatchers.IO).launch {
-			try {
-				val sourceId = getOrCreateSourceId(source)
-				storeLocationEntity(
-					LocationEntity(
-						timestamp = timestamp,
-						latitude = latitude,
-						longitude = longitude,
-						sourceId = sourceId,
-						detail = detail,
-					)
-				)
-			} catch (e: Exception) {
-				Log.e(TAG, "Failed to store $source location: ${e.message}", e)
-			}
+		queueLocation(source, "$source location") { sourceId ->
+			LocationEntity(
+				timestamp = timestamp,
+				latitude = latitude,
+				longitude = longitude,
+				sourceId = sourceId,
+				detail = detail,
+			)
 		}
 	}
 
@@ -364,25 +537,18 @@ class GeoTrackingManager(private val context: Context) {
 		roll: Float? = null,
 		fusedSensorAccuracy: Int? = null,
 	) {
-		CoroutineScope(Dispatchers.IO).launch {
-			try {
-				val sourceId = getOrCreateSourceId(source)
-				storeBearingEntity(
-					BearingEntity(
-						timestamp = timestamp,
-						trueHeading = trueHeading,
-						magneticHeading = magneticHeading,
-						accuracyLevel = accuracyLevel,
-						sourceId = sourceId,
-						detail = detail,
-						pitch = pitch,
-						roll = roll,
-						fusedSensorAccuracy = fusedSensorAccuracy,
-					)
-				)
-			} catch (e: Exception) {
-				Log.e(TAG, "Failed to store $source bearing: ${e.message}", e)
-			}
+		queueBearing(source, "$source bearing") { sourceId ->
+			BearingEntity(
+				timestamp = timestamp,
+				trueHeading = trueHeading,
+				magneticHeading = magneticHeading,
+				accuracyLevel = accuracyLevel,
+				sourceId = sourceId,
+				detail = detail,
+				pitch = pitch,
+				roll = roll,
+				fusedSensorAccuracy = fusedSensorAccuracy,
+			)
 		}
 	}
 
@@ -404,36 +570,33 @@ class GeoTrackingManager(private val context: Context) {
 	 */
 	fun storeImuSamples(samples: List<ImuSampleEntity>, claim: ImuClaimEntity? = null) {
 		if (samples.isEmpty()) return
-		CoroutineScope(Dispatchers.IO).launch {
-			try {
-				database.imuDao().insertAll(samples)
-				claim?.let { database.imuClaimDao().insert(it) }
-			} catch (e: Exception) {
-				Log.e(TAG, "Failed to store ${samples.size} IMU samples: ${e.message}", e)
-			}
+		// Still one write for both, so the claim can never land without its rows.
+		enqueueWrite(
+			"${samples.size} IMU samples",
+			rows = samples.size,
+			bytes = samples.size * QUEUED_IMU_SAMPLE_BYTES + QUEUED_ROW_BYTES,
+		) {
+			database.imuDao().insertAll(samples)
+			claim?.let { database.imuClaimDao().insert(it) }
 		}
 	}
 
 	fun storeOrientationSensorData(data: OrientationSensorData) {
-		CoroutineScope(Dispatchers.IO).launch {
-			try {
-				val sourceId = getOrCreateSourceId(data.source)
-				storeBearingEntity(
-					BearingEntity(
-						timestamp = data.timestamp,
-						trueHeading = data.trueHeading,
-						magneticHeading = data.magneticHeading,
-						accuracyLevel = data.accuracyLevel,
-						sourceId = sourceId,
-						detail = data.detail,
-						pitch = data.pitch,
-						roll = data.roll,
-						fusedSensorAccuracy = data.fusedSensorAccuracy.takeIf { it >= 0 }
-					)
-				)
-			} catch (e: Exception) {
-				Log.e(TAG, "Failed to store orientation sensor data: ${e.message}", e)
-			}
+		// The sensor path: gated before anything is queued — it used to launch a
+		// coroutine per EVENT and gate inside it, so the rate gate bounded the rows
+		// but not the launches.
+		queueBearing(data.source, "orientation sensor data") { sourceId ->
+			BearingEntity(
+				timestamp = data.timestamp,
+				trueHeading = data.trueHeading,
+				magneticHeading = data.magneticHeading,
+				accuracyLevel = data.accuracyLevel,
+				sourceId = sourceId,
+				detail = data.detail,
+				pitch = data.pitch,
+				roll = data.roll,
+				fusedSensorAccuracy = data.fusedSensorAccuracy.takeIf { it >= 0 }
+			)
 		}
 	}
 
@@ -447,16 +610,10 @@ class GeoTrackingManager(private val context: Context) {
 		if (!orientationGate.allow(entity.sourceId)) {
 			return
 		}
-		CoroutineScope(Dispatchers.IO).launch {
-			try {
-				// Every bearing write funnels through here, so the election is
-				// stamped in exactly one place and no caller can forget it.
-				val elected = electedBearingSource?.let { getOrCreateSourceId(it) }
-				database.bearingDao().insertBearing(entity.copy(electedSourceId = elected))
-			} catch (e: Exception) {
-				Log.w(TAG, "Failed to store bearing in database: ${e.message}")
-			}
-		}
+		// The election stamping moved to insertBearing, which every queued bearing
+		// write goes through; read at arrival, as in queueBearing.
+		val elected = electedBearingSource
+		enqueueRow("bearing") { insertBearing(entity, elected) }
 	}
 
 
@@ -464,15 +621,9 @@ class GeoTrackingManager(private val context: Context) {
 		if (!locationGate.allow(entity.sourceId)) {
 			return
 		}
-		CoroutineScope(Dispatchers.IO).launch {
-			try {
-				// Single stamping point — see storeBearingEntity.
-				val elected = electedLocationSource?.let { getOrCreateSourceId(it) }
-				database.locationDao().insertLocation(entity.copy(electedSourceId = elected))
-			} catch (e: Exception) {
-				Log.e(TAG, "Failed to store location in database: ${e.message}", e)
-			}
-		}
+		// Stamped in insertLocation — see storeBearingEntity.
+		val elected = electedLocationSource
+		enqueueRow("location") { insertLocation(entity, elected) }
 	}
 
 	// Current camera-mount offset (degrees) applied to GPS-derived travel heading.
@@ -505,23 +656,16 @@ class GeoTrackingManager(private val context: Context) {
 			)
 		) ?: return null
 		val composed = normalizeBearingDegrees(travel + mountOffset)
-		CoroutineScope(Dispatchers.IO).launch {
-			try {
-				val sourceId = getOrCreateSourceId("gps-kalman")
-				storeBearingEntity(
-					BearingEntity(
-						timestamp = data.timestamp,
-						trueHeading = composed.toFloat(),
-						magneticHeading = null,
-						accuracyLevel = null,
-						sourceId = sourceId,
-						pitch = null,
-						roll = null
-					)
-				)
-			} catch (e: Exception) {
-				Log.e(TAG, "Failed to store gps-kalman bearing: ${e.message}", e)
-			}
+		queueBearing("gps-kalman", "gps-kalman bearing") { sourceId ->
+			BearingEntity(
+				timestamp = data.timestamp,
+				trueHeading = composed.toFloat(),
+				magneticHeading = null,
+				accuracyLevel = null,
+				sourceId = sourceId,
+				pitch = null,
+				roll = null
+			)
 		}
 		return composed
 	}
@@ -531,33 +675,30 @@ class GeoTrackingManager(private val context: Context) {
 	}
 
 	fun storeLocationPreciseLocationData(data: PreciseLocationData) {
-		CoroutineScope(Dispatchers.IO).launch {
-			try {
-				// The Android location API is one elect-able source; which
-				// provider inside it produced the fix ("fused"/"gps"/"network")
-				// is provenance, so it moves to `detail`. Fixes taken while the
-				// user has panned away are no longer renamed — they keep this
-				// name and simply are not the elected source, which the row
-				// records for itself.
-				val sourceId = getOrCreateSourceId("android")
-				storeLocationEntity(
-					LocationEntity(
-						timestamp = data.timestamp,
-						latitude = data.latitude,
-						longitude = data.longitude,
-						sourceId = sourceId,
-						detail = data.provider,
-						altitude = data.altitude,
-						accuracy = data.accuracy,
-						verticalAccuracy = data.altitudeAccuracy,
-						speed = data.speed,
-						bearing = data.bearing
-					)
-				)
-			} catch (e: Exception) {
-				Log.e(TAG, "Failed to store location data: ${e.message}", e)
-				throw e
-			}
+		// The Android location API is one elect-able source; which
+		// provider inside it produced the fix ("fused"/"gps"/"network")
+		// is provenance, so it moves to `detail`. Fixes taken while the
+		// user has panned away are no longer renamed — they keep this
+		// name and simply are not the elected source, which the row
+		// records for itself.
+		//
+		// A failed write used to be RETHROWN here, which in a bare
+		// CoroutineScope(Dispatchers.IO) took the process down. On the single
+		// writer it would stop every later write instead, so it is logged
+		// like the others (the writer's catch) — a deliberate change, 2026-11-06.
+		queueLocation("android", "location data") { sourceId ->
+			LocationEntity(
+				timestamp = data.timestamp,
+				latitude = data.latitude,
+				longitude = data.longitude,
+				sourceId = sourceId,
+				detail = data.provider,
+				altitude = data.altitude,
+				accuracy = data.accuracy,
+				verticalAccuracy = data.altitudeAccuracy,
+				speed = data.speed,
+				bearing = data.bearing
+			)
 		}
 	}
 

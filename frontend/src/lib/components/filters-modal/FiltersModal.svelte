@@ -2,7 +2,7 @@
 	import Modal from '../Modal.svelte';
 	import { Sun, Moon, Sunrise, Home, Trees, RotateCcw } from 'lucide-svelte';
 	import { maxPhotosInArea } from '$lib/data.svelte';
-	import { filters, hasActiveFilters, hasActiveAnalysisFilters, clearFilters, filtersModalState, closeFiltersModal } from './filtersStore';
+	import { filters, hasActiveFilters, hasActiveAnalysisFilters, clearFilters, filtersModalState, closeFiltersModal, featureCategories } from './filtersStore';
 	import { track } from '$lib/analytics';
 
 	function setTimeOfDay(value: string | null) {
@@ -49,6 +49,19 @@
 		filters.update(f => ({ ...f, properties: { ...f.properties, min_width: value } }));
 	}
 
+	// The verdict is photos.blurry, a property: it applies to analyzed and
+	// unanalyzed photos alike. "Blurry" is a DEV_MODE view for checking the
+	// rule; the two are exclusive.
+	const devMode = import.meta.env.VITE_DEV_MODE === 'true';
+	function setSharpness(value: 'not_blurry' | 'blurry') {
+		const on = !$filters.properties[value];
+		track('filter', { name: 'sharpness', value: on ? value : 'off' });
+		filters.update(f => ({
+			...f,
+			properties: { ...f.properties, not_blurry: value === 'not_blurry' && on, blurry: value === 'blurry' && on }
+		}));
+	}
+
 	function stepMaxPhotos(delta: number) {
 		const current = Number.isFinite($maxPhotosInArea) ? $maxPhotosInArea : 100;
 		maxPhotosInArea.set(Math.min(1000, Math.max(10, current + delta)));
@@ -83,37 +96,7 @@
 		{ value: 'indoors', label: 'Indoors', icon: Home },
 	];
 
-	// All features organized by category (matching analyze_photo.py schema)
-	const featureCategories = [
-		{
-			name: 'Nature',
-			features: ['hill', 'mountain', 'river', 'stream', 'water_body', 'landscape', 'rock_outcrop', 'tree_lined_path', 'path', 'nature']
-		},
-		{
-			name: 'Urban',
-			features: ['street', 'building', 'cityscape', 'high_rise_building', 'church', 'playground', 'bench']
-		},
-		{
-			name: 'Structures',
-			features: ['bridge', 'tower', 'observation_tower', 'water_tower', 'cooling_tower', 'crane', 'curved_structure', 'mast']
-		},
-		{
-			name: 'Infrastructure',
-			features: ['lamp_post', 'powerline_pole', 'utility_pole', 'high_mast_lighting', 'row_of_streetlights', 'ev_charger']
-		},
-		{
-			name: 'Activity',
-			features: ['construction', 'roadworks', 'ski_slope', 'accident']
-		},
-		{
-			name: 'Animals',
-			features: ['cat', 'dog']
-		},
-		{
-			name: 'Other',
-			features: ['art', 'signage']
-		}
-	];
+	// featureCategories moved to filtersStore.ts (the URL filter parser validates against it)
 
 	// Helper to format feature names for display
 	function formatFeature(feature: string): string {
@@ -218,6 +201,34 @@
 				aria-valuetext={minWidth === 0 ? 'Any width' : `${minWidth} pixels`}
 				data-testid="min-width-slider"
 			/>
+		</section>
+
+		<section class="filter-section">
+			<h4>Sharpness</h4>
+			<div class="option-chips">
+				<button
+					class="chip"
+					class:selected={$filters.properties.not_blurry}
+					onclick={() => setSharpness('not_blurry')}
+					data-testid="filter"
+					data-filter-name="sharpness"
+					data-filter-value="not_blurry"
+				>
+					Not blurry
+				</button>
+				{#if devMode}
+					<button
+						class="chip"
+						class:selected={$filters.properties.blurry}
+						onclick={() => setSharpness('blurry')}
+						data-testid="filter"
+						data-filter-name="sharpness"
+						data-filter-value="blurry"
+					>
+						Blurry (dev)
+					</button>
+				{/if}
+			</div>
 		</section>
 
 		<section class="filter-section">

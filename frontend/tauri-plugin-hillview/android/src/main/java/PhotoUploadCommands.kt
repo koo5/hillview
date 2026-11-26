@@ -24,8 +24,11 @@ private const val TAG = "🢄Upload"
 fun PhotoUploadLogic.handleGetProcessingPhotoIds(invoke: Invoke) {
     CoroutineScope(Dispatchers.IO).launch {
         try {
-            val processingPhotos = photoDao.getProcessingPhotos()
-            val serverPhotoIds = processingPhotos.mapNotNull { it.serverPhotoId }
+            //val processingPhotos = photoDao.getProcessingPhotos()
+            //val serverPhotoIds = processingPhotos.mapNotNull { it.serverPhotoId }
+            // Just the ids (2026-11-06): thousands of "processing" photos is normal, and
+            // whole rows carry each photo's raw IMU window — enough to fill the heap.
+            val serverPhotoIds = photoDao.getProcessingServerPhotoIds()
 
             val result = JSObject()
             result.put("success", true)

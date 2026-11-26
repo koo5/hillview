@@ -219,7 +219,7 @@ def detect_targets(image, max_tile_size=1280, min_scale_size=4096, overlap=0.2, 
 
 
 
-def anonymize_image(source_path, encoding=None):
+def anonymize_image(source_path, encoding=None, orientation_override=None):
 	"""
 	Anonymize image by blurring detected objects and return detection results.
 
@@ -228,7 +228,10 @@ def anonymize_image(source_path, encoding=None):
 	"""
 
 	t0 = time.monotonic()
-	image = read_image(source_path, encoding=encoding)
+	options = {'encoding': encoding}
+	if orientation_override is not None:
+		options['orientation_override'] = orientation_override
+	image = read_image(source_path, **options)
 	logger.info(f"Image read ({time.monotonic() - t0:.1f}s), starting YOLO detection: {source_path}")
 	# Decode is over; from here on the phase label is honest (the caller sets
 	# "decode" before read_image — see create_optimized_sizes).

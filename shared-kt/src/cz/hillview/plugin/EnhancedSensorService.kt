@@ -1602,17 +1602,31 @@ class EnhancedSensorService(
         }
     }
 
+    /**
+     * The declination for [declinationFor], computed once per location rather than per
+     * sensor event (2026-11-05). A GeomagneticField builds its Legendre tables on every
+     * construction, and this ran on every rotation-vector event — tens to hundreds a
+     * second of garbage for a value that changes with the town, not the frame. (That
+     * churn was where an OutOfMemoryError on hillview-geo SURFACED; it did not fill the
+     * heap, being collectable, so it is not that crash's cause.)
+     */
+    private var declinationFor: Location? = null
+    private var cachedDeclination = 0f
+
     private fun getMagneticDeclination(): Float {
-        lastLocation?.let { loc ->
-            val geoField = GeomagneticField(
+        val loc = lastLocation ?: return 0f
+        // Identity, not equality: updateLocation and start() each assign a new object, so
+        // a new object is exactly "the location changed".
+        if (loc !== declinationFor) {
+            cachedDeclination = GeomagneticField(
                 loc.latitude.toFloat(),
                 loc.longitude.toFloat(),
                 loc.altitude.toFloat(),
                 System.currentTimeMillis()
-            )
-            return geoField.declination
+            ).declination
+            declinationFor = loc
         }
-        return 0f
+        return cachedDeclination
     }
 
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { autofocus } from '$lib/actions/autofocus';
 	import { portal } from '$lib/actions/portal';
 	import { deletePhotoRequest } from '$lib/photoActions';
 	import { getUserName } from '$lib/photoUtils';
@@ -20,6 +21,13 @@
 		show = false;
 		reason = '';
 		message = '';
+	}
+
+	function handleKeydown(event: KeyboardEvent) {
+		if (event.key !== 'Escape') return;
+		event.preventDefault();
+		event.stopPropagation();
+		if (!isDeleting) cancel();
 	}
 
 	async function confirm() {
@@ -46,7 +54,15 @@
 
 {#if show && photo}
 	<div class="dialog-overlay" use:portal>
-		<div class="dialog" data-testid="delete-photo-dialog">
+		<div
+			class="dialog"
+			role="dialog"
+			aria-modal="true"
+			aria-label="Delete photo"
+			tabindex="-1"
+			onkeydown={handleKeydown}
+			data-testid="delete-photo-dialog"
+		>
 			<h3>Delete photo</h3>
 			<p>
 				This permanently removes
@@ -81,6 +97,7 @@
 				</button>
 				<button
 					class="confirm-button"
+					use:autofocus
 					onclick={confirm}
 					disabled={isDeleting}
 					data-testid="delete-photo-confirm"

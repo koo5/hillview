@@ -90,8 +90,10 @@ class StorageShapeBehaviourTest {
     private fun runCase(mode: StorageMode) {
         // The preference is chosen through the real settings radio, as the
         // Appium spec drives it — settings live behind the menu now.
-        compose.openMenu()
-        compose.onNodeWithTag("settings-menu-link").performClick()
+        // compose.openMenu()
+        // compose.onNodeWithTag("settings-menu-link").performClick()
+        // Settings → Photo files since the 2026-11-07 split.
+        compose.openSettingsSection("storage")
         compose.waitUntil(10_000) {
             compose.onAllNodesWithTag("settings-storage-${mode.key}")
                 .fetchSemanticsNodes().isNotEmpty()
@@ -99,12 +101,15 @@ class StorageShapeBehaviourTest {
         compose.onNodeWithTag("settings-storage-${mode.key}")
             .performScrollTo()
             .performClick()
-        compose.activityRule.scenario.onActivity {
-            it.onBackPressedDispatcher.onBackPressed()
-        }
-        compose.waitUntil(10_000) {
-            compose.onAllNodesWithTag("hamburger-menu")
-                .fetchSemanticsNodes().isNotEmpty()
+        // compose.activityRule.scenario.onActivity {
+        //     it.onBackPressedDispatcher.onBackPressed()
+        // }
+        // compose.waitUntil(10_000) {
+        //     compose.onAllNodesWithTag("hamburger-menu")
+        //         .fetchSemanticsNodes().isNotEmpty()
+        // }
+        compose.backToMain {
+            compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         }
 
         compose.openCaptureAndAwaitCamera()

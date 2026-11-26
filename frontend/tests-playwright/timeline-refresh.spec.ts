@@ -16,6 +16,10 @@ const CENTER = { lat: 50.1156, lng: 14.494 };
 const A1 = { lat: 50.115, lng: 14.4932 };
 const A2 = { lat: 50.1152, lng: 14.4952 };
 const B1 = { lat: 50.1163, lng: 14.4943 };
+// At zoom 18 the 70px range circle covers only ~27m: selecting A1 pans the
+// map and can cull A2/B1 before the next click. Zoom 16 keeps all three inside
+// the range circle, so these tests exercise selection without moving the map.
+const SELECTION_ZOOM = 16;
 
 // Two `admin` photos ~2km apart, for the stepping regression: centred on S1, S2 is far
 // off-screen / out of range — the case where the cursor-follow guard must not hijack the
@@ -31,9 +35,8 @@ let idS1 = '';
 let idS2 = '';
 
 test.describe('Timeline refresh + cursor-follow', () => {
-	// Serial: behavior tests reuse the captured photos from setup. Retries absorb the rare
-	// streaming-timing flake where the walk anchors on a sibling photo at open.
-	test.describe.configure({ mode: 'serial', retries: 2 });
+	// Serial: behavior tests reuse the captured photos from setup.
+	test.describe.configure({ mode: 'serial' });
 
 	test.beforeEach(async ({ browserName }) => {
 		// Capture pipeline needs the fake camera (Chromium flags) and stores photo
@@ -84,7 +87,7 @@ test.describe('Timeline refresh + cursor-follow', () => {
 	test('selecting an in-window photo moves the cursor (no refresh button)', async ({ page, testUsers }) => {
 		test.setTimeout(180_000);
 		await loginAs(page, 'test', testUsers.passwords.test);
-		await openMap(page, CENTER, [idA1, idA2, idB1]);
+		await openMap(page, CENTER, [idA1, idA2, idB1], 30, SELECTION_ZOOM);
 
 		// Anchor the walk on A1 (oldest of test's two photos → row 1 / 2).
 		await openTimelineAnchoredOn(page, idA1);
@@ -102,7 +105,7 @@ test.describe('Timeline refresh + cursor-follow', () => {
 	test('selecting another user\'s photo shows refresh; clicking it switches the walk', async ({ page, testUsers }) => {
 		test.setTimeout(180_000);
 		await loginAs(page, 'test', testUsers.passwords.test);
-		await openMap(page, CENTER, [idA1, idA2, idB1]);
+		await openMap(page, CENTER, [idA1, idA2, idB1], 30, SELECTION_ZOOM);
 
 		// Anchor on test's photo; the walk tracks only `test`.
 		await openTimelineAnchoredOn(page, idA1);
@@ -127,7 +130,7 @@ test.describe('Timeline refresh + cursor-follow', () => {
 	test('navigating to a photo from /activity wins over an open walk (not clobbered)', async ({ page, testUsers }) => {
 		test.setTimeout(180_000);
 		await loginAs(page, 'test', testUsers.passwords.test);
-		await openMap(page, CENTER, [idA1, idA2, idB1]);
+		await openMap(page, CENTER, [idA1, idA2, idB1], 30, SELECTION_ZOOM);
 
 		// Open the walk anchored on test's A1 → cursor on the oldest of test's two photos.
 		await openTimelineAnchoredOn(page, idA1);
@@ -167,7 +170,7 @@ test.describe('Timeline refresh + cursor-follow', () => {
 	test('clicking the active panel row re-centers the map on the cursor photo', async ({ page, testUsers }) => {
 		test.setTimeout(180_000);
 		await loginAs(page, 'test', testUsers.passwords.test);
-		await openMap(page, CENTER, [idA1, idA2, idB1]);
+		await openMap(page, CENTER, [idA1, idA2, idB1], 30, SELECTION_ZOOM);
 
 		await openTimelineAnchoredOn(page, idA1);
 		const status = page.getByTestId('timeline-status');

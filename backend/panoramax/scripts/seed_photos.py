@@ -13,6 +13,7 @@ So a successful run must produce exactly N sequences for the test user.
 import argparse
 import asyncio
 import os
+import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 
@@ -84,6 +85,18 @@ async def seed(sessions: int, per_session: int, gap_hours: float) -> list[str]:
 		for pid, status, err in failed:
 			print(f"  FAILED {pid}: {status} ({err})", file=sys.stderr)
 		raise SystemExit(f"{len(failed)}/{len(photo_ids)} photos did not process")
+
+	# The analyzer is not part of the dev stack, and the federation gates
+	# require an analysis listing no signage (eligibility.py): write one the
+	# way share_all_photos_dev.py reaches the database. The ids are the API's.
+	ids_sql = ', '.join("'" + pid + "'" for pid in photo_ids)
+	result = subprocess.run(['docker', 'exec', '-i', 'hillview_postgres', 'sh', '-c',
+		'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -tA'],
+		input=f"UPDATE photos SET analysis = '{{\"features\": []}}'::jsonb WHERE id IN ({ids_sql});",
+		text=True, capture_output=True)
+	if result.returncode != 0:
+		print(f"could not write the analyses ({result.stderr.strip()}); without one the photos stay out "
+			"of the federation, so run that UPDATE against the database yourself", file=sys.stderr)
 
 	print(f"seeded {len(photo_ids)} photos in {sessions} sessions")
 	return photo_ids

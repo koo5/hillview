@@ -83,7 +83,16 @@ upload trigger) still publishes only after the final bytes exist.
   overlay, calibration sheet, eco mode, tap-to-focus, shutter-priority
   ladder (MANUAL_SENSOR-gated), real-resolution menu, location gate with
   the map-position lift, auto-upload consent chain (null licence default),
-  bilingual shutter tone.
+  bilingual shutter tone. 2026-11-07: the tones are synthesized and
+  played on a user-chosen stream (Settings → Capture → Capture sound: Click / Beep /
+  Off, the degraded-position warning as its own switch, Media /
+  Notification / Alarm volume, loudness, test buttons) —
+  `CaptureSound.kt`, `CaptureSoundPlayer`. The platform players they
+  replaced each picked their own stream (MediaActionSound the "enforced"
+  one: ring volume on one phone, no slider on another; the warning
+  ToneGenerator the notification one), so what silenced them varied by
+  device. Where `CameraInfo.mustPlayShutterSound()` says the law requires
+  a shutter sound, the system click still plays on every photo.
 - The exploration pill + manual-position claim: pan is exploration,
   "Capture here" is the only way the map position becomes the capture
   position; claim survives entering capture; withdrawal everywhere.
@@ -507,6 +516,269 @@ them. The two ages are the diagnosis — the map
 writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
+
+## 2026-11-17 — pitch is positive up, and the viewfinder says whether you are level
+
+Three changes from [todo/frontend2-pitch-sign-and-level.md](todo/frontend2-pitch-sign-and-level.md),
+all device-verified on an API 36 emulator. The plan's reasoning is the valuable part;
+this is what is now true.
+
+**The sign changes in exactly one place.** `map/PitchConvention.kt` holds
+`statePitchFromSensor` and `sensorPitchFromState`, and nothing else negates a pitch.
+Above it — `DeviceAttitude.pitch`, `PhotoCaptureState.pitchDeg`, `PhotoEntity.pitch`,
+the dump's `pitch_up_deg` column, `OverlapRun`'s view directions — everything is
+POSITIVE UP, the GPano convention `photos.pitch` and the viewer already use. Below it,
+the capture stamp's `attitude.pitch_deg` and the bearings table stay positive down,
+because that is what `capture_pose.py` reads and what years of stored rows mean.
+
+Both sensor entry points convert on the way in, and there are exactly two:
+`AttitudeMapping` and the compass callback in `MapSensorController.startBearing`. The
+second one is why the original research was wrong, and why `PitchEntryPointTest`
+(jvmTest) now fails the build if a third appears — it allowlists the files that may
+mention `OrientationSensorData` at all. `matrixPitchDeg` deliberately does NOT convert:
+it is the raw diagnostic.
+
+`PHOTO_DB_VERSION` 33 negates every stored row. `PhotoDatabaseMigrationTest` covers a
+positive, a NEGATIVE (which is what tells a negation from an `abs()`) and a null row.
+The top-level `pitch` field is no longer sent in the upload metadata; the line is kept
+commented in `PhotoUploadLogic` as history.
+
+**The "Write EXIF" stamp was carrying less than the fast-write path.** With that
+setting on, the worker keeps the file's own UserComment and the upload metadata never
+speaks — and that stamp held `attitude` alone. `capture_pose` reads a stamp with no
+`capture_timing` as pre-versioning, and then trusts the angles only when
+`device_rotation_deg` is 0, so an EXIF-stamped landscape or upside-down photo reached
+the server with no pitch and no roll and failed the Panoramax gates. Portrait worked,
+which is the worst shape a bug can have. `PhotoExifWriter` now writes `inertial` and
+`capture_timing` too, built by the same functions the upload path uses rather than
+copies.
+
+**The capture screen says whether the shot will pass the gates.** `CaptureLevel.kt`
+(commonMain) is the third port of one piece of arithmetic, after `capture_pose.py` and
+the web app's `capturePoseMath.ts`. Three ports drift, so `CaptureLevelFixtureTest`
+READS `backend/common/capture_pose_cases.json` instead of copying it: all 40 cases
+agree, derived from the fixture's gravity vectors into what the one state would hold.
+The two gates are checked against the fixture's own limits and the roll floor against
+shared-kt's `GRAVITY_ROLL_FLOOR`.
+
+Two traps in that port, both of which would have been silent:
+
+- the quarter-turn reduction uses `floor(r / 90 + 0.5)`, not Kotlin's `round` — `round`
+  goes half away from zero and both existing ports go half up, which disagree at every
+  negative half;
+- `LEVEL_ROLL_FLOOR` is a `Double`, because `0.26f` widened is `0.2599999904` and equals
+  neither the fixture nor itself written out. The test crosses the two constants in
+  float space, where they are exactly equal, rather than reaching for a tolerance.
+
+The indicator reads the one state through `CaptureState` and subscribes to nothing. It
+says "Level", "Horizon tilted 23°", "Pointing at the sky" — the web app's own sentences,
+so one measurement is described one way in both apps. Hidden in car mode (a phone on a
+mount is not being aimed); an unmeasured pose stays quiet unless Panoramax sharing is
+on, where the silence would cost the photo its publication. It never refuses the shutter.
+Seven `LevelIndicatorUiTest` cases, including the level LANDSCAPE shot that must read 0
+rather than 90.
+
+**Local photos now navigate up and down.** `DevicePhotoLoader` passes `PhotoEntity.pitch`
+into `PhotoData.pitch`, which `LoaderMarkerSources` already forwarded. This is a straight
+pass-through only because the column was migrated first — before that it would have sent
+every local photo up where it looked down.
+
+## 2026-11-09 — worker status in one place, and the machine pin
+
+User: "i keep going back between the uploads screen and the settings->worker
+url screen, both have some status readouts with intransparent update logic, it
+says "Reachable HTTP 200" and SSLException on one screen at the same time".
+The "HTTP 200" was the Uploads screen's server ping (the API, `/api/debug`),
+unlabelled, beside the worker's SSL failure; the worker dialog had a Test line
+that never refreshed and a "last contact" line shared by every worker URL.
+
+- **One status line per worker URL** (shared-kt `WorkerOverride.kt`,
+  `PREF_WORKER_CONTACTS`), written by uploads and by Test alike, so a URL's
+  line is always its newest news, with its step ("ready:", "upload:",
+  "test:", "pin:") and age.
+- **The worker controls moved to the Uploads screen** (`WorkerPanel`, was
+  `WorkerUrlDialog`): "as the server says" shows which worker that is (the
+  URL authorize-upload last named) and its status; each saved URL its own.
+  Settings → Servers → Worker now only says which one is in use and opens
+  Uploads.
+- **One refresh tick** for the whole Uploads screen (2 s), so every age on it
+  comes from the same reading; Test and pin re-read at once.
+- **"Test server" is "Test API server"**, and its answer says "API server:".
+  The diagnostics' "Server" row is "API server"; the "Worker" and "Last worker
+  contact" rows are gone (the panel has them). A failing active worker is the
+  headline when nothing else blocks.
+- **Settings → Servers is three groups**, each with its own way of taking
+  effect: *API server* (the URL in use now, the field, and the restart prompt
+  directly under it — it used to sit at the bottom, below unrelated fields),
+  *Web app* (at once), *Uploads* (the worker row, a link to the Uploads
+  screen). The Servers entry on the Settings list names a hand-picked worker.
+- **A 503 is "busy", not an error** (user: "the screens still show 503 as an
+  error"): the worker is up and full. Its line reads "⏳ ready: queue full
+  (HTTP 503), come back in 500 s", not in red; the headline says "Worker full"
+  rather than "failing"; it stays out of the event log. Test says the same.
+- **Pinning is a button** ("Pin certificate", then "Re-pin" / "Unpin"), not a
+  switch: it fetches and trusts a certificate, an action (user: "should not be
+  a toggle if its an action").
+
+The worker switches also exposed a pinning bug: an off-Fly worker's `/ready`
+says `"fly_machine_id": null`, which Android's `org.json` `optString` returns
+as the STRING "null", so the phone pinned machine "null" — and the pin was a
+bare id, so it followed the phone to the next worker. Now the pin remembers
+the URL it came from (`WorkerMachinePin.kt`), an answer without a machine id
+clears it, and so does any `/ready` other than 200/404. `WorkerMachinePinTest`
+is a device test on purpose: the JVM's org.json doesn't have the quirk.
+
+## 2026-11-07 — Settings is a list of sub-pages
+
+The single Settings page (about 20 controls) is now a list of five pages,
+each its own back-stack entry (`SettingsSectionKey(SettingsSection)`), so
+system Back leaves a page for the list and a page survives process death:
+
+| Page | Holds |
+|---|---|
+| Uploads & licence | Auto-upload, Wi-Fi only, sign-in prompt, licence choice, Panoramax link |
+| Capture | Exact capture time, capture sound, SfM run (→ its own page) |
+| Photo files | Storage target, hide from gallery, EXIF writing, photo index |
+| Location & compass | Tracking CSV export and folder, GPS interval (hidden), geo debug readout, landscape compass workaround |
+| Servers | API URL, worker URL, web app URL, the restart banner |
+
+Each row on the list carries a one-line summary of its page
+(`settingsSectionSummary`), for example "No licence picked — photos stay on
+this phone · not signed in" or "hv.dev4.local — restart the app to apply".
+The build stamp stays on the list. The auto-upload prompt's "Configure" opens
+Uploads directly, with the list underneath it on the back stack.
+
+The controls moved without rewrites: each contiguous block of the old page is
+now its own function in `SettingsScreen.kt`, and its test tags are unchanged.
+Device tests reach a page through `openSettingsSection(key)` and return
+through `backToMain`. `SettingsIndexTest` covers the list and the summaries.
+
+## 2026-11-05 — a worker URL of your own, http or self-signed
+
+User: "like we have the settings field to override api server url, i want to
+also be able to override worker url. The catch is that it may need to be a
+self-signed or http url" … "we'll need some status/logging to debug this in
+the UI".
+
+- **Settings → Worker URL** opens a dialog (`WorkerUrlDialog`): "As the server
+  says" (the default) plus saved URLs, one selected. Adding a URL selects it.
+  **Divergence:** the Tauri app has no such setting. Unlike the API URL, no
+  restart is needed: the upload stack reads the override per photo.
+- **Self-signed = pinned, never trust-all.** The https entry's switch fetches
+  the certificate the worker presents (the probe records the chain and refuses
+  it, so nothing is sent). The dialog shows its subject, SHA-256 and expiry,
+  and that certificate becomes the only trust anchor for the worker. Chain
+  validation still runs; the hostname check passes on the platform's rules or
+  on a leaf byte-equal to the pin. Trust-all was rejected because it hands the
+  upload JWT and photos to anyone on the path, and Play rejects trust-all
+  TrustManagers. shared-kt ships in the Tauri app too.
+  - The topmost presented certificate is pinned, so for Caddy's `tls internal`
+    that is the intermediate. It outlives the 12 h leaf but expires within
+    days, so re-pin when uploads start failing with a trust-anchor error.
+- **http** entries say they are unencrypted. Cleartext is permitted only in
+  the debug build (`src/debug/AndroidManifest.xml`), the same as an http API
+  URL. In a release build an http worker fails with "CLEARTEXT communication
+  not permitted".
+- **Plumbing:** `hillview_upload_prefs` keys `worker_endpoints` (the list,
+  frontend2's own), and `worker_url_override` + `worker_pinned_cert` (the
+  selected pair, what shared-kt reads; `WorkerOverride.kt`).
+  `PhotoUploadLogic.uploadToWorker` swaps URL and client and nothing else; the
+  pinned client is cached per pin. The Tauri app never writes those keys.
+- **Status in the UI:**
+  - **Test** in the dialog runs the upload's own `/ready` preflight through the
+    same client.
+  - Every worker contact records `last_worker_*`, shown under the dialog and as
+    "Worker" / "Last worker contact" rows on the upload-status page.
+  - Each failure goes to the event log (category `upload`) with its cause
+    chain, so a refused pin reads "… ← CertPathValidatorException: Trust anchor
+    … not found", not just "handshake failed".
+- Desktop: the dialog renders, but there is no upload stack. The list is not
+  persisted there.
+- Tests:
+  - `WorkerEndpointsTest`: the rules.
+  - `WorkerUrlDialogTest`: the dialog, with fakes.
+  - `WorkerPinningTest` (host): real TLS on loopback with keytool-made
+    certificates. It covers probe, pinned success, unpinned refusal, an
+    impostor at the same address, and a pinned certificate naming no host.
+- Not verified on a phone or emulator, nor against a real self-signed worker.
+
+## 2026-11-05 — an SfM run: shots spaced by overlap, not by the clock
+
+- **A new ladder rung, `SfM`, between 30 s and VIDEO — opt-in** (user: "we
+  currently support video or interval capture, but the sweet spot is
+  somewhere in the middle"; then "lets make it all opt-in and
+  configurable"). A fixed interval is a guess at walking speed; the field notes'
+  bracket says what a wrong guess costs — contiguous frames ~1.8 m apart
+  solved, every 8th (~14 m) drifted 81 m (`reconstruction-field-notes.md`,
+  "Two clustering axes").
+  - **It shoots when** the camera has moved `metres` (1.5) or the lens has
+    turned `turnDeg` (15°, ~70 % of a portrait frame kept) since the last
+    shot — never sooner than 200 ms, never later than 5 s (`OverlapSpacing`,
+    `OverlapRun.kt`). Defaults, untuned; they want a field run.
+  - **Always on the ladder, configurable**: Settings → Capture → "SfM run" (`SfmSettingsScreen`,
+    a sub-page; it was a main-menu entry until 2026-11-07). Until 2026-11-09
+    it was opt-in, a rung just under VIDEO only when switched on; since then
+    there is no switch for the whole run and it is the BOTTOM rung of
+    `INTERVAL_LADDER` (user: "theres no need to toggle the appearance of an
+    extra capture interval ladder item. And we can make it the lowest item in
+    the ladder"). So a finger slid below the ladder now picks SfM, not 0.2 s;
+    the pick still starts on 0.2 s (`DEFAULT_LADDER_INDEX`). The old
+    `sfm_run_enabled` pref is no longer read. Each
+    trigger — distance, turn, heartbeat — has its own switch and value, plus
+    the floor; a switched-off trigger is `null` in `OverlapSpacing`. With all
+    three off the page warns that a run takes one photo and waits. Stored
+    field by field (`sfm_*` prefs), clamped to the sliders' ranges.
+  - **Distance is the receiver's own speed, integrated** (`Odometer`): fused
+    speed is Doppler and steady at walking pace, where 1 Hz position deltas
+    are mostly the fix wandering. No speed, or a speed inside its own error
+    bar, counts as standing still; the coast past the last fix is capped at
+    2 s. **The turn** is the angle between lens directions (heading + pitch,
+    `turnBetween`), so roll does not count and looking straight down does
+    not read the compass's swing as a turn.
+  - Both read the ONE STATE (`lastFix`, `deviceAttitude`); the loop
+    (`runOverlap`, CaptureScreen.kt) is the interval run's shutter path with
+    a different wait. Sports engages under Auto exactly as for an interval.
+  - Each shot's reason is counted in the capture stats — `sfm start / moved /
+    turned / heartbeat` — so a field run says which signal paced it.
+  - **`LadderRung.Run`** (Every and Overlap) is what the shutter's colour,
+    glyph, label and release verdict ask about now, instead of `Every`.
+  - **Known gap: the attitude is only written while the compass arrow is on**
+    (`MapScreen.android.kt`, `startBearing`'s `onAttitude`). With the arrow
+    off, an SfM run has no turn signal and paces on distance and the
+    heartbeat alone — and, beyond this run, a photo taken then carries no
+    attitude. Not changed here; it changes what every photo stamps. The
+    turn switch's explanation says it needs compass tracking on.
+  - Not done: no sharpness gate (a shot is not held for a steady instant; the
+    Sports rule is the blur defence), no visual parallax from the analysis
+    stream (the stronger signal where GPS speed is absent; measured and
+    parked in `todo/sfm-visual-scene-change.md`), and the trigger
+    reason is not stamped on the photo.
+  - Tests: `OverlapRunTest` (odometer, turn, trigger, switched-off triggers,
+    the settings → spacing mapping, a simulated minute's walk at 1.2 m/s →
+    a shot every ~1.25 s), `IntervalLadderTest` (the rung's place, and no
+    rung without opting in), `SfmSettingsScreenTest` (jvm render: off shows
+    nothing else, each switch hides its value, the all-off warning). NOT run
+    in the app, on the emulator or the phone.
+
+- **The travel arrow's rule is a function now** — `travelBearingFor`
+  (`TravelBearing.kt`), pinned by `TravelBearingTest`: the arrow minus the
+  offset, wrapping through north, unchanged by an offset drag, and nothing
+  before car mode has written a heading or outside a mount-offset drag.
+
+## 2026-11-05 — the lock no longer dims under the pinning dialog
+
+- **Locking with "Pin the screen" on dimmed the screen under Android's own
+  confirmation** (user: "there should be a delay like 10 seconds, because
+  Android pops up a dialogue that the user first has to confirm"). The dim
+  and `startLockTask()` ran in the same effect, so the dialog came up on a
+  screen already at the lock's brightness.
+  - Now the dim has its own effect: with pinning asked for it waits until
+    the pin takes hold (`lockTaskModeState`, polled every 250 ms), or
+    `DIM_AFTER_PIN_PROMPT_MS` (10 s) for a dialog declined or ignored.
+    Without pinning there is no dialog and it dims at once, as before.
+    Unlocking during the wait restores nothing that was not changed.
+  - The rule is `dimNow` (commonMain), pinned by `LockDimTest`. The effect
+    around it is NOT device-verified.
 
 ## 2026-10-10 — the attitude says how it was arrived at, and the viewfinder has a centre
 

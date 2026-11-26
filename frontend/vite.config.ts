@@ -3,7 +3,7 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig, type Plugin } from 'vite';
 import { sharedDefines } from './config/shared';
 
-// Repo-root shared/ ($terrain/$zoomview aliases) sits outside the vite root,
+// The hillview_common submodule ($terrain/$zoomview aliases) sits outside the vite root,
 // and vite's watcher does NOT cover out-of-root modules: edits there kept
 // serving stale transforms until a dev-server restart while in-root edits
 // hot-reloaded — a confusing half-updated state. Watching the dir explicitly
@@ -11,19 +11,22 @@ import { sharedDefines } from './config/shared';
 const watchShared: Plugin = {
 	name: 'watch-repo-shared',
 	configureServer(server) {
-		server.watcher.add(new URL('../shared', import.meta.url).pathname);
+		server.watcher.add(new URL('../hillview_common', import.meta.url).pathname);
 	}
 };
 
 export default defineConfig({
 	plugins: [sentrySvelteKit(), sveltekit(), watchShared],
+	// hillview_common has a node_modules of its own (for its own tests): its three, copc or laz-perf
+	// must never be a second copy beside this app's (vite-plugin-svelte dedupes svelte itself)
+	resolve: { dedupe: ['three', 'copc', 'laz-perf'] },
 	server: {
 		allowedHosts: ["dev.hillview.cz","jj.hillview.cz","hv.dev4.local","hv.jj.internal","hv.dev4.jj.internal"],
 		host: true,
-		// $zoomview resolves outside the project root; allow ONLY ../shared —
+		// $zoomview resolves outside the project root; allow ONLY ../hillview_common —
 		// never '..' (the repo root holds secrets/, and this dev server binds
 		// publicly). Listing any allow replaces the default, so '.' stays too.
-		fs: { allow: ['.', '../shared'] },
+		fs: { allow: ['.', '../hillview_common'] },
 		port: parseInt(process.env.VITE_DEV_PORT || '8212'),
 		hmr: {
 			protocol: 'ws',

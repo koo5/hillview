@@ -1,14 +1,16 @@
 # NB: build context is the REPO ROOT (docker-compose.yml), not frontend/ —
-# the $zoomview alias (svelte.config.js) imports ../shared/zoomview, which is
-# COPYied to /shared/zoomview so the same relative path resolves from /app.
+# the $zoomview / $terrain aliases (svelte.config.js) import ../hillview_common/…
+# (the shared UI submodule), COPYied to /hillview_common so the same relative
+# path resolves from /app.
 # Context stays small via the allowlist in Dockerfile.dockerignore.
 FROM oven/bun:1.4.4-debian@sha256:93d5032fe06d163427822dc1598f420363759bb18155c9cc90eb1be05a64a19e AS builder
 
 WORKDIR /app
 
 COPY frontend/ ./
-COPY shared/zoomview /shared/zoomview
-COPY shared/terrain /shared/terrain
+COPY hillview_common/zoomview /hillview_common/zoomview
+COPY hillview_common/terrain /hillview_common/terrain
+COPY hillview_common/world /hillview_common/world
 
 COPY frontend/src/routes/+page.svelte.web        src/routes/+page.svelte
 COPY frontend/src/routes/+page.ts.web            src/routes/+page.ts

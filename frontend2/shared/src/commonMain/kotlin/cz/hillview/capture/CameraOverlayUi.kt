@@ -26,10 +26,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import cz.hillview.map.BearingMode
+import cz.hillview.map.isAttitudeFresh
+import cz.hillview.core.nowMs
 import kotlinx.coroutines.delay
 
 /**
@@ -65,6 +69,14 @@ fun CameraOverlayUi(
     suppressHint: Boolean = false,
     /** Show the hunting readouts — MapSettings.showDiagnostics. */
     diagnostics: Boolean = false,
+    /**
+     * Whether this photo is destined for Panoramax (UploadSettings.shareToPanoramax).
+     * It only changes what an UNMEASURED pose says: with sharing on, "no attitude"
+     * has a consequence worth stating, and without it, it is just a missing number.
+     */
+    panoramaxShare: Boolean = false,
+    /** The same wall clock as the sensor timestamps; injectable for expiry checks. */
+    clock: () -> Long = ::nowMs,
 ) {
     // The post-open hint: 4 s from the camera coming ready, as the
     // original fires doCalibrationHint right after the stream starts.
@@ -112,7 +124,14 @@ fun CameraOverlayUi(
         Column(Modifier.padding(start = 18.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)) {
             when {
                 showHint && !suppressHint -> HintContent(bearingMode)
-                else -> LocationRows(state, overridePosition, diagnostics)
+                else -> LocationRows(
+                    state,
+                    overridePosition,
+                    diagnostics,
+                    bearingMode,
+                    panoramaxShare,
+                    clock,
+                )
             }
             statusText?.let { MonoText(it, Modifier.testTag("capture-status")) }
             uploadsText?.let { MonoText(it, Modifier.testTag("capture-upload-stats")) }
@@ -141,6 +160,40 @@ fun CameraOverlayUi(
     }
 }
 
+/**
+ * Level, tilted, or pointing at the sky — the Panoramax gates, live.
+ *
+ * It never refuses the shutter and never nags: a tilted photo is a photo, and only
+ * its chance of being PUBLISHED is at stake. So it states a fact and leaves the
+ * decision where it belongs. See `CaptureLevel` for the arithmetic, which is the
+ * same arithmetic `capture_pose.py` and the web capture UI use, pinned to one
+ * fixture by `CaptureLevelFixtureTest`.
+ *
+ * It reads the one state through [CaptureState] and subscribes to nothing of its
+ * own (docs/one-state.md).
+ */
+@Composable
+private fun LevelIndicator(
+    pitchDeg: Double?,
+    imageRollDeg: Double?,
+    panoramaxShare: Boolean,
+) {
+    val state = captureLevel(pitchDeg, imageRollDeg)
+    val words = captureLevelWords(pitchDeg, imageRollDeg)
+    val text = when {
+        words != null -> words
+        // Nothing measured the pose. Worth saying only when it costs something.
+        panoramaxShare -> "not measured — won't be published"
+        else -> return
+    }
+    MonoText(
+        "⊾ $text",
+        modifier = Modifier
+            .testTag("level-indicator")
+            .semantics { stateDescription = state.name.lowercase() },
+    )
+}
+
 @Composable
 private fun HintContent(bearingMode: BearingMode) {
     Row(
@@ -167,6 +220,11 @@ private fun LocationRows(
     state: CaptureState,
     overridePosition: ManualLocation?,
     diagnostics: Boolean,
+    /** Only to hide the level indicator on a mount — see [LevelIndicator]. */
+    bearingMode: BearingMode,
+    /** Only to decide whether an unmeasured pose is worth mentioning. */
+    panoramaxShare: Boolean,
+    clock: () -> Long,
 ) {
     // The effective capture position — the honesty note in the contract:
     // Tauri shows its pairing position (map state); here that is the
@@ -176,11 +234,11 @@ private fun LocationRows(
 
     // The stale-fix warning, in the overlay's ⚠️ slot: a capture right now
     // would stamp the photo with this aging fix (the original stamps
-    // silently, however old). Ticks once a second so the age is live.
-    var nowMs by remember { mutableStateOf(cz.hillview.core.nowMs()) }
-    LaunchedEffect(state.fixAtMs) {
+    // silently, however old). The tick also expires a stopped attitude stream.
+    var nowMs by remember { mutableStateOf(clock()) }
+    LaunchedEffect(clock) {
         while (true) {
-            nowMs = cz.hillview.core.nowMs()
+            nowMs = clock()
             delay(1_000)
         }
     }
@@ -218,7 +276,8 @@ private fun LocationRows(
     }
     // The other two axes of the attitude, beside the bearing rather than in it: at phone
     // width the bearing row already carries the position. ↕ is the optical axis's tilt,
-    // POSITIVE LOOKING DOWN; ⟳ is the image's rotation about that axis, 0 upright and
+    // POSITIVE UP — the lens above the horizon; ⟳ is the image's rotation about that
+    // axis, 0 upright and
     // ±90 in landscape. Both only when the compass has answered at all.
     if (state.pitchDeg != null || state.imageRollDeg != null) {
         MonoText(
@@ -254,6 +313,20 @@ private fun LocationRows(
                 }?.let { "m ${pad(signedOneDp(it.toDouble()), W_ROLL)}°" },
             ).joinToString("  "),
             Modifier.testTag("attitude-readout"),
+        )
+    }
+
+    // Whether this shot will pass the Panoramax level gates, said in words beside the
+    // numbers that decide it. Hidden in car mode: a phone on a mount is not being
+    // aimed, so an indicator telling its owner to straighten it is noise at best.
+    if (bearingMode != BearingMode.Car) {
+        // A new sample can arrive after the last clock tick. Read now on every
+        // recomposition too, so a current reading is never mistaken for a future one.
+        val fresh = isAttitudeFresh(state.attitudeAtMs, clock())
+        LevelIndicator(
+            pitchDeg = state.pitchDeg?.toDouble()?.takeIf { fresh },
+            imageRollDeg = state.imageRollDeg?.toDouble()?.takeIf { fresh },
+            panoramaxShare = panoramaxShare,
         )
     }
     // THE FIELD CHECK, behind its setting: is the compass trustworthy where we are
@@ -341,7 +414,7 @@ internal fun pad(text: String, width: Int): String =
 /**
  * One decimal with the sign ALWAYS shown, so the field is a constant width and "+" reads
  * as the direction rather than as the absence of "-". Used for the two axes where the
- * sign is the information: pitch (down positive) and the image roll.
+ * sign is the information: pitch (UP positive, since 2026-11-17) and the image roll.
  */
 internal fun signedOneDp(v: Double): String {
     val body = fmtDecimals(if (v < 0) -v else v, 1)

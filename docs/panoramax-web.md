@@ -25,10 +25,12 @@ This is not a ranking of public reuse rights.
 | `full1` | Publish as `arr`; not offered to federation | Publish as `panoramax`; offer for selection |
 | `panoramax_in` | Publish as `panoramax`; not offered to federation | Publish as `panoramax`; offer for selection |
 | `ccbysa4+osm` | Publish as CC; not offered to federation | Opens a compatible-grant dialog before enabling sharing |
-| Not chosen | Upload blocked | Upload blocked; the sharing preference can still be set |
+| Not chosen | Upload blocked | Opens the compatible-grant dialog before enabling sharing |
 
 Turning sharing on with a CC grant explains the conflict and offers the two
-compatible grants, with neither preselected. Cancel keeps CC and sharing off.
+compatible grants, with neither preselected. With no grant chosen yet, the
+same dialog asks for one instead: offering photos to Panoramax is when the
+grant matters, and otherwise the shared photos would sit blocked at upload. Cancel keeps CC and sharing off.
 Confirmation applies the chosen grant and sharing together. Choosing CC in the
 ordinary picker while sharing is on explicitly warns that confirmation will
 also turn sharing off. This guard applies in settings, capture, file uploads,
@@ -37,8 +39,9 @@ still cannot federate on the strength of that grant alone.
 
 The summary beside the controls explains the current combination. Sharing
 offers eligible views; approval, account contribution status, anonymization
-and representative-view selection still apply. Final Panoramax license
-wording remains pending.
+and representative-view selection still apply. The published licence is
+"CC BY-SA 4.0 + LO derivatives"; /licensing explains it and carries the
+Licence Ouverte warning (see [panoramax-federation.md](panoramax-federation.md)).
 
 Signing in, choosing a grant, enabling automatic upload and offering a photo
 to Panoramax are independent. Fresh browser preferences select no grant,
@@ -48,7 +51,8 @@ If automatic upload was already enabled, signing in can upload queued photos.
 
 ## Capture, files and persistence
 
-The browser P button sits above camera settings, with a separate help link.
+The browser P button sits above camera settings. Its help link lives in the
+grant dialog it opens, beside the choice it explains.
 It and capture Settings use `capturePanoramaxShare`. File uploads use the
 separate `manualPanoramaxShare` and `manualUploadLicense` preferences.
 These are browser/device preferences, rather than account settings.

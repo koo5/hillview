@@ -416,9 +416,13 @@
 						{/if}
 						<RetryUploadsButton {photo} onSync={() => fetchDevicePhotos(1, false)} />
 						{#if BROWSER}
-							<p data-testid="device-photo-license">Upload grant: {licenseLabelFor(photo.license ?? $autoUploadLicense) ?? 'Choose a license in upload settings'}{photo.license == null && $autoUploadLicense ? ' (from upload settings)' : ''}</p>
+							<!-- An upload records the grant it sent. One uploaded before that was
+							     recorded has no local answer; the photo page has the real one. -->
+							{#if photo.license != null || !photo.server_photo_id}
+								<p data-testid="device-photo-license">Upload grant: {licenseLabelFor(photo.license ?? $autoUploadLicense) ?? 'Choose a license in upload settings'}{photo.license == null && $autoUploadLicense ? ' (from upload settings)' : ''}</p>
+							{/if}
 							{#if photo.server_photo_id}
-								<a href={`/photo/hillview-${photo.server_photo_id}`} data-testid="device-photo-sharing-link">View or change this photo’s Panoramax sharing</a>
+								<a href={`/photo/hillview-${photo.server_photo_id}`} data-testid="device-photo-sharing-link">Uploaded: change Panoramax sharing on the photo page</a>
 							{:else}
 								<PanoramaxShareControl sharing={photo.panoramax_share ?? false} license={photo.license ?? $autoUploadLicense}
 									buttonText={`Panoramax: ${photo.panoramax_share ? 'on' : 'off'}`} testId="photo-panoramax-share-button"

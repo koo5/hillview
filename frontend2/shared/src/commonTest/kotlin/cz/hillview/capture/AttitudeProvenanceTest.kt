@@ -33,6 +33,27 @@ class AttitudeProvenanceTest {
 
     private val shutterAt = 1_700_000_000_000L
 
+    /**
+     * The one state's pitch for these fixtures: the lens 4.75° ABOVE the horizon.
+     *
+     * Named rather than written as a bare number because this test's job is to pin a
+     * SIGN, and a bare 4.75 cannot do that. It used to assert that the stamp carried
+     * whatever the state held — a pass-through, which stays green whether or not the
+     * conversion below exists, so the missing conversion would have been the silent
+     * case and the present one the noisy case. Exactly backwards for a sign change.
+     */
+    private val lensAboveHorizonDeg = 4.75
+
+    /**
+     * ...and what the STAMP must say about the same pose, which is the other sign.
+     * `attitude.pitch_deg` is positive looking DOWN and does not move: `capture_pose`
+     * negates it for every metadata_version from 1 up and has no v4 branch, so a
+     * flipped stamp would be stored inverted. Written out, not computed from the line
+     * above, so that dropping sensorPitchFromState fails here instead of agreeing with
+     * itself.
+     */
+    private val stampPitchDeg = -4.75
+
     private fun attitude(
         ts: Long = shutterAt,
         magnetometerCalibration: Int? = 3,
@@ -43,7 +64,7 @@ class AttitudeProvenanceTest {
     ) = DeviceAttitude(
         trueDeg = 68.5,
         magneticDeg = 64.25,
-        pitch = 4.75,
+        pitch = lensAboveHorizonDeg,
         roll = -1.5,
         magnetometerCalibration = magnetometerCalibration,
         fusedSensorAccuracy = fusedSensorAccuracy,
@@ -79,7 +100,7 @@ class AttitudeProvenanceTest {
         listOf(
             "\"heading_true_deg\":68.5",
             "\"heading_magnetic_deg\":64.25",
-            "\"pitch_deg\":4.75",
+            "\"pitch_deg\":$stampPitchDeg",
             "\"roll_deg\":-1.5",
             "\"magnetometer_calibration\":3",
             "\"fused_sensor_accuracy\":2",
@@ -146,7 +167,8 @@ class AttitudeProvenanceTest {
         val json = attitudeProvenanceJson(
             snapshot(
                 DeviceAttitude(
-                    trueDeg = 68.5, magneticDeg = 64.25, pitch = 4.75, roll = -1.5,
+                    trueDeg = 68.5, magneticDeg = 64.25,
+                    pitch = lensAboveHorizonDeg, roll = -1.5,
                     detail = "MADGWICK_AHRS", ts = shutterAt,
                 ),
             ),

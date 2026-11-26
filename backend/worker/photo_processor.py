@@ -19,7 +19,7 @@ from datetime import datetime, timezone, timedelta
 import cv2
 import numpy as np
 from PIL import Image
-from image_formats import HILLVIEW_AUX, require_supported_image
+from image_formats import HILLVIEW_AUX, require_supported_image, require_supported_source
 import httpx
 from blur import read_image, apply_blackout, normalize_to_srgb
 from throttle import Throttle
@@ -29,6 +29,7 @@ from common.security_utils import sanitize_filename, validate_file_path, check_f
 import processing_state
 from common.cdn_uploader import cdn_uploader
 from common.config import get_pics_url
+from common.artifact_identity import file_sha256, pyramid_sha256, artifact_stem
 
 
 logger = logging.getLogger(__name__)
@@ -818,12 +819,16 @@ class PhotoProcessor:
 									 output_base: Optional[str] = None,
 									 keep_pics_in_worker: bool = False,
 									 local_pyramid_path: Optional[str] = None,
+									 artifact_version: Optional[int] = None,
+									 orientation_override: Optional[int] = None,
 									 ) -> OptimizedPhoto:
 		"""Create optimized versions with anonymization and unique IDs.
 
 		fast: Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding, reduced size set.
 		encoding: EXR pixel encoding ('srgb'/'linear') sourced from upload metadata;
 			passed to read_image so it need not read the embedded header tag.
+		orientation_override: browser capture flag, used only when the upload
+			lacked embedded EXIF orientation. Every decode uses this same frame.
 		output_base: per-job output root (see process_uploaded_photo).
 		keep_pics_in_worker: serve artifacts from this worker's own uploads
 			volume instead of shipping them (see _get_size_url).
@@ -838,6 +843,9 @@ class PhotoProcessor:
 		_assert_output_base_owned(output_base, photo_id)
 		webp_quality_sizes = quality if quality is not None else WEBP_QUALITY_SIZES
 		webp_quality_dzi = quality if quality is not None else WEBP_QUALITY_DZI
+		decode_options = {'encoding': encoding}
+		if orientation_override is not None:
+			decode_options['orientation_override'] = orientation_override
 
 		logger.info(f"Starting anonymization for {unique_id} (quality: sizes={webp_quality_sizes}, dzi={webp_quality_dzi}, fast={fast})")
 
@@ -903,7 +911,7 @@ class PhotoProcessor:
 		async with contextlib.nullcontext():
 
 			if not anonymization_override:
-				image, detections = await self._anonymize_image(source_path, encoding=encoding)
+				image, detections = await self._anonymize_image(source_path, **decode_options)
 			else:
 				if anonymization_override.detections is not None:
 					# Precomputed detections: reuse another run's rects on the
@@ -919,7 +927,7 @@ class PhotoProcessor:
 								f"blurring {len(to_blur)}/{len(objects)} objects")
 					if pyr is None:
 						with _timed('decode', unique_id):
-							image = read_image(source_path, encoding=encoding)
+							image = read_image(source_path, **decode_options)
 					if to_blur:
 						processing_state.set_phase("anonymizing")
 						from blur import apply_blur
@@ -928,13 +936,13 @@ class PhotoProcessor:
 					logger.info(f"Skipping anonymization for {unique_id} due to override")
 					if pyr is None:
 						with _timed('decode', unique_id):
-							image = read_image(source_path, encoding=encoding)
+							image = read_image(source_path, **decode_options)
 					detections = {"objects": [], "manual": True}
 				else:
 					logger.info(f"Applying manual anonymization for {unique_id} with rectangles: {anonymization_override.rectangles}")
 					if pyr is None:
 						with _timed('decode', unique_id):
-							image = read_image(source_path, encoding=encoding)
+							image = read_image(source_path, **decode_options)
 					detections = {"objects": [], "manual": True}
 					for rect in anonymization_override.rectangles:
 						x = rect.get('x')
@@ -1001,7 +1009,7 @@ class PhotoProcessor:
 			# variants may still clamp on short-and-wide strips — see
 			# for_center_crop — accepted for what they are used for.)
 			from pyramid_source import RasterSource, scale_bboxes
-			src = RasterSource(image, source_path, encoding) if image is not None else pyr
+			src = RasterSource(image, source_path, encoding, orientation_override=orientation_override) if image is not None else pyr
 
 			if fast:
 				size_variants = ['full', 320, 1200, 2048]
@@ -1051,7 +1059,7 @@ class PhotoProcessor:
 				size_info.update({
 					'width': new_width,
 					'height': new_height,
-					'url': await self._get_size_url(output_file_path, relative_path, photo_id, client_signature, keep_pics_in_worker=keep_pics_in_worker)
+					**await self._publish_webp(output_file_path, relative_path, photo_id_part, photo_id, client_signature, keep_pics_in_worker, artifact_version)
 				})
 				sizes_info[size] = size_info
 			t_sizes.done()
@@ -1088,7 +1096,7 @@ class PhotoProcessor:
 					'path': crop_relative_path,
 					'width': crop_tw,
 					'height': crop_th,
-					'url': await self._get_size_url(crop_file_path, crop_relative_path, photo_id, client_signature, keep_pics_in_worker=keep_pics_in_worker)
+					**await self._publish_webp(crop_file_path, crop_relative_path, photo_id_part, photo_id, client_signature, keep_pics_in_worker, artifact_version)
 				}
 
 		t_crops.done()
@@ -1133,12 +1141,12 @@ class PhotoProcessor:
 			copy_exif_data(source_path, llm_output_path)
 			logger.info(f"Created 640_llm variant for {unique_id}: {llm_width}x{llm_height} at {llm_output_path}")
 
-			llm_url = await self._get_size_url(llm_output_path, llm_relative_path, photo_id, client_signature, keep_pics_in_worker=keep_pics_in_worker)
+			llm_artifact = await self._publish_webp(llm_output_path, llm_relative_path, photo_id_part, photo_id, client_signature, keep_pics_in_worker, artifact_version)
 			sizes_info['640_llm'] = {
 				'path': llm_relative_path,
 				'width': llm_width,
 				'height': llm_height,
-				'url': llm_url
+				**llm_artifact
 			}
 			t_llm.done()
 
@@ -1171,10 +1179,10 @@ class PhotoProcessor:
 					pyramid = self._external_pyramid_in_place(local_pyramid_path, ext_pyramid)
 				else:
 					pyramid = await self._ship_pyramid(local_pyramid_path, local_pyramid_path[:-len('.dzi')] + '_files', ext_pyramid,
-					                                   unique_id, photo_id, client_signature, keep_pics_in_worker=False)
+					                                   unique_id, photo_id, client_signature, keep_pics_in_worker=False, artifact_version=artifact_version)
 			elif own_dzi is not None:
 				processing_state.set_phase("dzi_pyramid")
-				pyramid = await self._ship_pyramid(*own_dzi, unique_id, photo_id, client_signature, keep_pics_in_worker=keep_pics_in_worker)
+				pyramid = await self._ship_pyramid(*own_dzi, unique_id, photo_id, client_signature, keep_pics_in_worker=keep_pics_in_worker, artifact_version=artifact_version)
 			if pyramid:
 				sizes_info['full']['pyramid'] = pyramid
 
@@ -1334,7 +1342,7 @@ class PhotoProcessor:
 			logger.error(f"DZI pyramid generation failed for {unique_id}: {e}", exc_info=True)
 			raise
 
-	async def _ship_pyramid(self, dzi_file: str, tiles_dir: str, meta: Dict[str, Any], unique_id: str, photo_id: str = None, client_signature: str = None, keep_pics_in_worker: bool = False) -> Optional[Dict[str, Any]]:
+	async def _ship_pyramid(self, dzi_file: str, tiles_dir: str, meta: Dict[str, Any], unique_id: str, photo_id: str = None, client_signature: str = None, keep_pics_in_worker: bool = False, artifact_version: Optional[int] = None) -> Optional[Dict[str, Any]]:
 		"""Ship a DZI pyramid (descriptor + every tile, through _get_size_url
 		like any other artifact) and return the pyramid metadata dict for inline
 		use by OpenSeadragon — it lets the client open the deep-zoom viewer
@@ -1343,7 +1351,8 @@ class PhotoProcessor:
 		Works for a pyramid rendered here (_render_own_pyramid, in the work
 		dir) AND for an accepted external one living on a read-only archive
 		mount: destinations are derived from ``unique_id`` — always
-		``opt/dzi/{user}/{photo_id}.dzi`` + ``{photo_id}_files/…`` — not from
+		``opt/dzi/{user}/{photo_id}[-vN]-{digest}.dzi`` and the matching
+		``_files/…`` tree — not from
 		where the source files sit, and in ship mode _get_size_url only READS
 		the source (API POST / CDN put). This is the "transfer" half of the
 		prod pano path: resize from the pyramid, then transfer the pyramid.
@@ -1354,6 +1363,8 @@ class PhotoProcessor:
 			user_id_part = validate_user_id(user_id_part)
 			safe_photo_id = sanitize_filename(photo_id_part)
 			rel_dir = os.path.join('opt', 'dzi', user_id_part)
+			sha256 = pyramid_sha256(dzi_file, tiles_dir)
+			safe_photo_id = artifact_stem(safe_photo_id, sha256, artifact_version)
 			logger.info(f"Uploading DZI files for {unique_id} from {tiles_dir}")
 			t_ship = _timed(f"pyramid ship ({'promote in place' if keep_pics_in_worker else 'transfer to pool'})", unique_id)
 
@@ -1395,6 +1406,7 @@ class PhotoProcessor:
 
 			return {
 				'type': 'dzi',
+				'sha256': sha256,
 				'dzi_url': dzi_url,
 				'tiles_url': tiles_url_base,
 				'tile_size': tile_size,
@@ -1410,6 +1422,18 @@ class PhotoProcessor:
 			# than silently producing a photo without deep zoom.
 			logger.error(f"DZI pyramid generation failed for {unique_id}: {e}", exc_info=True)
 			raise
+
+	async def _publish_webp(self, file_path, relative_path, photo_name, photo_id, client_signature, keep_pics_in_worker, version):
+		# Hash final encoded bytes, including EXIF, before publishing anywhere.
+		sha256 = file_sha256(file_path)
+		name = artifact_stem(photo_name, sha256, version) + '.webp'
+		target = str(pathlib.Path(file_path).with_name(name))
+		os.replace(file_path, target)
+		relative = str(pathlib.Path(relative_path).with_name(name))
+		url = await self._get_size_url(target, relative, photo_id, client_signature, keep_pics_in_worker=keep_pics_in_worker)
+		return {'url': url, 'path': relative, 'sha256': sha256,
+		        **({'artifact_version': version} if version is not None else {})}
+
 
 	async def _upload_file_to_api(self, file_path: str, relative_path: str, photo_id: str, client_signature: str) -> str:
 		"""Upload file to API server storage as a raw stream.
@@ -1468,14 +1492,10 @@ class PhotoProcessor:
 				logger.info(f"Successfully uploaded {relative_path} ({file_size} bytes) to API server")
 
 				# The API decides which storage pool the file lands on and returns
-				# its public URL. Fall back to PICS_URL for older API servers that
-				# don't return one yet, so the worker and API need not be upgraded
-				# in lockstep during a rolling deploy.
+				# its public URL.
 				url = response.json().get("url")
 				if url:
 					return url
-				if PICS_URL:
-					return PICS_URL + relative_path
 				raise RuntimeError(f"API returned no url for {relative_path} and PICS_URL is not configured")
 
 		except PhotoDeletedException:
@@ -1670,7 +1690,8 @@ class PhotoProcessor:
 			logger.warning(f"Could not store the IMU window for {unique_id}: {e}", exc_info=True)
 			return None
 
-	async def _anonymize_image(self, source_path: str, encoding: Optional[str] = None) -> tuple[Optional[str], dict]:
+	async def _anonymize_image(self, source_path: str, encoding: Optional[str] = None,
+							 orientation_override: Optional[int] = None) -> tuple[Optional[str], dict]:
 		"""Anonymize image by blurring people and vehicles.
 
 		encoding: EXR pixel encoding ('srgb'/'linear') from the upload metadata,
@@ -1680,7 +1701,10 @@ class PhotoProcessor:
 			tuple: (anonymized_path: Optional[str], detections: dict)
 		"""
 		from anonymize import anonymize_image
-		anonymized_path, detections = anonymize_image(source_path, encoding=encoding)
+		options = {'encoding': encoding}
+		if orientation_override is not None:
+			options['orientation_override'] = orientation_override
+		anonymized_path, detections = anonymize_image(source_path, **options)
 		logger.info(f"Anonymization completed for {source_path}, detections: {detections}")
 		return anonymized_path, detections
 
@@ -1701,6 +1725,8 @@ class PhotoProcessor:
 		output_base: Optional[str] = None,
 		keep_pics_in_worker: bool = False,
 		local_pyramid_path: Optional[str] = None,
+		local_source: bool = False,
+		artifact_version: Optional[int] = None,
 	) -> Optional[Dict[str, Any]]:
 		"""Process a user-uploaded photo and return processing results.
 
@@ -1715,6 +1741,9 @@ class PhotoProcessor:
 		output_base: This job's output root (its per-job work dir). Defaults to
 			self.upload_dir. Must be a parameter, not singleton state: concurrent
 			jobs run as threads sharing this PhotoProcessor instance.
+		local_source: True only when file_path was named by local_photo_path
+			rather than received as an upload body. Defaults to False, so a
+			caller that leaves it out gets JPEG-only, the closed side.
 		"""
 
 		validate_user_id(str(user_id))
@@ -1728,7 +1757,8 @@ class PhotoProcessor:
 			raise ValueError(f"Invalid filename: {e}")
 
 		# Enforce the worker policy before dcraw, metadata tools or any decoder.
-		require_supported_image(file_path)
+		# Source-aware: on an aux worker, non-JPEG only from local_photo_path.
+		require_supported_source(file_path, local_source=local_source)
 
 		# Canon RAW (CR2): convert to TIFF so downstream PIL/cv2/exiftool see
 		# a standard image. Output is 8-bit sRGB (dcraw -T), which is what
@@ -1788,6 +1818,9 @@ class PhotoProcessor:
 		gps_data = exif_data.get('gps', {})
 		debug_info = exif_data.get('debug', {})
 
+		# The file's own orientation wins. A browser can only supply its flag out
+		# of band, so pass that fallback to every decoder, not just the size probe.
+		orientation_override = None
 		# If metadata is provided (e.g., from browser capture), use it to fill missing data
 		if metadata:
 			logger.info(f"Metadata provided: {metadata}")
@@ -1819,6 +1852,7 @@ class PhotoProcessor:
 			# Use metadata for orientation if not in EXIF
 			if metadata.get('orientation_code') and not exif_data['data'].get('Orientation'):
 				exif_data['data']['Orientation'] = metadata['orientation_code']
+				orientation_override = metadata['orientation_code']
 
 			# Capture time: metadata WINS, same rule as geo above. The uploader
 			# sends the canonical instant (the app's shutter clock in ms-ISO
@@ -1927,7 +1961,7 @@ class PhotoProcessor:
 		# .exr.encoding sidecar value); read_image falls back to the embedded
 		# header tag when this is absent.
 		encoding = metadata.get('encoding') if metadata else None
-		optimized = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override, quality=quality, fast=fast, encoding=encoding, output_base=output_base, keep_pics_in_worker=keep_pics_in_worker, local_pyramid_path=local_pyramid_path)
+		optimized = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override, quality=quality, fast=fast, encoding=encoding, output_base=output_base, keep_pics_in_worker=keep_pics_in_worker, local_pyramid_path=local_pyramid_path, artifact_version=artifact_version, orientation_override=orientation_override)
 
 		# The raw inertial window, stored as its own gzipped artifact rather than
 		# folded into exif_data. NOT in PROVENANCE_KEYS by design — see the note

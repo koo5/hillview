@@ -23,6 +23,10 @@ class AnalysisFilters(BaseModel):
 
 class PropertyFilters(BaseModel):
 	min_width: Optional[int] = Field(default=None, ge=1, strict=True)
+	# photos.blurry (common/image_quality.py). not_blurry keeps unjudged photos
+	# (NULL); blurry is the inverse view the frontend offers in DEV_MODE only.
+	not_blurry: bool = Field(default=False, strict=True)
+	blurry: bool = Field(default=False, strict=True)
 
 
 class PhotoFilters(BaseModel):
@@ -105,6 +109,10 @@ def _filter_predicate(filters: PhotoFilters):
 
 	if filters.properties.min_width is not None:
 		passes.append(Photo.width >= filters.properties.min_width)
+	if filters.properties.not_blurry:
+		passes.append(Photo.blurry.isnot(True))
+	if filters.properties.blurry:
+		passes.append(Photo.blurry.is_(True))
 
 	return func.coalesce(and_(*passes), False) if passes else None
 

@@ -70,7 +70,9 @@ source .env
 source .env.dev
 set +a
 PANORAMAX_URL="${PANORAMAX_URL:-${PANORAMAX_BASE_URL:-http://localhost:8058}}"
-CATALOG_HARVESTER="${CATALOG_HARVESTER:-$WORK_DIR/venv/bin/stac-harvester}"
+# On the collector host, like META_CATALOG: the checkout's own venv, which the
+# bootstrap below syncs from the harvester's uv.lock when it is missing.
+CATALOG_HARVESTER="${CATALOG_HARVESTER:-$META_CATALOG/harvester/.venv/bin/stac-harvester}"
 
 if [ "$REUSE_STACK" = 0 ]; then
     ./compose.sh --profile panoramax up --build -d postgres api worker panoramax
@@ -106,20 +108,24 @@ for attempt in {1..60}; do
     sleep 2
 done
 if [ ! -x "$harvester" ]; then
-    venv=$(dirname "$(dirname "$harvester")")
-    uv venv "$venv" --quiet </dev/null
-    uv pip install --python "$venv/bin/python" --quiet -e "$meta/harvester" 'pystac[validation]' </dev/null
+    if [ "$harvester" != "$meta/harvester/.venv/bin/stac-harvester" ]; then
+        echo "No stac-harvester at $harvester" >&2; exit 1
+    fi
+    # Upstream's lockfile, core dependencies only: the suite needs the CLI and
+    # the psycopg it brings, nothing else on this host.
+    uv sync --frozen --quiet --directory "$meta/harvester" </dev/null
 fi
 BOOTSTRAP
 
+mkdir -p "$WORK_DIR"
 if [ -z "$CATALOG_SSH" ] && [ -z "$CATALOG_CA_BUNDLE" ] && \
-   docker exec caddy-caddy-1 cat /data/caddy/pki/authorities/local/root.crt > /tmp/hillview-e2e-public-root.crt 2>/dev/null; then
-    mkdir -p "$WORK_DIR"
+   docker exec caddy-caddy-1 cat /data/caddy/pki/authorities/local/root.crt > "$WORK_DIR/caddy-root.crt" 2>/dev/null; then
     CATALOG_CA_BUNDLE="$WORK_DIR/ca-bundle.pem"
-    "$(dirname "$CATALOG_HARVESTER")/python" - "$CATALOG_CA_BUNDLE" <<'CA'
+    # certifi comes with httpx in hillview-tests; the harvester's venv lacks it.
+    (cd backend && uv run --quiet --frozen --package hillview-tests python - "$CATALOG_CA_BUNDLE" "$WORK_DIR/caddy-root.crt") <<'CA'
 from pathlib import Path
 import certifi,sys
-Path(sys.argv[1]).write_bytes(Path(certifi.where()).read_bytes()+b'\n'+Path('/tmp/hillview-e2e-public-root.crt').read_bytes())
+Path(sys.argv[1]).write_bytes(Path(certifi.where()).read_bytes()+b'\n'+Path(sys.argv[2]).read_bytes())
 CA
 fi
 

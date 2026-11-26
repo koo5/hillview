@@ -126,9 +126,9 @@ export async function waitNewUpload(page: any, exclude: Set<string>, timeoutMs =
  * out the last upload finishing processing, and keeps hunter mode on (a reload would reset
  * it), which we need to click-select the non-featured captured photos.
  */
-export async function openMap(page: any, center: { lat: number; lng: number }, requiredIds: string[], bearing?: number) {
+export async function openMap(page: any, center: { lat: number; lng: number }, requiredIds: string[], bearing?: number, zoom = 18) {
 	const b = bearing === undefined ? '' : `&bearing=${bearing}`;
-	await page.goto(`/?lat=${center.lat}&lon=${center.lng}&zoom=18${b}`);
+	await page.goto(`/?lat=${center.lat}&lon=${center.lng}&zoom=${zoom}${b}`);
 	await ensureSourceEnabled(page, 'hillview', true);
 	const toggle = page.locator('[data-testid="source-toggle-hillview"]');
 	// Generous attempt cap: a freshly uploaded photo only streams once the backend finishes
@@ -158,7 +158,7 @@ export async function openMap(page: any, center: { lat: number; lng: number }, r
 export async function clickMarker(page: any, id: string) {
 	const marker = page.locator(`.marker-container[data-photo-id="${id}"]`);
 	await marker.waitFor({ state: 'attached', timeout: T(15000) });
-	await marker.dispatchEvent('click');
+	await marker.dispatchEvent('click', undefined, { timeout: T(15000) });
 	// Confirm the photo became the selected/front one before continuing.
 	await page.waitForFunction(
 		(pid: string) => !!document.querySelector(`.marker-container[data-photo-id="${pid}"] .bearing-circle.selected`),
@@ -167,10 +167,9 @@ export async function clickMarker(page: any, id: string) {
 	);
 }
 
-/** Select a photo and open the walk on it ('t' anchors on the front photo). The captured
- *  photos share a location/bearing, so the front photo can occasionally be a sibling at the
- *  instant 't' fires (streaming churn) and the walk anchors there — that residual flake is
- *  handled by spec-level retries rather than by toggling the panel (which detaches markers). */
+/** Select a photo and open the walk on it ('t' anchors on the front photo).
+ *  Callers that select more markers should choose a zoom that keeps them in range:
+ *  selecting an out-of-range anchor pans the map and can cull the next target. */
 export async function openTimelineAnchoredOn(page: any, id: string) {
 	await clickMarker(page, id);
 	await page.keyboard.press('t');

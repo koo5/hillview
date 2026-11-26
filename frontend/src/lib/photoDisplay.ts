@@ -29,6 +29,8 @@ export interface PublicPhoto {
 	longitude: number | null;
 	bearing: number | null;
 	altitude?: number | null;
+	// Radius in metres the device reported for its fix, to 0.1 m; absent before 2026-09-13.
+	location_accuracy_m?: number | null;
 	width: number | null;
 	height: number | null;
 	captured_at: string | null;

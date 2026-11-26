@@ -27,6 +27,19 @@ import cz.hillview.plugin.hvTag
  */
 private val TAG = hvTag("SharedStackUpload")
 
+/**
+ * How often the capture screen's stats poll asks the server about photos in
+ * processing. It was 10 s, which meant a request with every processing photo's
+ * id every ~10 s for as long as the capture screen was open — that is, all
+ * through a session in the field (user, 2026-11-07: "not desirable … while
+ * out in the field"). The counts it refreshes are a convenience; the
+ * post-drain sync (PhotoUploadManager.schedulePostUploadStatusSync) still
+ * reconciles in the background. The planned changes feed
+ * (docs/todo/worker-lost-photo-detection.md) makes each poll cheap; until
+ * then, ask rarely.
+ */
+internal const val STATS_STATUS_SYNC_INTERVAL_MS = 5 * 60_000L
+
 class SharedStackUploadPipeline(
     private val context: Context,
     /**
@@ -214,15 +227,29 @@ class SharedStackUploadPipeline(
                 // consecutive photos in a run tile rather than each carrying the
                 // same six seconds. Capped at the ring's capacity: a payload
                 // larger than the buffer that produced it did not come from here.
-                dao.updateImuSamplesJson(
-                    photoId,
+                //dao.updateImuSamplesJson(
+                //    photoId,
+                //    if (owned.size > cz.hillview.plugin.IMU_PAYLOAD_MAX_SAMPLES) {
+                //        Log.w(TAG, "IMU payload for $photoId is ${owned.size} samples, over the cap — dropped")
+                //        null
+                //    } else {
+                //        cz.hillview.plugin.imuSamplesPayloadJson(owned)
+                //    },
+                //)
+                // Its own table since v32 — see PhotoImuSamplesEntity. Same decision,
+                // two statements: a window to keep is put, none means none.
+                val samplesPayload =
                     if (owned.size > cz.hillview.plugin.IMU_PAYLOAD_MAX_SAMPLES) {
                         Log.w(TAG, "IMU payload for $photoId is ${owned.size} samples, over the cap — dropped")
                         null
                     } else {
                         cz.hillview.plugin.imuSamplesPayloadJson(owned)
-                    },
-                )
+                    }
+                if (samplesPayload == null) {
+                    dao.deleteImuSamples(photoId)
+                } else {
+                    dao.putImuSamples(cz.hillview.plugin.PhotoImuSamplesEntity(photoId, samplesPayload))
+                }
                 Log.i(
                     TAG,
                     "IMU window for $photoId: ${stats.sampleCount} samples " +
@@ -414,7 +441,8 @@ class SharedStackUploadPipeline(
             // background convergence still rides the post-drain sync worker.
             if (dao.getProcessingCount() > 0) {
                 val now = System.currentTimeMillis()
-                if (now - lastStatusSyncMs > 10_000) {
+                //if (now - lastStatusSyncMs > 10_000) {
+                if (now - lastStatusSyncMs > STATS_STATUS_SYNC_INTERVAL_MS) {
                     lastStatusSyncMs = now
                     try {
                         uploadLogic.syncProcessingPhotosStatus()

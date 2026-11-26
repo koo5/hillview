@@ -15,7 +15,11 @@ import cz.hillview.plugin.OrientationSensorData
 internal fun OrientationSensorData.toDeviceAttitude(): DeviceAttitude = DeviceAttitude(
     trueDeg = trueHeading.toDouble(),
     magneticDeg = magneticHeading.toDouble(),
-    pitch = pitch.toDouble(),
+    // The one place a sensor sample's pitch changes sign on its way in — see
+    // statePitchFromSensor. `matrixPitchDeg` below does NOT: it is the fused
+    // matrix's own reading, kept as the diagnostic it is, in the sensor's
+    // convention, so that comparing it with gravity's still means something.
+    pitch = statePitchFromSensor(pitch.toDouble()),
     roll = roll.toDouble(),
     // Android's -1 doubles as NO_CONTACT and as "never reported"; both mean we cannot
     // rate the heading.

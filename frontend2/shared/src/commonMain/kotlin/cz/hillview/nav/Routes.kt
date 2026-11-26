@@ -31,6 +31,10 @@ data object CaptureKey : NavKey
 @Serializable
 data object SettingsKey : NavKey
 
+/** One Settings sub-page, pushed over the Settings list (SettingsSection). */
+@Serializable
+data class SettingsSectionKey(val section: cz.hillview.settings.ui.SettingsSection) : NavKey
+
 /** The /device-photos analog: every capture and its upload fate. */
 @Serializable
 data object DevicePhotosKey : NavKey
@@ -50,6 +54,10 @@ data object CaptureGuideKey : NavKey
 /** What locking the controls is allowed to do (see ControlsLock). */
 @Serializable
 data object LockSettingsKey : NavKey
+
+/** The SfM run's switches and spacing (see OverlapRun). */
+@Serializable
+data object SfmSettingsKey : NavKey
 
 @Serializable
 data object MapKey : NavKey
