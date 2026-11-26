@@ -360,7 +360,7 @@ class Scheduler:
             await db.commit()
             return True
 
-    async def submit(self):
+    async def submit(self, *, openrouter_unavailable=False):
         claimed=await self.claim()
         if claimed is None:return
         batch_id,photos=claimed
@@ -379,9 +379,9 @@ class Scheduler:
                 print(f'Batch payload too large; retrying with at most {self.max_photos} photos (nothing submitted)',flush=True)
                 return
             raise
-        # Preparation may span the daily reset. Dots must get priority again.
+        # Preparation may span the daily reset. An available OpenRouter model gets priority again.
         reset=await quota_reset(self.sessions)
-        if self.quota_first and (reset is None or reset<=now()):
+        if self.quota_first and not openrouter_unavailable and (reset is None or reset<=now()):
             await self.release(batch_id,'not_submitted',actual=0,error='OpenRouter quota reset during preparation',unsubmitted=True)
             return
         # Persist intent BEFORE the paid POST. Never blindly retry beyond here.
@@ -539,7 +539,7 @@ class Scheduler:
         print(batch_completion_message(batch.id,answers,rows,cost,publication)
               + ('; publication pending, no new provider submission' if remaining else ''),flush=True)
 
-    async def tick(self,*,allow_submit=False):
+    async def tick(self,*,allow_submit=False,openrouter_unavailable=False):
         if self.transport is None:return
         if time.monotonic()<self.next_poll:return
         self.next_poll=time.monotonic()+30
@@ -561,4 +561,5 @@ class Scheduler:
                 and (self.provider_resume_at is None or now()>=self.provider_resume_at)):
             # Recheck the durable reset deadline after potentially slow polling.
             reset=await quota_reset(self.sessions)
-            if not self.quota_first or (reset is not None and reset>now()):await self.submit()
+            if openrouter_unavailable or not self.quota_first or (reset is not None and reset>now()):
+                await self.submit(openrouter_unavailable=openrouter_unavailable)

@@ -828,7 +828,9 @@ async def main_loop(
 		# only startup/reconciliation scans imported disk histories.
 		if scheduler is not None and not dry_run:
 			try:
-				await scheduler.tick(allow_submit=acquisition_resume_at is not None and acquisition_resume_at > datetime.now(timezone.utc))
+				await scheduler.tick(
+					allow_submit=model_unavailable or (acquisition_resume_at is not None and acquisition_resume_at > datetime.now(timezone.utc)),
+					openrouter_unavailable=model_unavailable)
 			except Exception as error:
 				print(f"Claude scheduler error (Dots scheduling continues): {error}", flush=True)
 				traceback.print_exc()
@@ -926,7 +928,8 @@ async def main_loop(
 		if outcome.kind == 'model_unavailable':
 			print(f"OpenRouter model {model} is unavailable. New OpenRouter acquisition paused; "
 			      "configure an evaluated replacement and restart. Historical answers remain usable; "
-			      "pending Claude batches continue to be collected. No paid fallback was enabled by this error.", flush=True)
+			      "Claude fallback may submit new batches if configured with remaining budget; "
+			      "pending batches continue to be collected.", flush=True)
 			if once:return
 			model_unavailable = True
 		elif outcome.quota_reset_at is not None:
