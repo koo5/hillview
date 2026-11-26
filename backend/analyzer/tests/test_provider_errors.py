@@ -8,6 +8,35 @@ import pytest
 
 from batch_scheduler import ClaudeAPI, Scheduler, is_credit_exhaustion
 
+
+@pytest.mark.parametrize('message,unavailable', [
+    ('model is no longer available on OpenRouter: no provider serves this model anymore', True),
+    ('No endpoints found that support image URLs', True),
+    ('Image could not be downloaded: 404 Not Found', False),
+])
+def test_model_removal_is_distinct_from_an_image_404(monkeypatch,message,unavailable):
+    import analyze_photo
+    import analyzer
+    response=httpx.Response(404,json={'error':{'message':message}},request=httpx.Request('POST','https://openrouter.ai/api/v1/chat/completions'))
+    def fail(*args,**kwargs):raise httpx.HTTPStatusError('404',request=response.request,response=response)
+    monkeypatch.setattr(analyze_photo,'call_openrouter_api',fail)
+    session=analyze_photo.run_analysis('test/model','url','url',None,'prompt',False)
+    assert (analyzer.request_error_outcome(session).kind=='model_unavailable') == unavailable
+
+
+def test_removed_model_stops_acquisition_before_visiting_another_photo(tmp_path,monkeypatch,capsys):
+    import analyzer
+    from distill import acquire_file_lock,lock_path_for
+    from test_retry import _photo,MODEL
+    photo=_photo();lock=acquire_file_lock(lock_path_for(tmp_path/'md5x.json'))
+    claim=AsyncMock(side_effect=[(photo,lock),None])
+    monkeypatch.setattr(analyzer,'claim_refresh',claim)
+    run=AsyncMock(return_value=analyzer.Outcome('model_unavailable',queried=True))
+    monkeypatch.setattr(analyzer,'process_photo',run)
+    asyncio.run(analyzer.main_loop(tmp_path,MODEL,False,True,30,collect_only=True))
+    assert claim.await_count==1 and run.await_count==1
+    assert 'acquisition paused' in capsys.readouterr().out
+
 WORKSPACE_LIMIT = ('You have reached your specified workspace API usage limits. '
                    'You will regain access on 2026-12-01 at 00:00 UTC.')
 LIMIT_RESET = datetime(2026, 12, 1, tzinfo=timezone.utc)

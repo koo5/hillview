@@ -1,2 +1,3 @@
 *.mmdb
 analyzer/
+analyzer-evaluation/

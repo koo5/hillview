@@ -583,6 +583,10 @@ def run_analysis(
 		except ValueError:pass
 		detail = (raw.get('msg') or raw.get('message')) if isinstance(raw, dict) else None
 		detail = detail or (api_error.get('message') if isinstance(api_error, dict) else None) or str(error)
+		if session['result'].get('http_status') == 404 and any(phrase in str(detail).lower()
+				for phrase in ('no longer available', 'no provider serves this model', 'not a valid model id',
+				               'no endpoints found that support image')):
+			session['result']['failure_kind'] = 'model_unavailable'
 		session['result']['provider_name'] = meta.get('provider_name')
 		print(f"OpenRouter request failed; no model answer: HTTP {session['result'].get('http_status', 'n/a')}; "
 		      f"provider={meta.get('provider_name') or 'OpenRouter/unknown'}; "
