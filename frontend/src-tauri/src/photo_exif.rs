@@ -190,6 +190,14 @@ impl ExifBuilder {
 		});
 	}
 
+	// KNOWN GAP, deliberately left (2026-11-26): this provenance carries no
+	// `location_accuracy_m`, and the file carries no GPSHPositioningError
+	// either. Because the file has its own UserComment, the worker never
+	// synthesizes one from the upload metadata (synthesize_provenance in
+	// worker/photo_processor.py), so the `accuracy` the upload sends is dropped,
+	// photos.location_accuracy_m is NULL, and the Panoramax 5 m accuracy gate
+	// passes the photo as "unknown". frontend2's PhotoExifWriter writes the key;
+	// this writer would need `metadata.accuracy` (when > 0) added here.
 	fn add_provenance(&mut self, location_source: &str, bearing_source: &str, alt_location: Option<AltLocation>) {
 		let provenance = ProvenanceData {
 			location_source: location_source.to_string(),

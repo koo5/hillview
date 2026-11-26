@@ -209,6 +209,54 @@ class PhotoExifWriterTest {
         file.delete()
     }
 
+    /**
+     * The fix's radius in the UserComment, not just in GPSHPositioningError.
+     *
+     * The server reads accuracy only from `location_accuracy_m` there, and with
+     * "Write EXIF" on the upload's `accuracy` never reaches it — so a missing
+     * key stored NULL, and NULL passes the Panoramax accuracy gate as unknown.
+     */
+    @Test
+    fun theExifStampCarriesTheFixAccuracy() {
+        val file = jpeg()
+        try {
+            PhotoExifWriter.write(file, snapshot.copy(accuracyM = 50f))
+
+            val exif = ExifInterface(file.absolutePath)
+            val comment = JSONObject(assertNotNull(exif.getAttribute(ExifInterface.TAG_USER_COMMENT)))
+            assertEquals(50.0, comment.getDouble("location_accuracy_m"), 0.001)
+            assertEquals(50.0, exif.getAttribute(ExifInterface.TAG_GPS_H_POSITIONING_ERROR)?.toRational() ?: 0.0, 0.01)
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun anAbsentOrNonsenseAccuracyIsLeftOut() {
+        for (accuracy in listOf(null, 0f, -3f, Float.NaN)) {
+            val file = jpeg()
+            try {
+                // A NaN used to throw out of rational() before anything was saved.
+                PhotoExifWriter.write(file, snapshot.copy(accuracyM = accuracy))
+                val exif = ExifInterface(file.absolutePath)
+                // ...and rational()'s abs() wrote -3 as a plausible 3 m.
+                assertEquals(
+                    null,
+                    exif.getAttribute(ExifInterface.TAG_GPS_H_POSITIONING_ERROR),
+                    "accuracy=$accuracy",
+                )
+                val raw = assertNotNull(exif.getAttribute(ExifInterface.TAG_USER_COMMENT))
+                // Parsing it is the point for NaN: one bad number must not make
+                // the whole provenance unreadable to the server.
+                val comment = JSONObject(raw)
+                assertTrue(!comment.has("location_accuracy_m"), "accuracy=$accuracy: $raw")
+                assertTrue(comment.has("bearing_source"), "accuracy=$accuracy: $raw")
+            } finally {
+                file.delete()
+            }
+        }
+    }
+
     @Test
     fun recordsTheExposureRuleStoryWhenOneWasInForce() {
         // The rule/plan/metering triple is the half the file cannot

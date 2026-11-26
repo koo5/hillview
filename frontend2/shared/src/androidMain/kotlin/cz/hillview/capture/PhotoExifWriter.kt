@@ -44,7 +44,12 @@ object PhotoExifWriter {
             exif.setLatLong(snapshot.latitude, snapshot.longitude)
         }
         snapshot.altitude?.let { exif.setAltitude(it) }
-        snapshot.accuracyM?.let {
+        // Finite and positive only — the same absent test as accuracyMOrNull.
+        // Used for both the tag here and the UserComment below: a NaN made
+        // rational()'s roundToInt() throw and fail the whole EXIF write, and
+        // rational()'s abs() turned a negative radius into a plausible one.
+        val accuracyM = snapshot.accuracyM?.takeIf { it > 0f && it.isFinite() }
+        accuracyM?.let {
             exif.setAttribute(
                 ExifInterface.TAG_GPS_H_POSITIONING_ERROR,
                 rational(it.toDouble(), 100),
@@ -87,13 +92,25 @@ object PhotoExifWriter {
         // which is why no photo in the 2026-11-15 series showed it.
         val inertial = inertialProvenanceJson(snapshot)
         val captureTiming = captureTimingJson(snapshot)
+        // The same bug again, for the fix's radius: GPSHPositioningError above
+        // carries it, but the server reads accuracy ONLY from the UserComment's
+        // `location_accuracy_m` (photo_location_accuracy_m, migrations 039/042),
+        // and with "Write EXIF" on the worker keeps this UserComment instead of
+        // synthesizing one from the upload's `accuracy`. Without the key a 50 m
+        // fix stored NULL and passed the Panoramax 5 m gate as "unknown".
+        // `accuracyM` is the guarded value from above: a NaN here would also
+        // make the whole comment invalid JSON.
         if (locationSource != null || snapshot.bearingSource != null || exposure != null ||
             snapshot.altLocation != null || attitude != null ||
-            inertial != null || captureTiming != null
+            inertial != null || captureTiming != null || accuracyM != null
         ) {
             val fields = buildList {
                 locationSource?.let { add("\"location_source\":\"$it\"") }
                 snapshot.bearingSource?.let { add("\"bearing_source\":\"$it\"") }
+                // Not gated on locationSource == "gps" like location_age_ms:
+                // the upload metadata sends `accuracy` whatever the source, and
+                // the worker renames it to this key, so both routes agree.
+                accuracyM?.let { add("\"location_accuracy_m\":$it") }
                 if (locationSource == "gps") {
                     snapshot.locationAgeMs?.let { add("\"location_age_ms\":$it") }
                 }
