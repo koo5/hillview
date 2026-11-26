@@ -248,3 +248,40 @@ def test_other_preparation_errors_still_surface(tmp_path):
     with pytest.raises(httpx.HTTPStatusError, match='invalid schema'):
         asyncio.run(scheduler.submit())
     assert not scheduler.budget_exhausted
+
+
+@pytest.mark.parametrize('unavailable,quota_active,budget,should_submit', [
+    (True, False, 100, True),
+    (False, False, 100, False),
+    (False, True, 100, True),
+    (True, False, 0, False),
+])
+def test_fallback_requires_quota_or_unavailable_model_and_budget(
+        tmp_path, monkeypatch, unavailable, quota_active, budget, should_submit):
+    import batch_scheduler
+    reset = datetime.now(timezone.utc) + timedelta(hours=1) if quota_active else None
+    monkeypatch.setattr(batch_scheduler, 'quota_reset', AsyncMock(return_value=reset))
+    scheduler = Scheduler(tmp_path, scheduler_db(), MagicMock(), budget=budget, prior_spend=0)
+    scheduler.recover = AsyncMock()
+    scheduler.submit = AsyncMock()
+    asyncio.run(scheduler.tick(allow_submit=True, openrouter_unavailable=unavailable))
+    assert scheduler.submit.await_count == int(should_submit)
+    if should_submit:
+        scheduler.submit.assert_awaited_once_with(openrouter_unavailable=unavailable)
+
+
+@pytest.mark.parametrize('unavailable', [False, True])
+def test_prepared_fallback_can_submit_without_quota_only_when_model_unavailable(tmp_path, monkeypatch, unavailable):
+    import batch_scheduler
+    monkeypatch.setattr(batch_scheduler, 'quota_reset', AsyncMock(return_value=None))
+    transport = MagicMock()
+    transport.prepare.return_value = ({}, 1.0, [])
+    transport.submit.side_effect = rejected('Your credit balance is too low to access the Anthropic API.')
+    scheduler = Scheduler(tmp_path, scheduler_db(), transport, budget=100, prior_spend=0)
+    scheduler.claim = AsyncMock(return_value=('batch', []))
+    scheduler.reserve = AsyncMock(return_value=True)
+    scheduler.release = AsyncMock()
+    asyncio.run(scheduler.submit(openrouter_unavailable=unavailable))
+    assert transport.submit.call_count == int(unavailable)
+    if not unavailable:
+        assert scheduler.release.await_args.args[1] == 'not_submitted'
